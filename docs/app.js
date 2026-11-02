@@ -25,6 +25,12 @@ const NACA_HELP = [
   { ex: '', tx: 'Akut-Therapie: CPR' },
   { ex: '', tx: 'Todesfeststellung oder erfolglose Reanimation' },
 ];
+// Einsatzstichwörter mit fester Blaulicht-Zuordnung (Standardliste)
+// Stichwort → true (mit Blaulicht) / false (ohne). Eigene Änderungen liegen in state.alarmBlaulicht.
+const KEYWORD_BLAULICHT_DEFAULT = {"A1 ALLERGIE":true,"A1 ALPIN":true,"A1 BEREIT":true,"A1 BRAND":true,"A1 CHIR":true,"A1 COVID":true,"A1 EINGESCHLOSSEN":true,"A1 EINSTURZ":true,"A1 EXPLOSION":true,"A1 GEFAHRGUT":true,"A1 GEWALT":true,"A1 GYN":true,"A1 HÖHLE_GRUBE":true,"A1 INTERN":true,"A1 INTOX":true,"A1 KRANK":true,"A1 NEURO":true,"A1 POLIZEI":true,"A1 PSYCH":true,"A1 RUFHILFE":true,"A1 SONST":true,"A1 STILLER NOTRUF":true,"A1 STILL":true,"A1 STROM":true,"A1 TRAUMA":true,"A1 VERKEHR":true,"A1 VERKEHR_LUFT":true,"A1 VERKEHR_SCHIENE":true,"A1 VERSCHÜTTUNG":true,"A1 WASSER":true,"A3 ALLERGIE":true,"A3 ALPIN":true,"A3 BEREIT":true,"A3 BRAND":true,"A3 CHIR":true,"A3 COVID":true,"A3 EINGESCHLOSSEN":true,"A3 EINSTURZ":true,"A3 EXPLOSION":true,"A3 GEFAHRGUT":true,"A3 GEWALT":true,"A3 GYN":true,"A3 HÖHLE_GRUBE":true,"A3 INTERN":true,"A3 INTOX":true,"A3 KRANK":true,"A3 NEURO":true,"A3 POLIZEI":true,"A3 PSYCH":true,"A3 RUFHILFE":true,"A3 SONST":true,"A3 STILLER NOTRUF":true,"A3 STILL":true,"A3 STROM":true,"A3 TRAUMA":true,"A3 VERKEHR":true,"A3 VERKEHR_LUFT":true,"A3 VERKEHR_SCHIENE":true,"A3 VERSCHÜTTUNG":true,"A3 WASSER":true,"A4 ALLERGIE":true,"A4 ALPIN":true,"A4 BEREIT":true,"A4 BRAND":true,"A4 CHIR":true,"A4 COVID":true,"A4 EINGESCHLOSSEN":true,"A4 EINSTURZ":true,"A4 EXPLOSION":true,"A4 GEFAHRGUT":true,"A4 GEWALT":true,"A4 GYN":true,"A4 HÖHLE_GRUBE":true,"A4 INTERN":true,"A4 INTOX":true,"A4 KRANK":true,"A4 NEURO":true,"A4 POLIZEI":true,"A4 PSYCH":true,"A4 RUFHILFE":true,"A4 SONST":true,"A4 STILLER NOTRUF":true,"A4 STILL":true,"A4 STROM":true,"A4 TRAUMA":true,"A4 VERKEHR":true,"A4 VERKEHR_LUFT":true,"A4 VERKEHR_SCHIENE":true,"A4 VERSCHÜTTUNG":true,"A4 WASSER":true,"A2 ALLERGIE":true,"A2 ALPIN":true,"A2 CHIR":true,"A2 FACHANFORDERUNG":true,"A2 GYN":true,"A2 HÖHLE_GRUBE":true,"A2 INTERN":true,"A2 INTOX":true,"A2 NEURO":true,"A2 STILL":true,"A2 STROM":true,"A2 TRAUMA":true,"B1 ALLERGIE":true,"B1 ALPIN":true,"B1 BEREIT":true,"B1 BRAND":true,"B1 CHIR":true,"B1 COVID":true,"B1 EINGESCHLOSSEN":true,"B1 EINSTURZ":true,"B1 EXPLOSION":true,"B1 FACHANFORDERUNG":true,"B1 GEFAHRGUT":true,"B1 GEWALT":true,"B1 GYN":true,"B1 HILFE":true,"B1 INTERN":true,"B1 INTOX":true,"B1 KRANK":true,"B1 NEURO":true,"B1 POLIZEI":true,"B1 PSYCH":true,"B1 RUFHILFE":true,"B1 SONST":true,"B1 STROM":true,"B1 TRAUMA":true,"B1 UNKLAR":true,"B1 VERKEHR":true,"B1 VERKEHR_LUFT":true,"B1 VERKEHR_SCHIENE":true,"B1 WASSER":true,"B2 ALLERGIE":true,"B2 ALPIN":true,"B2 BEREIT":true,"B2 BRAND":true,"B2 CHIR":true,"B2 COVID":true,"B2 EINGESCHLOSSEN":true,"B2 EINSTURZ":true,"B2 EXPLOSION":true,"B2 FACHANFORDERUNG":true,"B2 GEFAHRGUT":true,"B2 GEWALT":true,"B2 GYN":true,"B2 HILFE":true,"B2 INTERN":true,"B2 INTOX":true,"B2 KRANK":true,"B2 NEURO":true,"B2 POLIZEI":true,"B2 PSYCH":true,"B2 RUFHILFE":true,"B2 SONST":true,"B2 STROM":true,"B2 TRAUMA":true,"B2 UNKLAR":true,"B2 VERKEHR":true,"B2 VERKEHR_LUFT":true,"B2 VERKEHR_SCHIENE":true,"B2 WASSER":true,"B1N ALLERGIE":true,"B1N ALPIN":true,"B1N BEREIT":true,"B1N BRAND":true,"B1N CHIR":true,"B1N COVID":true,"B1N EINGESCHLOSSEN":true,"B1N EINSTURZ":true,"B1N EXPLOSION":true,"B1N FACHANFORDERUNG":true,"B1N GEFAHRGUT":true,"B1N GEWALT":true,"B1N GYN":true,"B1N HILFE":true,"B1N INTERN":true,"B1N INTOX":true,"B1N KRANK":true,"B1N NEURO":true,"B1N POLIZEI":true,"B1N PSYCH":true,"B1N RUFHILFE":true,"B1N SONST":true,"B1N STROM":true,"B1N TRAUMA":true,"B1N UNKLAR":true,"B1N VERKEHR":true,"B1N VERKEHR_LUFT":true,"B1N VERKEHR_SCHIENE":true,"B1N WASSER":true,"B2N ALLERGIE":true,"B2N ALPIN":true,"B2N BEREIT":true,"B2N BRAND":true,"B2N CHIR":true,"B2N COVID":true,"B2N EINGESCHLOSSEN":true,"B2N EINSTURZ":true,"B2N EXPLOSION":true,"B2N FACHANFORDERUNG":true,"B2N GEFAHRGUT":true,"B2N GEWALT":true,"B2N GYN":true,"B2N HILFE":true,"B2N INTERN":true,"B2N INTOX":true,"B2N KRANK":true,"B2N NEURO":true,"B2N POLIZEI":true,"B2N PSYCH":true,"B2N RUFHILFE":true,"B2N SONST":true,"B2N STROM":true,"B2N TRAUMA":true,"B2N UNKLAR":true,"B2N VERKEHR":true,"B2N VERKEHR_LUFT":true,"B2N VERKEHR_SCHIENE":true,"B2N WASSER":true,"B3 ALLERGIE":false,"B3 ALPIN":false,"B3 BEREIT":false,"B3 CHIR":false,"B3 COVID":false,"B3 FACHANFORDERUNG":false,"B3 GEWALT":false,"B3 GYN":false,"B3 HILFE":false,"B3 INTERN":false,"B3 INTOX":false,"B3 KRANK":false,"B3 NEURO":false,"B3 POLIZEI":false,"B3 PSYCH":false,"B3 RUFHILFE":false,"B3 SONST":false,"B3 STROM":false,"B3 TRAUMA":false,"B3 UNKLAR":false,"B3 VERZÖGERT":false,"B4 ALLERGIE":false,"B4 ALPIN":false,"B4 BEREIT":false,"B4 CHIR":false,"B4 COVID":false,"B4 FACHANFORDERUNG":false,"B4 GEWALT":false,"B4 GYN":false,"B4 HILFE":false,"B4 INTERN":false,"B4 INTOX":false,"B4 KRANK":false,"B4 NEURO":false,"B4 POLIZEI":false,"B4 PSYCH":false,"B4 RUFHILFE":false,"B4 SONST":false,"B4 STROM":false,"B4 TRAUMA":false,"B4 UNKLAR":false,"B4 VERZÖGERT":false,"C1 INTERHOSP":true,"C2 INTERHOSP":true,"C2 INKUBATOR":true,"C3 INTERHOSP_BD":true,"C3 INTERHOSP":false,"C3 INKUBATOR":false,"C4 GEHEND":false,"C4 SITZEND":false,"C4 LIEGEND":false,"C4 GEHEND_BD":true,"C4 SITZEND_BD":true,"C4 LIEGEND_BD":true,"D1 AMB":false,"D1 COV_IMPFEN":false,"D1 COVID":false,"D1 DIALYSE":false,"D1 EINWEISUNG":false,"D1 FERN":false,"D1 HEIM":false,"D1 INFEKTION":false,"D1 PRIO":false,"D1 SCHWER":false,"D1 STAT":false,"D2 AMB":false,"D2 COV_IMPFEN":false,"D2 COVID":false,"D2 DIALYSE":false,"D2 EINWEISUNG":false,"D2 FERN":false,"D2 HEIM":false,"D2 INFEKTION":false,"D2 PRIO":false,"D2 SCHWER":false,"D2 STAT":false,"D3 AMB":false,"D3 COV_IMPFEN":false,"D3 COVID":false,"D3 DIALYSE":false,"D3 EINWEISUNG":false,"D3 FERN":false,"D3 HEIM":false,"D3 INFEKTION":false,"D3 PRIO":false,"D3 SCHWER":false,"D3 STAT":false,"D4 AMB":false,"D4 COV_IMPFEN":false,"D4 COVID":false,"D4 DIALYSE":false,"D4 EINWEISUNG":false,"D4 FERN":false,"D4 HEIM":false,"D4 INFEKTION":false,"D4 PRIO":false,"D4 SCHWER":false,"D4 STAT":false,"D5 AMB":false,"D5 COV_IMPFEN":false,"D5 COVID":false,"D5 DIALYSE":false,"D5 EINWEISUNG":false,"D5 FERN":false,"D5 HEIM":false,"D5 INFEKTION":false,"D5 PRIO":false,"D5 SCHWER":false,"D5 STAT":false,"E1 KIT_LWZ":false,"E1 KIT_RK":false,"E1 KIT_VERTRAG":false,"E2 BLUT_ORGAN":false,"E2 BLUT_ORGAN_BD":true,"E3 ARZT":false,"E3 ARZT MIT NAH":false,"E3 ARZT_BD":true,"E4 ALARMSYSTEM":false,"E4 AMBULANZ":false,"E4 DIENST":false,"E4 GERÄTE":false,"E4 HITT":false,"E4 O2":false,"E4 SONDERLEISTUNG":false,"E4 SUCHAKTION":false,"E4 TEST":false,"E4 TEST_BD":true,"E4 ÜBUNG":false,"E4 COV DIENST":false,"E4 COVID TEST":false,"E4 DRIVEIN":false,"E4 STATIONÄR":false,"E5 ABFRAGE":false,"E5 APOTHEKE":false,"E5 BEAUSKUNFTUNG":false,"E5 BEHÖRDE ARZT":false,"E5 RÜCKRUF":false,"E5 SONST":false,"E5 TELEMEDIZIN":false,"E5 TODESFESTSTELL":false,"E5 ÜBERGABE_RD":true,"E5 VISITENARZT":false,"E5 VISITENARZT_FA":false};
+const KEYWORD_LIST_VERSION = 2; // 2: Blaulicht je Stichwort, B1N/B2N ergänzt, E2-COVID entfernt
+const KEYWORD_REMOVED_V2 = ["E2 COVID AVT", "E2 COVID AVT DRV", "E2 COVID AVT STA", "E2 COVID GESU", "E2 COVID GESU DRV", "E2 COVID GESU STA", "E2 COVID KP", "E2 COVID KP DRV", "E2 COVID KP STA", "E2 COVID PROBE", "E2 COVID PROBE DRV", "E2 COVID PROBE STA", "E2 COVID REISE", "E2 COVID RK", "E2 COVID RK VD", "E2 COVID_STUDIE"];
+
 // Einsatzart (Kennzahl laut Einsatzprotokoll)
 const EINSATZART_CODES = [
   ['1', 'Hintransport stationär'],
@@ -123,7 +129,6 @@ function kennzahlLabel(map, code) {
   const c = String(code).trim();
   return map.has(c) ? `${c} – ${map.get(c)}` : `${c} (unbekannt)`;
 }
-const AUTO_LIGHTS_RE = /^[Aa][1-4]\s|^[Bb][12]\s|^[Cc]1\s/;
 
 // Blaulicht EIN – für Dialog-Button (groß) und Einsatzliste (klein, per CSS skaliert)
 const LIGHTS_ON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28">
@@ -217,6 +222,20 @@ function normalizeState(s) {
   s.vehicleCategories = objList(s.vehicleCategories);
   s.vehicleAssignments = (s.vehicleAssignments && typeof s.vehicleAssignments === 'object' && !Array.isArray(s.vehicleAssignments)) ? s.vehicleAssignments : {};
   s.alarmCodes = s.alarmCodes.map((c) => c.trim()).filter(Boolean);
+  s.alarmBlaulicht = isObj(s.alarmBlaulicht) ? s.alarmBlaulicht : {};
+  Object.keys(s.alarmBlaulicht).forEach((k) => { s.alarmBlaulicht[k] = !!s.alarmBlaulicht[k]; });
+  if ((s.keywordListVersion || 0) < KEYWORD_LIST_VERSION) {
+    // Umstellung auf feste Zuordnung: gestrichene Stichwörter (E2 COVID …) raus,
+    // neue Standard-Stichwörter (B1N/B2N) dazu, Blaulicht laut Standardliste setzen.
+    const gone = new Set(KEYWORD_REMOVED_V2);
+    s.alarmCodes = s.alarmCodes.filter((c) => !gone.has(c));
+    const have = new Set(s.alarmCodes);
+    Object.keys(KEYWORD_BLAULICHT_DEFAULT).forEach((c) => { if (!have.has(c)) s.alarmCodes.push(c); });
+    s.alarmCodes.sort((a, b) => a.localeCompare(b, 'de'));
+    Object.entries(KEYWORD_BLAULICHT_DEFAULT).forEach(([c, b]) => { s.alarmBlaulicht[c] = b; });
+    KEYWORD_REMOVED_V2.forEach((k) => { delete s.alarmBlaulicht[k]; });
+    s.keywordListVersion = KEYWORD_LIST_VERSION;
+  }
   s.pzcCodes = s.pzcCodes.map((p) => ({ code: toDisplayName(p.code), diagnosis: toDisplayName(p.diagnosis) })).filter((p) => p.code);
   s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); });
   // Textfelder können aus Fremd-Exporten (Henri) als Objekte kommen → in Text wandeln
@@ -588,9 +607,38 @@ function pzcFullLabel(diag, age, prio) {
   return parts.join(' · ');
 }
 
-function shouldAutoLights(keyword) {
-  if (!keyword) return false;
-  return AUTO_LIGHTS_RE.test(keyword.trim());
+/** Stichwörter übernehmen: Liste aus Texten oder { code, blaulicht }; optional Zuordnung als Objekt. */
+function mergeKeywordList(raw, blMap) {
+  state.alarmCodes = state.alarmCodes || [];
+  state.alarmBlaulicht = state.alarmBlaulicht || {};
+  const existing = new Set(state.alarmCodes);
+  let added = 0;
+  (raw || []).forEach((it) => {
+    const code = typeof it === 'string' ? it.trim() : (it && typeof it.code === 'string' ? it.code.trim() : '');
+    if (!code) return;
+    if (!existing.has(code)) { state.alarmCodes.push(code); existing.add(code); added++; }
+    if (it && typeof it === 'object' && typeof it.blaulicht === 'boolean') state.alarmBlaulicht[code] = it.blaulicht;
+  });
+  if (blMap && typeof blMap === 'object') Object.entries(blMap).forEach(([k, v]) => { if (existing.has(k)) state.alarmBlaulicht[k] = !!v; });
+  state.alarmCodes.sort((a, b) => a.localeCompare(b, 'de'));
+  return added;
+}
+
+/** Blaulicht laut Stichwortliste: true / false, oder undefined (Stichwort unbekannt). */
+function keywordBlaulicht(keyword) {
+  const k = String(keyword || '').trim();
+  if (!k) return undefined;
+  const map = state.alarmBlaulicht || {};
+  if (Object.prototype.hasOwnProperty.call(map, k)) return !!map[k];
+  const lk = k.toLowerCase();
+  const hit = Object.keys(map).find((c) => c.toLowerCase() === lk);
+  return hit !== undefined ? !!map[hit] : undefined;
+}
+
+function blaulichtDotHtml(code) {
+  const b = keywordBlaulicht(code);
+  if (b === undefined) return '<span class="kw-dot is-unknown" aria-hidden="true"></span>';
+  return `<span class="kw-dot ${b ? 'is-on' : 'is-off'}" title="${b ? 'Mit Blaulicht' : 'Ohne Blaulicht'}"></span>`;
 }
 
 // ── Suggestions ────────────────────────────────────────────────────────────
@@ -616,7 +664,8 @@ function mountSuggestions(inputEl, dropdownEl, items, max, showOnFocus) {
     list.slice(0, max).forEach((item) => {
       const div = document.createElement('div');
       div.className = 'suggestion-item';
-      div.textContent = item;
+      if (inputEl._smDecorate) { div.classList.add('has-deco'); div.innerHTML = inputEl._smDecorate(item) + '<span>' + escHtml(item) + '</span>'; }
+      else div.textContent = item;
       div.addEventListener('mousedown', (e) => {
         e.preventDefault();
         inputEl.value = item;
@@ -647,7 +696,7 @@ function mountSuggestions(inputEl, dropdownEl, items, max, showOnFocus) {
     const items2 = dropdownEl.querySelectorAll('.suggestion-item');
     if (e.key === 'ArrowDown') { e.preventDefault(); focusedIdx = Math.min(focusedIdx + 1, items2.length - 1); items2.forEach((el, i) => el.classList.toggle('focused', i === focusedIdx)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); focusedIdx = Math.max(focusedIdx - 1, 0); items2.forEach((el, i) => el.classList.toggle('focused', i === focusedIdx)); }
-    else if (e.key === 'Enter') { if (focusedIdx >= 0 && items2[focusedIdx]) { e.preventDefault(); inputEl.value = items2[focusedIdx].textContent; dropdownEl.classList.remove('open'); inputEl.dispatchEvent(new Event('change', { bubbles: true })); } }
+    else if (e.key === 'Enter') { if (focusedIdx >= 0 && items2[focusedIdx]) { e.preventDefault(); inputEl.value = items2[focusedIdx].textContent.trim(); dropdownEl.classList.remove('open'); inputEl.dispatchEvent(new Event('change', { bubbles: true })); } }
     else if (e.key === 'Escape') { dropdownEl.classList.remove('open'); }
   });
 
@@ -1558,10 +1607,13 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
   const body = document.querySelector('#dialog-incident .dialog-box');
   if (body) body.scrollTop = 0;
 
-  mountSuggestions(document.getElementById('inc-keyword'), document.getElementById('inc-keyword-suggestions'), state.alarmCodes, 10);
+  const kwInput = document.getElementById('inc-keyword');
+  kwInput._smDecorate = blaulichtDotHtml;
+  mountSuggestions(kwInput, document.getElementById('inc-keyword-suggestions'), state.alarmCodes, 10);
   document.getElementById('inc-keyword').onchange = () => {
     const val = document.getElementById('inc-keyword').value.trim();
-    if (shouldAutoLights(val) && !incLights) { incLights = true; updateLightsBtn(); }
+    const bl = keywordBlaulicht(val);
+    if (bl !== undefined && bl !== incLights) { incLights = bl; updateLightsBtn(); }
   };
 }
 
@@ -2979,12 +3031,21 @@ function refreshAlarmList() {
   const q = _alarmFilter.toLowerCase().trim();
   const codes = (state.alarmCodes || []).filter((c) => !q || c.toLowerCase().includes(q));
   el.innerHTML = codes.length
-    ? codes.map((c) => `<div class="code-item"><span class="code-item-text">${escHtml(c)}</span><button class="btn-code-del" data-val="${escHtml(c)}" title="Löschen">✕</button></div>`).join('')
+    ? codes.map((c) => `<div class="code-item"><button type="button" class="kw-toggle" data-kw="${escHtml(c)}" title="Blaulicht umschalten" aria-label="${escHtml(c)}: Blaulicht umschalten">${blaulichtDotHtml(c)}</button><span class="code-item-text">${escHtml(c)}</span><button class="btn-code-del" data-val="${escHtml(c)}" title="Löschen">✕</button></div>`).join('')
     : `<div class="code-empty">Keine Einträge${q ? ' für diese Suche' : ''}.</div>`;
   setTimeout(() => enableCodeListSwipe(el), 0);
+  el.querySelectorAll('.kw-toggle').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const k = b.dataset.kw;
+    state.alarmBlaulicht = state.alarmBlaulicht || {};
+    state.alarmBlaulicht[k] = !keywordBlaulicht(k);
+    saveState();
+    b.innerHTML = blaulichtDotHtml(k);
+  }));
   el.querySelectorAll('.btn-code-del').forEach((b) => {
     b.addEventListener('click', () => {
       state.alarmCodes = state.alarmCodes.filter((c) => c !== b.dataset.val);
+      if (state.alarmBlaulicht) delete state.alarmBlaulicht[b.dataset.val];
       saveState();
       const badge = document.getElementById('alarm-count-badge');
       if (badge) badge.textContent = state.alarmCodes.length;
@@ -3632,7 +3693,7 @@ function resetSections() {
     { id: 'calendar', icon: '📅', label: 'Dienstplan-Verbindung & Zwischenspeicher', run: () => { lsSet(DP_WORKER_KEY, ''); lsSet(DP_TOKEN_KEY, ''); lsSet(LEGACY_ICS_KEY, ''); invalidateIcsCache(); } },
     { id: 'abteilungen', icon: '🏢', label: 'Abteilungen', count: (state.abteilungen || []).length, run: () => { state.abteilungen = []; } },
     { id: 'vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: (state.vehicleCategories || []).length, run: () => { state.vehicleCategories = []; state.vehicleAssignments = {}; } },
-    { id: 'alarm', icon: '🚨', label: 'Einsatzstichwörter', count: (state.alarmCodes || []).length, run: () => { state.alarmCodes = []; } },
+    { id: 'alarm', icon: '🚨', label: 'Einsatzstichwörter', count: (state.alarmCodes || []).length, run: () => { state.alarmCodes = []; state.alarmBlaulicht = {}; } },
     { id: 'pzc', icon: '🏥', label: 'PZC-Codes', count: (state.pzcCodes || []).length, run: () => { state.pzcCodes = []; } },
     { id: 'appearance', icon: '🎨', label: 'Darstellung', run: () => { applyTheme('system'); } },
   ];
@@ -3707,6 +3768,7 @@ function renderCodesPopupContent() {
       <button id="btn-add-alarm" class="btn-secondary settings-add-btn">+</button>
     </div>
     <input type="text" id="alarm-filter" class="settings-filter-input" placeholder="Codes filtern…" value="${escHtml(_alarmFilter)}" style="margin-top:6px">
+    <p class="settings-hint kw-legend"><span class="kw-dot is-on"></span> mit Blaulicht · <span class="kw-dot is-off"></span> ohne – Punkt antippen zum Umschalten</p>
     <div class="settings-code-list" id="alarm-code-list" style="margin-top:4px"></div>`;
 
   // Right: PZC
@@ -3735,11 +3797,7 @@ function renderCodesPopupContent() {
     try {
       const data = JSON.parse(await file.text());
       const raw = Array.isArray(data) ? data : (data.codes || data.alarmCodes || []);
-      const codes = raw.filter((c) => typeof c === 'string' && c.trim()).map((c) => c.trim());
-      const existing = new Set(state.alarmCodes || []);
-      let added = 0;
-      codes.forEach((c) => { if (!existing.has(c)) { (state.alarmCodes = state.alarmCodes || []).push(c); existing.add(c); added++; } });
-      if (added) state.alarmCodes.sort();
+      const added = mergeKeywordList(raw, data.alarmBlaulicht);
       saveState(); _alarmFilter = ''; renderCodesPopupContent();
       toast(`${added} Alarmcodes importiert.`, 'success');
     } catch (err) { toast('Fehler: ' + err.message, 'error', 5000); }
@@ -3747,13 +3805,19 @@ function renderCodesPopupContent() {
   });
   const exportAlarmBtn = popup.querySelector('#btn-export-alarm');
   if (exportAlarmBtn) exportAlarmBtn.addEventListener('click', () => {
-    saveFile(new Blob([JSON.stringify(state.alarmCodes, null, 2)], { type: 'application/json' }), 'alarmcodes.json');
+    const list = state.alarmCodes.map((c) => ({ code: c, blaulicht: keywordBlaulicht(c) === true }));
+    saveFile(new Blob([JSON.stringify(list, null, 1)], { type: 'application/json' }), 'alarmcodes.json');
   });
   const addAlarmFn = () => {
     const input = popup.querySelector('#new-alarm-code');
     const val = input.value.trim(); if (!val) return;
     state.alarmCodes = state.alarmCodes || [];
-    if (!state.alarmCodes.includes(val)) { state.alarmCodes.push(val); state.alarmCodes.sort(); saveState(); }
+    if (!state.alarmCodes.includes(val)) {
+      state.alarmCodes.push(val); state.alarmCodes.sort((a, b) => a.localeCompare(b, 'de'));
+      state.alarmBlaulicht = state.alarmBlaulicht || {};
+      if (state.alarmBlaulicht[val] === undefined) state.alarmBlaulicht[val] = KEYWORD_BLAULICHT_DEFAULT[val] === true;
+      saveState();
+    }
     input.value = ''; refreshAlarmList();
   };
   popup.querySelector('#btn-add-alarm').addEventListener('click', addAlarmFn);
@@ -3935,7 +3999,7 @@ function buildExportPayload(sel) {
     payload.vehicleCategories = state.vehicleCategories || [];
     payload.vehicleAssignments = state.vehicleAssignments || {};
   }
-  if (sel.alarm) payload.alarmCodes = state.alarmCodes || [];
+  if (sel.alarm) { payload.alarmCodes = state.alarmCodes || []; payload.alarmBlaulicht = state.alarmBlaulicht || {}; }
   if (sel.pzc) payload.pzcCodes = state.pzcCodes || [];
   return payload;
 }
@@ -4021,10 +4085,7 @@ function doSelectiveImport(data, chosen) {
     msgs.push(`${data.vehicleCategories.length} Fahrzeugkategorien`);
   }
   if (chosen['imp-alarm'] && Array.isArray(data.alarmCodes)) {
-    const existing = new Set(state.alarmCodes || []);
-    let added = 0;
-    data.alarmCodes.forEach((c) => { if (!existing.has(c)) { (state.alarmCodes = state.alarmCodes || []).push(c); existing.add(c); added++; } });
-    state.alarmCodes.sort();
+    const added = mergeKeywordList(data.alarmCodes, data.alarmBlaulicht);
     msgs.push(`${added} Alarmcodes`);
   }
   if (chosen['imp-pzc'] && Array.isArray(data.pzcCodes)) {

@@ -1,321 +1,1446 @@
 [
-  "A1 ALLERGIE",
-  "A1 ALPIN",
-  "A1 BEREIT",
-  "A1 BRAND",
-  "A1 CHIR",
-  "A1 COVID",
-  "A1 EINGESCHLOSSEN",
-  "A1 EINSTURZ",
-  "A1 EXPLOSION",
-  "A1 GEFAHRGUT",
-  "A1 GEWALT",
-  "A1 GYN",
-  "A1 HÖHLE_GRUBE",
-  "A1 INTERN",
-  "A1 INTOX",
-  "A1 KRANK",
-  "A1 NEURO",
-  "A1 POLIZEI",
-  "A1 PSYCH",
-  "A1 RUFHILFE",
-  "A1 SONST",
-  "A1 STILLER NOTRUF",
-  "A1 STILL",
-  "A1 STROM",
-  "A1 TRAUMA",
-  "A1 VERKEHR",
-  "A1 VERKEHR_LUFT",
-  "A1 VERKEHR_SCHIENE",
-  "A1 VERSCHÜTTUNG",
-  "A1 WASSER",
-  "A3 ALLERGIE",
-  "A3 ALPIN",
-  "A3 BEREIT",
-  "A3 BRAND",
-  "A3 CHIR",
-  "A3 COVID",
-  "A3 EINGESCHLOSSEN",
-  "A3 EINSTURZ",
-  "A3 EXPLOSION",
-  "A3 GEFAHRGUT",
-  "A3 GEWALT",
-  "A3 GYN",
-  "A3 HÖHLE_GRUBE",
-  "A3 INTERN",
-  "A3 INTOX",
-  "A3 KRANK",
-  "A3 NEURO",
-  "A3 POLIZEI",
-  "A3 PSYCH",
-  "A3 RUFHILFE",
-  "A3 SONST",
-  "A3 STILLER NOTRUF",
-  "A3 STILL",
-  "A3 STROM",
-  "A3 TRAUMA",
-  "A3 VERKEHR",
-  "A3 VERKEHR_LUFT",
-  "A3 VERKEHR_SCHIENE",
-  "A3 VERSCHÜTTUNG",
-  "A3 WASSER",
-  "A4 ALLERGIE",
-  "A4 ALPIN",
-  "A4 BEREIT",
-  "A4 BRAND",
-  "A4 CHIR",
-  "A4 COVID",
-  "A4 EINGESCHLOSSEN",
-  "A4 EINSTURZ",
-  "A4 EXPLOSION",
-  "A4 GEFAHRGUT",
-  "A4 GEWALT",
-  "A4 GYN",
-  "A4 HÖHLE_GRUBE",
-  "A4 INTERN",
-  "A4 INTOX",
-  "A4 KRANK",
-  "A4 NEURO",
-  "A4 POLIZEI",
-  "A4 PSYCH",
-  "A4 RUFHILFE",
-  "A4 SONST",
-  "A4 STILLER NOTRUF",
-  "A4 STILL",
-  "A4 STROM",
-  "A4 TRAUMA",
-  "A4 VERKEHR",
-  "A4 VERKEHR_LUFT",
-  "A4 VERKEHR_SCHIENE",
-  "A4 VERSCHÜTTUNG",
-  "A4 WASSER",
-  "A2 ALLERGIE",
-  "A2 ALPIN",
-  "A2 CHIR",
-  "A2 FACHANFORDERUNG",
-  "A2 GYN",
-  "A2 HÖHLE_GRUBE",
-  "A2 INTERN",
-  "A2 INTOX",
-  "A2 NEURO",
-  "A2 STILL",
-  "A2 STROM",
-  "A2 TRAUMA",
-  "B1 ALLERGIE",
-  "B1 ALPIN",
-  "B1 BEREIT",
-  "B1 BRAND",
-  "B1 CHIR",
-  "B1 COVID",
-  "B1 EINGESCHLOSSEN",
-  "B1 EINSTURZ",
-  "B1 EXPLOSION",
-  "B1 FACHANFORDERUNG",
-  "B1 GEFAHRGUT",
-  "B1 GEWALT",
-  "B1 GYN",
-  "B1 HILFE",
-  "B1 INTERN",
-  "B1 INTOX",
-  "B1 KRANK",
-  "B1 NEURO",
-  "B1 POLIZEI",
-  "B1 PSYCH",
-  "B1 RUFHILFE",
-  "B1 SONST",
-  "B1 STROM",
-  "B1 TRAUMA",
-  "B1 UNKLAR",
-  "B1 VERKEHR",
-  "B1 VERKEHR_LUFT",
-  "B1 VERKEHR_SCHIENE",
-  "B1 WASSER",
-  "B2 ALLERGIE",
-  "B2 ALPIN",
-  "B2 BEREIT",
-  "B2 BRAND",
-  "B2 CHIR",
-  "B2 COVID",
-  "B2 EINGESCHLOSSEN",
-  "B2 EINSTURZ",
-  "B2 EXPLOSION",
-  "B2 FACHANFORDERUNG",
-  "B2 GEFAHRGUT",
-  "B2 GEWALT",
-  "B2 GYN",
-  "B2 HILFE",
-  "B2 INTERN",
-  "B2 INTOX",
-  "B2 KRANK",
-  "B2 NEURO",
-  "B2 POLIZEI",
-  "B2 PSYCH",
-  "B2 RUFHILFE",
-  "B2 SONST",
-  "B2 STROM",
-  "B2 TRAUMA",
-  "B2 UNKLAR",
-  "B2 VERKEHR",
-  "B2 VERKEHR_LUFT",
-  "B2 VERKEHR_SCHIENE",
-  "B2 WASSER",
-  "B3 ALLERGIE",
-  "B3 ALPIN",
-  "B3 BEREIT",
-  "B3 CHIR",
-  "B3 COVID",
-  "B3 FACHANFORDERUNG",
-  "B3 GEWALT",
-  "B3 GYN",
-  "B3 HILFE",
-  "B3 INTERN",
-  "B3 INTOX",
-  "B3 KRANK",
-  "B3 NEURO",
-  "B3 POLIZEI",
-  "B3 PSYCH",
-  "B3 RUFHILFE",
-  "B3 SONST",
-  "B3 STROM",
-  "B3 TRAUMA",
-  "B3 UNKLAR",
-  "B3 VERZÖGERT",
-  "B4 ALLERGIE",
-  "B4 ALPIN",
-  "B4 BEREIT",
-  "B4 CHIR",
-  "B4 COVID",
-  "B4 FACHANFORDERUNG",
-  "B4 GEWALT",
-  "B4 GYN",
-  "B4 HILFE",
-  "B4 INTERN",
-  "B4 INTOX",
-  "B4 KRANK",
-  "B4 NEURO",
-  "B4 POLIZEI",
-  "B4 PSYCH",
-  "B4 RUFHILFE",
-  "B4 SONST",
-  "B4 STROM",
-  "B4 TRAUMA",
-  "B4 UNKLAR",
-  "B4 VERZÖGERT",
-  "C1 INTERHOSP",
-  "C2 INTERHOSP",
-  "C2 INKUBATOR",
-  "C3 INTERHOSP_BD",
-  "C3 INTERHOSP",
-  "C3 INKUBATOR",
-  "C4 GEHEND",
-  "C4 SITZEND",
-  "C4 LIEGEND",
-  "C4 GEHEND_BD",
-  "C4 SITZEND_BD",
-  "C4 LIEGEND_BD",
-  "D1 AMB",
-  "D1 COV_IMPFEN",
-  "D1 COVID",
-  "D1 DIALYSE",
-  "D1 EINWEISUNG",
-  "D1 FERN",
-  "D1 HEIM",
-  "D1 INFEKTION",
-  "D1 PRIO",
-  "D1 SCHWER",
-  "D1 STAT",
-  "D2 AMB",
-  "D2 COV_IMPFEN",
-  "D2 COVID",
-  "D2 DIALYSE",
-  "D2 EINWEISUNG",
-  "D2 FERN",
-  "D2 HEIM",
-  "D2 INFEKTION",
-  "D2 PRIO",
-  "D2 SCHWER",
-  "D2 STAT",
-  "D3 AMB",
-  "D3 COV_IMPFEN",
-  "D3 COVID",
-  "D3 DIALYSE",
-  "D3 EINWEISUNG",
-  "D3 FERN",
-  "D3 HEIM",
-  "D3 INFEKTION",
-  "D3 PRIO",
-  "D3 SCHWER",
-  "D3 STAT",
-  "D4 AMB",
-  "D4 COV_IMPFEN",
-  "D4 COVID",
-  "D4 DIALYSE",
-  "D4 EINWEISUNG",
-  "D4 FERN",
-  "D4 HEIM",
-  "D4 INFEKTION",
-  "D4 PRIO",
-  "D4 SCHWER",
-  "D4 STAT",
-  "D5 AMB",
-  "D5 COV_IMPFEN",
-  "D5 COVID",
-  "D5 DIALYSE",
-  "D5 EINWEISUNG",
-  "D5 FERN",
-  "D5 HEIM",
-  "D5 INFEKTION",
-  "D5 PRIO",
-  "D5 SCHWER",
-  "D5 STAT",
-  "E1 KIT_LWZ",
-  "E1 KIT_RK",
-  "E1 KIT_VERTRAG",
-  "E2 BLUT_ORGAN",
-  "E2 BLUT_ORGAN_BD",
-  "E2 COVID AVT",
-  "E2 COVID AVT DRV",
-  "E2 COVID AVT STA",
-  "E2 COVID GESU",
-  "E2 COVID GESU DRV",
-  "E2 COVID GESU STA",
-  "E2 COVID KP",
-  "E2 COVID KP DRV",
-  "E2 COVID KP STA",
-  "E2 COVID PROBE",
-  "E2 COVID PROBE DRV",
-  "E2 COVID PROBE STA",
-  "E2 COVID REISE",
-  "E2 COVID RK",
-  "E2 COVID RK VD",
-  "E2 COVID_STUDIE",
-  "E3 ARZT",
-  "E3 ARZT MIT NAH",
-  "E3 ARZT_BD",
-  "E4 ALARMSYSTEM",
-  "E4 AMBULANZ",
-  "E4 DIENST",
-  "E4 GERÄTE",
-  "E4 HITT",
-  "E4 O2",
-  "E4 SONDERLEISTUNG",
-  "E4 SUCHAKTION",
-  "E4 TEST",
-  "E4 TEST_BD",
-  "E4 ÜBUNG",
-  "E4 COV DIENST",
-  "E4 COVID TEST",
-  "E4 DRIVEIN",
-  "E4 STATIONÄR",
-  "E5 ABFRAGE",
-  "E5 APOTHEKE",
-  "E5 BEAUSKUNFTUNG",
-  "E5 BEHÖRDE ARZT",
-  "E5 RÜCKRUF",
-  "E5 SONST",
-  "E5 TELEMEDIZIN",
-  "E5 TODESFESTSTELL",
-  "E5 ÜBERGABE_RD",
-  "E5 VISITENARZT",
-  "E5 VISITENARZT_FA"
+ {
+  "code": "A1 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 HÖHLE_GRUBE",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 STILLER NOTRUF",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 STILL",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 VERSCHÜTTUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "A1 WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 HÖHLE_GRUBE",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 STILLER NOTRUF",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 STILL",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 VERSCHÜTTUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "A3 WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 HÖHLE_GRUBE",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 STILLER NOTRUF",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 STILL",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 VERSCHÜTTUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "A4 WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 FACHANFORDERUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 HÖHLE_GRUBE",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 STILL",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "A2 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 FACHANFORDERUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 HILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 UNKLAR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1 WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 FACHANFORDERUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 HILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 UNKLAR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2 WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N FACHANFORDERUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N HILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N UNKLAR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "B1N WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N ALLERGIE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N ALPIN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N BEREIT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N BRAND",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N CHIR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N COVID",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N EINGESCHLOSSEN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N EINSTURZ",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N EXPLOSION",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N FACHANFORDERUNG",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N GEFAHRGUT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N GEWALT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N GYN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N HILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N INTERN",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N INTOX",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N KRANK",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N NEURO",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N POLIZEI",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N PSYCH",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N RUFHILFE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N SONST",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N STROM",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N TRAUMA",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N UNKLAR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N VERKEHR",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N VERKEHR_LUFT",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N VERKEHR_SCHIENE",
+  "blaulicht": true
+ },
+ {
+  "code": "B2N WASSER",
+  "blaulicht": true
+ },
+ {
+  "code": "B3 ALLERGIE",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 ALPIN",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 BEREIT",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 CHIR",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 FACHANFORDERUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 GEWALT",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 GYN",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 HILFE",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 INTERN",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 INTOX",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 KRANK",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 NEURO",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 POLIZEI",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 PSYCH",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 RUFHILFE",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 SONST",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 STROM",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 TRAUMA",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 UNKLAR",
+  "blaulicht": false
+ },
+ {
+  "code": "B3 VERZÖGERT",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 ALLERGIE",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 ALPIN",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 BEREIT",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 CHIR",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 FACHANFORDERUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 GEWALT",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 GYN",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 HILFE",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 INTERN",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 INTOX",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 KRANK",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 NEURO",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 POLIZEI",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 PSYCH",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 RUFHILFE",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 SONST",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 STROM",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 TRAUMA",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 UNKLAR",
+  "blaulicht": false
+ },
+ {
+  "code": "B4 VERZÖGERT",
+  "blaulicht": false
+ },
+ {
+  "code": "C1 INTERHOSP",
+  "blaulicht": true
+ },
+ {
+  "code": "C2 INTERHOSP",
+  "blaulicht": true
+ },
+ {
+  "code": "C2 INKUBATOR",
+  "blaulicht": true
+ },
+ {
+  "code": "C3 INTERHOSP_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "C3 INTERHOSP",
+  "blaulicht": false
+ },
+ {
+  "code": "C3 INKUBATOR",
+  "blaulicht": false
+ },
+ {
+  "code": "C4 GEHEND",
+  "blaulicht": false
+ },
+ {
+  "code": "C4 SITZEND",
+  "blaulicht": false
+ },
+ {
+  "code": "C4 LIEGEND",
+  "blaulicht": false
+ },
+ {
+  "code": "C4 GEHEND_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "C4 SITZEND_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "C4 LIEGEND_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "D1 AMB",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 COV_IMPFEN",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 DIALYSE",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 EINWEISUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 FERN",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 HEIM",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 INFEKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 PRIO",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 SCHWER",
+  "blaulicht": false
+ },
+ {
+  "code": "D1 STAT",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 AMB",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 COV_IMPFEN",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 DIALYSE",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 EINWEISUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 FERN",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 HEIM",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 INFEKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 PRIO",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 SCHWER",
+  "blaulicht": false
+ },
+ {
+  "code": "D2 STAT",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 AMB",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 COV_IMPFEN",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 DIALYSE",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 EINWEISUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 FERN",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 HEIM",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 INFEKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 PRIO",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 SCHWER",
+  "blaulicht": false
+ },
+ {
+  "code": "D3 STAT",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 AMB",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 COV_IMPFEN",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 DIALYSE",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 EINWEISUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 FERN",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 HEIM",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 INFEKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 PRIO",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 SCHWER",
+  "blaulicht": false
+ },
+ {
+  "code": "D4 STAT",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 AMB",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 COV_IMPFEN",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 COVID",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 DIALYSE",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 EINWEISUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 FERN",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 HEIM",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 INFEKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 PRIO",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 SCHWER",
+  "blaulicht": false
+ },
+ {
+  "code": "D5 STAT",
+  "blaulicht": false
+ },
+ {
+  "code": "E1 KIT_LWZ",
+  "blaulicht": false
+ },
+ {
+  "code": "E1 KIT_RK",
+  "blaulicht": false
+ },
+ {
+  "code": "E1 KIT_VERTRAG",
+  "blaulicht": false
+ },
+ {
+  "code": "E2 BLUT_ORGAN",
+  "blaulicht": false
+ },
+ {
+  "code": "E2 BLUT_ORGAN_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "E3 ARZT",
+  "blaulicht": false
+ },
+ {
+  "code": "E3 ARZT MIT NAH",
+  "blaulicht": false
+ },
+ {
+  "code": "E3 ARZT_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "E4 ALARMSYSTEM",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 AMBULANZ",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 DIENST",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 GERÄTE",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 HITT",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 O2",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 SONDERLEISTUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 SUCHAKTION",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 TEST",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 TEST_BD",
+  "blaulicht": true
+ },
+ {
+  "code": "E4 ÜBUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 COV DIENST",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 COVID TEST",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 DRIVEIN",
+  "blaulicht": false
+ },
+ {
+  "code": "E4 STATIONÄR",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 ABFRAGE",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 APOTHEKE",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 BEAUSKUNFTUNG",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 BEHÖRDE ARZT",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 RÜCKRUF",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 SONST",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 TELEMEDIZIN",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 TODESFESTSTELL",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 ÜBERGABE_RD",
+  "blaulicht": true
+ },
+ {
+  "code": "E5 VISITENARZT",
+  "blaulicht": false
+ },
+ {
+  "code": "E5 VISITENARZT_FA",
+  "blaulicht": false
+ }
 ]
