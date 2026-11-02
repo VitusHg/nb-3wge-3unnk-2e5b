@@ -57,6 +57,10 @@
           <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.8A1.8 1.8 0 0 1 6.8 3H19v14.5H6.8A1.8 1.8 0 0 0 5 19.3z"/><path d="M5 19.3A1.8 1.8 0 0 0 6.8 21H19v-3.5"/><path class="ni-line" d="M9 7.5h6M9 11h4"/></svg></span>
           <span>Tagebuch</span>
         </button>
+        <button class="nav-btn" data-tab="dienstplan">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path class="ni-line" d="M3.5 10h17M8 3v4M16 3v4"/><path class="ni-line" d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17h2M11 17h2"/></svg></span>
+          <span>Dienstplan</span>
+        </button>
         <button class="nav-btn" data-tab="statistik">
           <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ni-line" d="M5 20v-7M10 20V5M15 20v-10M20 20V8" stroke-width="2.6"/></svg></span>
           <span>Statistik</span>
@@ -118,17 +122,16 @@
           <div id="stats-container"></div>
         </div>
 
-        <!-- Tab: Dienstplan (accessible via Home quick action, no nav button) -->
+        <!-- Tab: Dienstplan -->
         <div id="tab-dienstplan" class="tab-panel">
           <h1 class="large-title">Dienstplan</h1>
           <div id="dienstplan-layout">
             <div id="dienstplan-toolbar">
-              <button id="btn-dp-back" class="btn-ghost" style="display:flex;align-items:center;gap:6px">← Start</button>
               <span id="dienstplan-sync-status" class="dp-sync-status">—</span>
               <button id="btn-dp-reload" class="btn-secondary">↻ Laden</button>
             </div>
             <div id="dienstplan-container">
-              <div class="empty-hint">Kalender-URL in den Einstellungen hinterlegen.</div>
+              <div class="empty-hint">Dienstplan wird geladen…</div>
             </div>
           </div>
         </div>

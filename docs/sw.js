@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v20';
+const CACHE_NAME = CACHE_PREFIX + 'v21';
 
 // Alle Pfade relativ → funktioniert unter /<repo>/ genauso wie unter /
 const APP_SHELL = [

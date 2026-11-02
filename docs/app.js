@@ -637,7 +637,6 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + tab));
   renderTab(tab, prevTab);
   updateNavBar();
-  saveUiState();
   // Unterseite (Dienstplan) wie in iOS von rechts hereinschieben
   if (TAB_ROOT[tab] === prevTab && isMobile()) pushAnimated(getBackTarget());
 }
@@ -2339,15 +2338,14 @@ function buildUpcomingList(futureLocal, icsShifts, now) {
   return result.filter((i) => i.start).sort((a, b) => a.start - b.start);
 }
 
-// Besatzung des Dienstes (nur Namen – Telefonie läuft über RKTel)
-function homeCrewHtml(colleagues) {
-  const names = (colleagues || []).filter(Boolean);
-  if (!names.length) return '';
-  return `<div class="home-crew">👥 ${names.map((n) => escHtml(n)).join(', ')}</div>`;
-}
-
 // ── Home ───────────────────────────────────────────────────────────────────
-let homeOpenSet = new Set([0]); // track expanded upcoming items (by index)
+// Aufbau (von oben nach unten, wichtigstes zuerst):
+//  1. Hauptkarte: laufender Dienst (mit Fortschritt & Einsätzen) – sonst der
+//     nächste Dienst mit Countdown – sonst ein leerer Zustand mit „+ Dienst“.
+//  2. Schnellaktionen: Dienst, SEG und – kurz nach Dienstende – „Nachtragen“.
+//  3. Demnächst: die folgenden Dienste (Tagebuch + Dienstplan zusammengeführt).
+//  4. Letzte Einsätze und kompakte Jahreszahlen (führen zu Tagebuch/Statistik).
+const HOME_LATE_ENTRY_MS = 24 * 3600 * 1000; // so lange nach Dienstende „Nachtragen“ anbieten
 
 async function renderHome() {
   const container = document.getElementById('home-container');
@@ -2356,11 +2354,19 @@ async function renderHome() {
 
   const svcs = state.services.filter((s) => s.startAt && !s.isSeg).sort((a, b) => a.startAt.localeCompare(b.startAt));
 
-  // Find currently active service
   let currentSvc = null;
   for (const s of svcs) {
     const st = parseLocalDt(s.startAt), en = parseLocalDt(s.endAt);
     if (st && en && st <= now && now <= en) { currentSvc = s; break; }
+  }
+
+  // Zuletzt beendeter Dienst (für „Einsatz nachtragen“)
+  let lastEnded = null;
+  if (!currentSvc) {
+    for (const s of svcs) {
+      const en = parseLocalDt(s.endAt);
+      if (en && en < now && now - en < HOME_LATE_ENTRY_MS && (!lastEnded || en > parseLocalDt(lastEnded.endAt))) lastEnded = s;
+    }
   }
 
   // Dienstplan: sofort mit dem letzten bekannten Stand rendern und – falls
@@ -2384,17 +2390,17 @@ async function renderHome() {
     }
   }
 
-  // Build upcoming merged list (exclude current service)
   const futureLocal = svcs.filter((s) => {
     if (s === currentSvc) return false;
-    const e = parseLocalDt(s.endAt);
-    return e && e > now;
+    const st = parseLocalDt(s.startAt);
+    return st && st > now;
   });
-  const upcoming = buildUpcomingList(futureLocal, homeIcsShifts || [], now).slice(0, 5);
+  // Laufender Dienst aus dem Dienstplan nicht nochmal als „demnächst“ zeigen
+  const icsFuture = (homeIcsShifts || []).filter((x) => new Date(x.start) > now);
+  const upcoming = buildUpcomingList(futureLocal, icsFuture, now);
 
-  container.innerHTML = buildHomeHtml(currentSvc, upcoming, now)
-    + (homeIcsShifts === null ? '<div class="home-loading">Dienstplan wird geladen…</div>' : '');
-  bindHomeEvents(container, currentSvc, upcoming);
+  container.innerHTML = buildHomeHtml({ now, currentSvc, lastEnded, upcoming, icsLoading: homeIcsShifts === null });
+  bindHomeEvents(container);
 }
 
 // Start-Ansicht nicht neu aufbauen, während dort getippt wird
@@ -2404,259 +2410,219 @@ function homeIsBusy() {
   return !!(c && a && c.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
 }
 
-function buildRestItemHtml(item) {
-  const start = item.start;
-  const relTime = formatRelativeTime(start);
-  const dateStr = start.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  const startTimeStr = formatTimeHM(start);
-  const vehicle = item.svc?.vehicle || item.ics?.summary || '';
-  const location = item.svc?.location || item.ics?.location || '';
-  const end = item.svc ? parseLocalDt(item.svc.endAt) : null;
-  const endStr = end ? formatTimeHM(end) : '';
-  const colleagues = item.svc?.colleagues || [];
+function homeVehIconHtml(vehicle, cls) {
   const catId = vehicle ? (state.vehicleAssignments || {})[vehicle] : null;
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-  const iconHtml = cat && cat.iconNormal
-    ? `<div class="home-rest-icon-wrap">
-         <img src="${escHtml(cat.iconNormal)}" class="home-rest-icon home-rest-icon-normal" alt="" />
-         ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="home-rest-icon home-rest-icon-sosi" alt="" />` : ''}
-       </div>`
-    : '';
-  const parts = [location, vehicle, ...colleagues].filter(Boolean);
-  const colText = parts.join(' – ');
-  return `<div class="home-rest-item">
-    ${iconHtml}
-    <div class="home-rest-body">
-      <div class="home-rest-col-text">${escHtml(colText || '—')}</div>
-      <div class="home-rest-time-col">
-        <div class="home-shift-rel">${escHtml(relTime)}</div>
-        <div class="home-shift-abs">${escHtml(dateStr)} · ${escHtml(startTimeStr)}${endStr ? `–${escHtml(endStr)}` : ''}</div>
+  if (!cat || !cat.iconNormal) return '';
+  return `<div class="hm-veh ${cls || ''}">
+    <img src="${escHtml(cat.iconNormal)}" class="hm-veh-img hm-veh-normal" alt="" />
+    ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="hm-veh-img hm-veh-sosi" alt="" />` : ''}
+  </div>`;
+}
+
+function homeDayLabel(d, now) {
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const diff = Math.round((day - today) / 86400000);
+  if (diff === 0) return 'Heute';
+  if (diff === 1) return 'Morgen';
+  if (diff === -1) return 'Gestern';
+  return d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+}
+
+function homeIncRowHtml(inc, svc, showDate) {
+  const ea = inc.einsatzart && EINSATZART_MAP.has(String(inc.einsatzart)) ? EINSATZART_MAP.get(String(inc.einsatzart)) : '';
+  const naca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '' ? `NACA ${inc.naca}` : '';
+  const sub = [ea, naca].filter(Boolean).join(' · ');
+  const d = showDate ? parseLocalDt(svc.startAt) : null;
+  return `<button type="button" class="hm-row hm-inc" data-svc-id="${escHtml(svc.id)}" data-inc-id="${escHtml(inc.id)}">
+    <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
+    <span class="hm-row-main">
+      <span class="hm-row-title">${inc.favorite ? '<span class="hm-fav">★</span> ' : ''}${escHtml(inc.alarmCode || '—')}</span>
+      ${sub ? `<span class="hm-row-sub">${escHtml(sub)}</span>` : ''}
+    </span>
+    ${d ? `<span class="hm-row-meta">${escHtml(d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))}</span>` : ''}
+    <span class="hm-chev" aria-hidden="true">›</span>
+  </button>`;
+}
+
+function homeActiveCardHtml(svc, now) {
+  const start = parseLocalDt(svc.startAt);
+  const end = parseLocalDt(svc.endAt);
+  const pct = start && end && end > start ? Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100)) : 0;
+  const incs = svc.incidents || [];
+  const lights = incs.filter((i) => i.lights).length;
+  const shown = incs.slice().reverse().slice(0, 4);
+  const crew = (svc.colleagues || []).filter(Boolean);
+  return `<section class="hm-card hm-hero is-active">
+    <button type="button" class="hm-hero-open" data-open-svc="${escHtml(svc.id)}" aria-label="Dienst öffnen">
+      <div class="hm-hero-top">
+        <span class="hm-live"><span class="home-active-pulse"></span>Im Dienst</span>
+        ${shiftCodeHtml(svc.startAt, 'is-small')}
+        <span class="hm-hero-right">${end ? 'endet ' + escHtml(formatRelativeTime(end)) : ''}</span>
       </div>
-    </div>
-  </div>`;
-}
-
-function buildQuickActionsHtml(currentSvc) {
-  const addIncBtn = currentSvc
-    ? `<button class="qa-btn qa-btn-primary" id="qa-add-inc">
-         <span class="qa-icon">🚨</span><span>+ Einsatz</span>
-       </button>`
-    : '';
-  return `<div class="home-quick-actions">
-    <button class="qa-btn qa-btn-primary" id="qa-new-service">
-      <span class="qa-icon">${currentSvc ? '📋' : '+'}</span>
-      <span>${currentSvc ? 'Zum Tagebuch' : 'Neuer Dienst'}</span>
-    </button>
-    ${addIncBtn}
-    <button class="qa-btn" id="qa-dienstplan">
-      <span class="qa-icon">📅</span><span>Dienstplan</span>
-    </button>
-  </div>`;
-}
-
-function buildDienstplanPreviewHtml(icsShifts) {
-  if (!icsShifts || !icsShifts.length) return '';
-  const now = new Date();
-  const upcoming = icsShifts.filter((s) => new Date(s.end) > now).slice(0, 4);
-  if (!upcoming.length) return '';
-  const rows = upcoming.map((s) => {
-    const start = new Date(s.start);
-    const end = new Date(s.end);
-    const dateStr = start.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-    const timeStr = `${start.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })}`;
-    const dur = `${((end - start) / 3600000).toFixed(0)} h`;
-    return `<div class="dp-home-row">
-      <div class="dp-home-row-date">${escHtml(dateStr)}</div>
-      <div class="dp-home-row-info">
-        <span class="dp-home-row-time">${escHtml(timeStr)}</span>
-        <span class="dp-home-row-summary">${escHtml(s.summary || '—')}</span>
-        ${s.location ? `<span class="dp-home-row-loc">📍 ${escHtml(s.location)}</span>` : ''}
+      <div class="hm-hero-body">
+        ${homeVehIconHtml(svc.vehicle, 'is-active')}
+        <div class="hm-hero-text">
+          <div class="hm-hero-title">${escHtml(svc.vehicle || 'Dienst')}</div>
+          ${svc.location ? `<div class="hm-hero-sub">${escHtml(svc.location)}</div>` : ''}
+        </div>
+        <span class="hm-chev" aria-hidden="true">›</span>
       </div>
-      <div class="dp-home-row-meta">${escHtml(dur)}</div>
-      <button class="btn-quick dp-home-save-btn" data-dp-json="${escHtml(JSON.stringify(s))}">Speichern</button>
-    </div>`;
-  }).join('');
-  return `<div class="home-panel home-panel-dp">
-    <div class="home-panel-header">
-      <span class="home-panel-icon">📅</span>
-      <span>Dienstplan</span>
-      <button class="dp-home-all-link" id="dp-home-all">Alle anzeigen ›</button>
+      <div class="hm-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
+        <span class="hm-progress-time">${start ? formatTimeHM(start) : '?'}</span>
+        <span class="hm-progress-track"><span class="hm-progress-fill" style="width:${pct.toFixed(1)}%"></span></span>
+        <span class="hm-progress-time">${end ? formatTimeHM(end) : '?'}</span>
+      </div>
+      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(', '))}</div>` : ''}
+    </button>
+    <div class="hm-hero-incs-hd">
+      <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
+      <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
     </div>
-    <div class="dp-home-list">${rows}</div>
-  </div>`;
+    ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
+    ${incs.length > shown.length ? `<button type="button" class="hm-more" data-open-svc="${escHtml(svc.id)}">Alle ${incs.length} Einsätze anzeigen</button>` : ''}
+  </section>`;
 }
 
-function buildHomeHtml(currentSvc, upcoming, now) {
-  // ── Year stats (used in multiple places) ───────────────────────────────────
-  const thisYear = now.getFullYear();
-  const yearAll = state.services.filter((s) => { const d = parseLocalDt(s.startAt); return d && d.getFullYear() === thisYear; });
-  const yearSvcs = yearAll.filter((s) => !s.isSeg);           // SEG ist kein Dienst
-  const yearHours = Math.round(yearSvcs.reduce((sum, s) => sum + +serviceDurationHours(s), 0));
-  const yearInc = yearAll.reduce((sum, s) => sum + (s.incidents || []).length, 0);
-  const yearLights = yearAll.flatMap((s) => s.incidents || []).filter((i) => i.lights).length;
-  const yearSeg = yearAll.filter((s) => s.isSeg).length;
+function homeNextCardHtml(item, now) {
+  const start = item.start;
+  const vehicle = item.svc?.vehicle || item.ics?.summary || '';
+  const location = item.svc?.location || item.ics?.location || '';
+  const end = item.svc ? parseLocalDt(item.svc.endAt) : (item.ics ? new Date(item.ics.end) : null);
+  const crew = item.svc ? (item.svc.colleagues || []) : parseCrew((item.ics?.description || '').split('\n')[0]);
+  const when = `${homeDayLabel(start, now)}, ${formatTimeHM(start)}${end ? '–' + formatTimeHM(end) : ''}`;
+  const inner = `
+      <div class="hm-hero-top">
+        <span class="hm-eyebrow">Nächster Dienst</span>
+        ${shiftCodeHtml(start, 'is-small')}
+        ${item.svc ? '' : '<span class="hm-tag">Dienstplan</span>'}
+      </div>
+      <div class="hm-countdown">${escHtml(formatRelativeTime(start))}</div>
+      <div class="hm-hero-body">
+        ${homeVehIconHtml(vehicle)}
+        <div class="hm-hero-text">
+          <div class="hm-hero-title">${escHtml(vehicle || 'Dienst')}</div>
+          ${location ? `<div class="hm-hero-sub">${escHtml(location)}</div>` : ''}
+          <div class="hm-hero-sub is-time">${escHtml(when)}</div>
+        </div>
+        ${item.svc ? '<span class="hm-chev" aria-hidden="true">›</span>' : ''}
+      </div>
+      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(', '))}</div>` : ''}`;
+  if (item.svc) {
+    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
+  }
+  return `<section class="hm-card hm-hero"><div class="hm-hero-open is-static">${inner}</div>
+    <button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button>
+  </section>`;
+}
 
-  const statsHtml = `<div class="home-panel home-panel-stats">
-    <div class="home-panel-header"><span class="home-panel-icon">📊</span><span>Dienstjahr ${thisYear}</span></div>
-    <div class="home-year-stats">
-      <div class="home-stat-item"><span class="home-stat-val">${yearSvcs.length}</span><span class="home-stat-label">Dienste</span></div>
-      <div class="home-stat-item"><span class="home-stat-val">${yearHours}</span><span class="home-stat-label">Stunden</span></div>
-      <div class="home-stat-item"><span class="home-stat-val">${yearInc}</span><span class="home-stat-label">Einsätze</span></div>
-      <div class="home-stat-item"><span class="home-stat-val">${yearLights}</span><span class="home-stat-label">🔵</span></div>
-      ${yearSeg > 0 ? `<div class="home-stat-item"><span class="home-stat-val">${yearSeg}</span><span class="home-stat-label">SEG</span></div>` : ''}
-    </div>
-  </div>`;
+function homeEmptyCardHtml() {
+  const hint = dpConfigured()
+    ? 'Im Dienstplan ist gerade nichts eingetragen.'
+    : 'Lege einen Dienst an – oder verbinde in den Einstellungen den Dienstplan, dann erscheinen deine Dienste hier automatisch.';
+  return `<section class="hm-card hm-hero is-empty">
+    <div class="hm-empty-icon" aria-hidden="true">🚑</div>
+    <div class="hm-hero-title">Kein Dienst geplant</div>
+    <div class="hm-hero-sub">${escHtml(hint)}</div>
+  </section>`;
+}
 
-  // ── Recent incidents ───────────────────────────────────────────────────────
-  const recentItems = [];
-  [...state.services].sort((a, b) => (b.startAt || '').localeCompare(a.startAt || '')).forEach((svc) => {
-    [...(svc.incidents || [])].reverse().forEach((inc) => { recentItems.push({ inc, svc }); });
-  });
-  const recentIncsHtml = recentItems.slice(0, 6).map(({ inc, svc }) => {
-    const d = parseLocalDt(svc.startAt);
-    const ds = d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }) : '';
-    const naca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '' ? `N${inc.naca}` : '';
-    return `<div class="home-recent-inc${inc.lights ? ' lights' : ''}" data-inc-id="${escHtml(inc.id)}" data-svc-id="${escHtml(svc.id)}">
-      <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
-      <span class="home-recent-kw">${escHtml(inc.alarmCode || '—')}</span>
-      ${naca ? `<span class="home-recent-naca">${escHtml(naca)}</span>` : ''}
-      <span class="home-recent-date">${escHtml(ds)}</span>
-    </div>`;
-  }).join('') || '<div class="home-empty-sm">Noch keine Einsätze.</div>';
+function homeQuickActionsHtml(currentSvc, lastEnded) {
+  const btns = [];
+  if (!currentSvc && lastEnded) {
+    const d = parseLocalDt(lastEnded.startAt);
+    btns.push(`<button type="button" class="hm-qa is-primary" data-add-inc="${escHtml(lastEnded.id)}">
+      <span class="hm-qa-icon">🚨</span><span class="hm-qa-label">Nachtragen</span><span class="hm-qa-sub">${escHtml(d ? homeDayLabel(d, new Date()) + ', ' + formatTimeHM(d) : 'Einsatz')}</span></button>`);
+  }
+  btns.push(`<button type="button" class="hm-qa" id="hm-qa-service"><span class="hm-qa-icon">＋</span><span class="hm-qa-label">Dienst</span></button>`);
+  btns.push(`<button type="button" class="hm-qa" id="hm-qa-seg"><span class="hm-qa-icon">⚡</span><span class="hm-qa-label">SEG</span></button>`);
+  return `<div class="hm-qa-row cols-${btns.length}">${btns.join('')}</div>`;
+}
 
-  // ── Upcoming list HTML ─────────────────────────────────────────────────────
-  const upHtml = upcoming && upcoming.length ? upcoming.map(buildRestItemHtml).join('') : '';
-
-  // ── Active service ─────────────────────────────────────────────────────────
-  if (currentSvc) {
-    const start = parseLocalDt(currentSvc.startAt);
-    const end = parseLocalDt(currentSvc.endAt);
-    const startStr = start ? formatTimeHM(start) : '?';
-    const endStr = end ? formatTimeHM(end) : '?';
-    const remaining = end ? 'endet ' + formatRelativeTime(end) : '';
-    const vehicle = currentSvc.vehicle || '';
-    const location = currentSvc.location || '';
-    const crewHtml = homeCrewHtml(currentSvc.colleagues);
-    const allIncs = currentSvc.incidents || [];
-    const catId = vehicle ? (state.vehicleAssignments || {})[vehicle] : null;
-    const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-    const vehIconHtml = cat && cat.iconNormal
-      ? `<div class="home-veh-wrap">
-           <img src="${escHtml(cat.iconNormal)}" class="home-active-veh-icon home-veh-normal" alt="" />
-           ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="home-active-veh-icon home-veh-sosi" alt="" />` : ''}
-         </div>`
-      : '';
-
-    function incRowHtml(inc) {
-      const ea = inc.einsatzart && EINSATZART_MAP.has(String(inc.einsatzart)) ? EINSATZART_MAP.get(String(inc.einsatzart)) : '';
-      return `<div class="home-open-inc" data-inc-id="${escHtml(inc.id)}" data-svc-id="${escHtml(currentSvc.id)}">
-        <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
-        <span class="home-inc-keyword">${escHtml(inc.alarmCode || '—')}</span>
-        ${ea ? `<span class="home-inc-time">${escHtml(ea)}</span>` : ''}
-      </div>`;
+function homeUpcomingHtml(items, now, icsLoading) {
+  const rows = items.slice(0, 4).map((item) => {
+    const vehicle = item.svc?.vehicle || item.ics?.summary || '';
+    const location = item.svc?.location || item.ics?.location || '';
+    const end = item.svc ? parseLocalDt(item.svc.endAt) : (item.ics ? new Date(item.ics.end) : null);
+    const when = `${homeDayLabel(item.start, now)} · ${formatTimeHM(item.start)}${end ? '–' + formatTimeHM(end) : ''}`;
+    const main = `${shiftCodeHtml(item.start, 'is-small hm-code')}
+      <span class="hm-row-main">
+        <span class="hm-row-title">${escHtml(vehicle || 'Dienst')}</span>
+        <span class="hm-row-sub">${escHtml([when, location].filter(Boolean).join(' · '))}</span>
+      </span>`;
+    if (item.svc) {
+      return `<button type="button" class="hm-row" data-open-svc="${escHtml(item.svc.id)}">${main}<span class="hm-chev" aria-hidden="true">›</span></button>`;
     }
+    return `<div class="hm-row">${main}<button type="button" class="hm-save" data-save-ics="${escHtml(JSON.stringify(item.ics))}" aria-label="Ins Tagebuch übernehmen" title="Ins Tagebuch übernehmen">＋</button></div>`;
+  }).join('');
+  const link = dpConfigured() ? '<button type="button" class="hm-link" data-goto="dienstplan">Dienstplan ›</button>' : '';
+  if (!rows && !icsLoading) return '';
+  return `<section class="hm-section">
+    <div class="hm-section-hd"><span>Demnächst</span>${link}</div>
+    <div class="hm-list">${rows || '<div class="hm-row is-muted"><span class="ios-spinner"></span>Dienstplan wird geladen…</div>'}</div>
+  </section>`;
+}
 
-    const incListHtml = allIncs.length
-      ? allIncs.slice().reverse().map(incRowHtml).join('')
-      : '<div class="home-empty-sm">Noch keine Einsätze in diesem Dienst.</div>';
+function homeRecentHtml() {
+  const items = [];
+  [...state.services].sort((a, b) => (b.startAt || '').localeCompare(a.startAt || '')).forEach((svc) => {
+    [...(svc.incidents || [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).forEach((inc) => items.push({ inc, svc }));
+  });
+  if (!items.length) return '';
+  return `<section class="hm-section">
+    <div class="hm-section-hd"><span>Letzte Einsätze</span><button type="button" class="hm-link" data-goto="dienste">Tagebuch ›</button></div>
+    <div class="hm-list">${items.slice(0, 5).map(({ inc, svc }) => homeIncRowHtml(inc, svc, true)).join('')}</div>
+  </section>`;
+}
 
-    return backupReminderHtml() + buildQuickActionsHtml(currentSvc) + `<div class="home-layout-active">
-      <div class="home-col-primary">
-        <div class="home-panel home-panel-active">
-          <div class="home-active-live-row">
-            <span class="home-active-pulse"></span>
-            <span class="home-active-label">Aktiver Dienst</span>
-            ${shiftCodeHtml(currentSvc.startAt, 'is-small')}
-            <span class="home-active-remaining">${escHtml(remaining)}</span>
-          </div>
-          <div class="home-active-hero">
-            ${vehIconHtml}
-            <div class="home-active-hero-text">
-              <div class="home-active-vehicle">${escHtml(vehicle || '—')}</div>
-              ${location ? `<div class="home-active-loc">${escHtml(location)}</div>` : ''}
-            </div>
-          </div>
-          <div class="home-active-timerow">🕐 ${escHtml(startStr)} – ${escHtml(endStr)}</div>
-          ${crewHtml}
-          <div class="home-active-incs-hd">
-            <span>${allIncs.length} ${allIncs.length === 1 ? 'Einsatz' : 'Einsätze'}</span>
-            <button class="btn-primary home-add-inc-btn" data-svc-id="${escHtml(currentSvc.id)}">+ Einsatz</button>
-          </div>
-          <div class="home-open-incidents">${incListHtml}</div>
-        </div>
-      </div>
-      <div class="home-col-secondary">
-        ${upcoming && upcoming.length ? `<div class="home-panel home-panel-upcoming">
-          <div class="home-panel-header"><span class="home-panel-icon">📅</span><span>Nächste Dienste</span></div>
-          <div class="home-upcoming-list">${upHtml}</div>
-        </div>` : ''}
-        <div class="home-panel">
-          <div class="home-panel-header"><span class="home-panel-icon">🚨</span><span>Letzte Einsätze</span></div>
-          <div class="home-recent-list">${recentIncsHtml}</div>
-        </div>
-      </div>
-      <div class="home-col-tertiary">
-        ${statsHtml}
-      </div>
-    </div>`;
-  }
+function homeStatsHtml(now) {
+  const y = now.getFullYear(), m = now.getMonth();
+  const inYear = state.services.filter((s) => { const d = parseLocalDt(s.startAt); return d && d.getFullYear() === y; });
+  const inMonth = inYear.filter((s) => parseLocalDt(s.startAt).getMonth() === m);
+  const sum = (list) => {
+    const duty = list.filter((s) => !s.isSeg); // SEG ist kein Dienst
+    const incs = list.flatMap((s) => s.incidents || []);
+    return {
+      svcs: duty.length,
+      hours: Math.round(duty.reduce((a, s) => a + +serviceDurationHours(s), 0)),
+      incs: incs.length,
+      lights: incs.filter((i) => i.lights).length,
+    };
+  };
+  const ys = sum(inYear), ms = sum(inMonth);
+  if (!state.services.length) return '';
+  const tile = (val, label, sub) => `<div class="hm-stat"><span class="hm-stat-val">${val}</span><span class="hm-stat-label">${label}</span><span class="hm-stat-sub">${sub}</span></div>`;
+  const monthName = now.toLocaleDateString('de-AT', { month: 'long' });
+  return `<section class="hm-section">
+    <div class="hm-section-hd"><span>Dienstjahr ${y}</span><button type="button" class="hm-link" data-goto="statistik">Statistik ›</button></div>
+    <button type="button" class="hm-card hm-stats" data-goto="statistik" aria-label="Zur Statistik">
+      ${tile(ys.svcs, 'Dienste', `${monthName}: ${ms.svcs}`)}
+      ${tile(ys.hours, 'Stunden', `${monthName}: ${ms.hours}`)}
+      ${tile(ys.incs, 'Einsätze', `${monthName}: ${ms.incs}`)}
+      ${tile(ys.lights, 'Blaulicht', `${monthName}: ${ms.lights}`)}
+    </button>
+  </section>`;
+}
 
-  // ── No active service: next shift hero ────────────────────────────────────
-  const nextItem = upcoming && upcoming[0];
-  let heroHtml = '';
-  if (nextItem) {
-    const start = nextItem.start;
-    const relTime = formatRelativeTime(start);
-    const dateStr = start.toLocaleDateString('de-AT', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
-    const startTimeStr = formatTimeHM(start);
-    let vehicle = nextItem.svc?.vehicle || nextItem.ics?.summary || '';
-    let location = nextItem.svc?.location || nextItem.ics?.location || '';
-    const end = nextItem.svc ? parseLocalDt(nextItem.svc.endAt) : null;
-    const endStr = end ? formatTimeHM(end) : '';
-    const nextColleagues = nextItem.svc?.colleagues || [];
-    const catId = vehicle ? (state.vehicleAssignments || {})[vehicle] : null;
-    const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-    const vehIconHtml = cat && cat.iconNormal
-      ? `<img src="${escHtml(cat.iconNormal)}" class="home-next-veh-icon" alt="" />`
-      : '';
-    const nextCrewHtml = homeCrewHtml(nextColleagues);
-    heroHtml = `<div class="home-panel home-panel-next">
-      <div class="home-panel-header"><span class="home-panel-icon">⏱</span><span>Nächster Dienst</span></div>
-      <div class="home-next-countdown-row"><div class="home-next-countdown">${escHtml(relTime)}</div>${shiftCodeHtml(start)}</div>
-      <div class="home-next-hero">
-        ${vehIconHtml}
-        <div class="home-next-hero-text">
-          <div class="home-next-vehicle">${escHtml(vehicle || '—')}</div>
-          ${location ? `<div class="home-next-loc">${escHtml(location)}</div>` : ''}
-          <div class="home-next-time">${escHtml(dateStr)}, ${escHtml(startTimeStr)}${endStr ? `–${escHtml(endStr)}` : ''}</div>
-        </div>
-      </div>
-      ${nextCrewHtml}
-    </div>`;
-  } else {
-    heroHtml = `<div class="home-panel"><div class="home-empty">Keine bevorstehenden Dienste.</div></div>`;
-  }
-
-  const restUpcoming = upcoming && upcoming.length > 1 ? upcoming.slice(1) : [];
-  const restUpHtml = restUpcoming.map(buildRestItemHtml).join('');
-
-  const dpPreviewHtml = buildDienstplanPreviewHtml(homeIcsShifts);
-
-  return backupReminderHtml() + buildQuickActionsHtml(null) + `<div class="home-layout-idle">
-    <div class="home-col-main-idle">
-      ${heroHtml}
-      ${restUpcoming.length ? `<div class="home-panel home-panel-upcoming">
-        <div class="home-panel-header"><span class="home-panel-icon">📅</span><span>Weitere Dienste</span></div>
-        <div class="home-upcoming-list">${restUpHtml}</div>
-      </div>` : ''}
-      ${dpPreviewHtml}
+function buildHomeHtml({ now, currentSvc, lastEnded, upcoming, icsLoading }) {
+  let hero;
+  let rest = upcoming;
+  if (currentSvc) hero = homeActiveCardHtml(currentSvc, now);
+  else if (upcoming.length) { hero = homeNextCardHtml(upcoming[0], now); rest = upcoming.slice(1); }
+  else hero = homeEmptyCardHtml();
+  const dateLine = now.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `${backupReminderHtml()}
+  <div class="hm-date">${escHtml(dateLine)}</div>
+  <div class="hm-grid">
+    <div class="hm-col">
+      ${hero}
+      ${homeQuickActionsHtml(currentSvc, lastEnded)}
+      ${homeUpcomingHtml(rest, now, icsLoading && !upcoming.length ? true : false)}
     </div>
-    <div class="home-col-side-idle">
-      ${statsHtml}
-      <div class="home-panel">
-        <div class="home-panel-header"><span class="home-panel-icon">🚨</span><span>Letzte Einsätze</span></div>
-        <div class="home-recent-list">${recentIncsHtml}</div>
-      </div>
+    <div class="hm-col">
+      ${homeRecentHtml()}
+      ${homeStatsHtml(now)}
     </div>
   </div>`;
 }
@@ -2694,7 +2660,14 @@ function backupReminderHtml() {
   </div>`;
 }
 
-function bindHomeEvents(container, currentSvc, upcoming) {
+/** Öffnet einen Dienst im Tagebuch (auf dem iPhone direkt die Detailansicht). */
+function openServiceFromHome(id) {
+  if (!state.services.some((s) => s.id === id)) return;
+  selectedServiceId = id;
+  switchTab('dienste');
+}
+
+function bindHomeEvents(container) {
   const bNow = container.querySelector('#btn-backup-now');
   if (bNow) bNow.addEventListener('click', openExportDialog);
   const bLater = container.querySelector('#btn-backup-later');
@@ -2704,67 +2677,28 @@ function bindHomeEvents(container, currentSvc, upcoming) {
     if (banner) banner.remove();
     toast('Erinnerung in 7 Tagen.', 'info', 1800);
   });
-  // ── Quick actions bar ──
-  const qaNewService = container.querySelector('#qa-new-service');
-  if (qaNewService) {
-    qaNewService.addEventListener('click', () => {
-      if (currentSvc) { switchTab('dienste'); }
-      else { switchTab('dienste'); setTimeout(() => openServiceDialog(null), 80); }
-    });
-  }
-  const qaAddInc = container.querySelector('#qa-add-inc');
-  if (qaAddInc && currentSvc) {
-    qaAddInc.addEventListener('click', () => openIncidentDialog(currentSvc.id, null));
-  }
-  const qaDienstplan = container.querySelector('#qa-dienstplan');
-  if (qaDienstplan) {
-    qaDienstplan.addEventListener('click', () => switchTab('dienstplan'));
-  }
+  const qaSvc = container.querySelector('#hm-qa-service');
+  if (qaSvc) qaSvc.addEventListener('click', () => openServiceDialog(null));
+  const qaSeg = container.querySelector('#hm-qa-seg');
+  if (qaSeg) qaSeg.addEventListener('click', () => openIncidentDialog(null, null, { newSeg: true }));
 
-  // ── Dienstplan preview: save shift ──
-  container.querySelectorAll('.dp-home-save-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      try { importShiftToService(JSON.parse(btn.dataset.dpJson)); } catch (_) {}
-    });
+  container.querySelectorAll('[data-add-inc]').forEach((el) => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openIncidentDialog(el.dataset.addInc, null); });
   });
-  const dpAllLink = container.querySelector('#dp-home-all');
-  if (dpAllLink) dpAllLink.addEventListener('click', () => switchTab('dienstplan'));
-
-  // Active service: add incident button
-  const addBtn = container.querySelector('.home-add-inc-btn');
-  if (addBtn && currentSvc) {
-    addBtn.addEventListener('click', () => openIncidentDialog(currentSvc.id, null));
-  }
-  // Active service: open incident on click
-  container.querySelectorAll('.home-open-inc').forEach((el) => {
+  container.querySelectorAll('[data-open-svc]').forEach((el) => {
+    el.addEventListener('click', () => { if (!navAnimating) openServiceFromHome(el.dataset.openSvc); });
+  });
+  container.querySelectorAll('.hm-inc').forEach((el) => {
     el.addEventListener('click', () => openIncidentView(el.dataset.svcId, el.dataset.incId));
   });
-  // Upcoming: expand/collapse
-  container.querySelectorAll('.home-shift-item').forEach((el) => {
-    const idx = +el.dataset.idx;
-    const summary = el.querySelector('.home-shift-summary.clickable');
-    if (!summary) return;
-    summary.addEventListener('click', () => {
-      const detail = el.querySelector('.home-shift-detail');
-      const chevron = el.querySelector('.home-shift-chevron');
-      if (homeOpenSet.has(idx)) {
-        homeOpenSet.delete(idx);
-        detail.style.display = 'none';
-        chevron.classList.remove('open');
-        el.classList.remove('open');
-      } else {
-        homeOpenSet.add(idx);
-        detail.style.display = '';
-        chevron.classList.add('open');
-        el.classList.add('open');
-      }
+  container.querySelectorAll('[data-save-ics]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try { importShiftToService(JSON.parse(el.dataset.saveIcs)); } catch (_) {}
     });
   });
-
-
-  // Recent incidents: open incident dialog on click
-  container.querySelectorAll('.home-recent-inc').forEach((el) => {
-    el.addEventListener('click', () => openIncidentView(el.dataset.svcId, el.dataset.incId));
+  container.querySelectorAll('[data-goto]').forEach((el) => {
+    el.addEventListener('click', () => { if (!navAnimating) switchTab(el.dataset.goto); });
   });
 }
 
@@ -3484,7 +3418,7 @@ function resetSections() {
     { id: 'vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: (state.vehicleCategories || []).length, run: () => { state.vehicleCategories = []; state.vehicleAssignments = {}; } },
     { id: 'alarm', icon: '🚨', label: 'Einsatzstichwörter', count: (state.alarmCodes || []).length, run: () => { state.alarmCodes = []; } },
     { id: 'pzc', icon: '🏥', label: 'PZC-Codes', count: (state.pzcCodes || []).length, run: () => { state.pzcCodes = []; } },
-    { id: 'appearance', icon: '🎨', label: 'Darstellung & zuletzt geöffnete Ansicht', run: () => { applyTheme('system'); lsSet(UI_STATE_KEY, ''); } },
+    { id: 'appearance', icon: '🎨', label: 'Darstellung', run: () => { applyTheme('system'); } },
   ];
 }
 
@@ -3684,6 +3618,7 @@ function toCompatExport() {
       endTime: svc.endAt || '',
       duration: serviceDurationHours(svc),
       location: svc.location || '',
+      abteilung: svc.abteilung || '',
       resource: svc.vehicle || '',
       tip: svc.isSeg ? 'seg' : '',
       note: svc.note || '',
@@ -3714,8 +3649,9 @@ function fromCompatibleImport(data) {
     id: shift.shiftId || uid(),
     startAt: utcIsoToLocalDtStr(shift.startTime) || shift.startTime || '',
     endAt: utcIsoToLocalDtStr(shift.endTime) || shift.endTime || '',
-    abteilung: shift.location || '',
-    location: shift.location || '',
+    // Abteilung fehlt (z. B. Henri-Export, alte Sicherung) oder ist leer → Dienststelle übernehmen
+    abteilung: toDisplayName(shift.abteilung) || toDisplayName(shift.location),
+    location: toDisplayName(shift.location) || '',
     vehicle: shift.resource || '',
     note: shift.note || '',
     isSeg: shift.tip === 'seg',
@@ -4128,9 +4064,13 @@ async function loadDpShifts(force = false) {
   const statusEl = document.getElementById('dienstplan-sync-status');
   const reloadBtn = document.getElementById('btn-dp-reload');
   if (!container) return;
+  const toolbar = document.getElementById('dienstplan-toolbar');
+  if (toolbar) toolbar.hidden = !dpConfigured();
   if (!dpConfigured()) {
     if (statusEl) statusEl.textContent = '—';
-    container.innerHTML = '<div class="empty-hint">Dienstplan-Worker in den Einstellungen verbinden<br><small>Einstellungen → Dienstplan</small></div>';
+    container.innerHTML = '<div class="empty-hint">Noch kein Dienstplan verbunden.<br><small>Der Kalender aus dem Online-Dienstplan wird über deinen Cloudflare Worker geladen.</small><br><button type="button" class="btn-primary dp-connect" style="margin-top:14px">Dienstplan verbinden</button></div>';
+    const btn = container.querySelector('.dp-connect');
+    if (btn) btn.addEventListener('click', () => { switchTab('einstellungen'); setTimeout(() => openSettingsPage('dienstplan'), 60); });
     return;
   }
   const seq = ++dpLoadSeq; // nur die jüngste Anfrage darf rendern
@@ -4164,7 +4104,7 @@ async function loadDpShifts(force = false) {
 }
 
 function renderDpShifts(shifts, container) {
-  shifts = (shifts || []).filter((x) => x && x.start && x.end);
+  shifts = (shifts || []).filter((x) => x && x.start && x.end).sort((a, b) => new Date(a.start) - new Date(b.start));
   if (!shifts.length) {
     container.innerHTML = '<div class="empty-hint">Keine Dienste im Kalender gefunden.</div>';
     return;
@@ -4181,10 +4121,12 @@ function renderDpShifts(shifts, container) {
     group.className = 'dp-day-group';
     group.innerHTML = `<h3 class="dp-day-heading">${escHtml(dpFormatDayHeading(dayShifts[0].start))}</h3>`;
     for (const s of dayShifts) {
+      const saved = findSavedServiceForShift(s);
       const card = document.createElement('div');
-      card.className = 'dp-shift-card';
+      card.className = 'dp-shift-card' + (saved ? ' is-saved' : '');
       card.innerHTML = `
         <div class="dp-shift-top">
+          ${shiftCodeHtml(new Date(s.start), 'is-small')}
           <span class="dp-shift-time">${escHtml(dpFormatTime(s.start))} – ${escHtml(dpFormatTime(s.end))}</span>
           <span class="dp-shift-dur">${escHtml(dpDuration(s.start, s.end))}</span>
         </div>
@@ -4192,13 +4134,28 @@ function renderDpShifts(shifts, container) {
         ${s.location ? `<div class="dp-shift-meta">📍 ${escHtml(s.location)}</div>` : ''}
         ${s.description ? `<div class="dp-shift-meta">👥 ${escHtml(s.description)}</div>` : ''}
         <div class="dp-shift-actions">
-          <button class="btn-primary btn-dp-import">Dienst speichern</button>
+          ${saved
+            ? '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch · öffnen</button>'
+            : '<button type="button" class="btn-primary btn-dp-import">Ins Tagebuch übernehmen</button>'}
         </div>`;
-      card.querySelector('.btn-dp-import').addEventListener('click', () => importShiftToService(s));
+      const imp = card.querySelector('.btn-dp-import');
+      if (imp) imp.addEventListener('click', () => importShiftToService(s));
+      const open = card.querySelector('.btn-dp-open');
+      if (open) open.addEventListener('click', () => { selectedServiceId = saved.id; switchTab('dienste'); });
       group.appendChild(card);
     }
     container.appendChild(group);
   }
+}
+
+/** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */
+function findSavedServiceForShift(shift) {
+  const st = new Date(shift.start);
+  return state.services.find((svc) => {
+    if (svc.isSeg) return false;
+    const d = parseLocalDt(svc.startAt);
+    return d && Math.abs(d - st) < 5400000;
+  }) || null;
 }
 
 // Teilt Besatzungsstring per Komma auf, erkennt dabei Titel-Blöcke
@@ -4258,17 +4215,12 @@ function initDpButtons() {
     reloadBtn._bound = true;
     reloadBtn.addEventListener('click', () => loadDpShifts(true));
   }
-  const backBtn = document.getElementById('btn-dp-back');
-  if (backBtn && !backBtn._bound) {
-    backBtn._bound = true;
-    backBtn.addEventListener('click', () => switchTab('home'));
-  }
 }
 
 // ── iOS-Navigation: Navigationsleiste, Stack, Wischgesten, Sheets ─────────
-// Unterseiten gehören zu einem Tab (Dienstplan → Start). Der Tab-Button bleibt
+// Unterseiten gehören zu einem Tab (Favoriten → Tagebuch). Der Tab-Button bleibt
 // dabei aktiv, ein erneuter Tipp darauf führt zurück zur Tab-Wurzel.
-const TAB_ROOT = { dienstplan: 'home', favoriten: 'dienste' };
+const TAB_ROOT = { favoriten: 'dienste' };
 const TAB_TITLES = {
   home: 'Start', dienste: 'Tagebuch', statistik: 'Statistik',
   dienstplan: 'Dienstplan', favoriten: 'Favoriten', einstellungen: 'Einstellungen',
@@ -4602,21 +4554,26 @@ function initIosNavigation() {
 }
 
 // ── App-Lebenszyklus: Stabilität im Alltag ─────────────────────────────────
-const UI_STATE_KEY = 'etb_ui_state';
-const UI_STATE_MAX_AGE = 12 * 60 * 60 * 1000;
 
-// iOS beendet Homescreen-Apps im Hintergrund gern still. Damit man danach am
-// selben Bildschirm weitermacht, merken wir uns Tab und geöffneten Dienst.
-function saveUiState() {
-  lsSet(UI_STATE_KEY, JSON.stringify({ tab: activeTab, svc: selectedServiceId, at: Date.now() }));
-}
+// Beim Öffnen der App (Kaltstart) und nach längerer Pause im Hintergrund
+// geht es immer zu „Start“.
+const UI_RESET_AFTER = 10 * 60 * 1000;
+let hiddenSince = 0;
 
 function restoreUiState() {
-  let ui = null;
-  try { ui = JSON.parse(lsGet(UI_STATE_KEY, 'null')); } catch (_) {}
-  const valid = ui && Date.now() - (ui.at || 0) < UI_STATE_MAX_AGE && (TAB_TITLES[ui.tab]);
-  if (valid && ui.svc && state.services.some((s) => s.id === ui.svc)) selectedServiceId = ui.svc;
-  switchTab(valid ? ui.tab : 'home');
+  lsSet('etb_ui_state', null); // Altlast: früher gemerkte letzte Ansicht
+  switchTab('home');
+}
+
+/** Zurück zur Startseite, alle Unterseiten schließen (nicht bei offenen Fenstern). */
+function resetToHome() {
+  if (topVisibleOverlay() || navAnimating) return false;
+  if (settingsSub) { settingsSub = null; document.getElementById('tab-einstellungen').classList.remove('sub-open'); }
+  selectedServiceId = null;
+  renderServiceList(); renderServiceDetail();
+  switchTab('home');
+  ['tab-home', 'service-list-panel', 'settings-root'].forEach((id) => { const el = document.getElementById(id); if (el) el.scrollTop = 0; });
+  return true;
 }
 
 function isTypingSomewhere() {
@@ -4629,7 +4586,6 @@ function isTypingSomewhere() {
 function refreshActiveView(reason) {
   if (document.hidden || navAnimating || isTypingSomewhere() || topVisibleOverlay()) return;
   if (activeTab === 'home') {
-    // Aufgeklappte Einträge bleiben erhalten (homeOpenSet), daher gefahrlos
     renderHome().catch(() => {});
   } else if (activeTab === 'dienste' && reason !== 'tick') { renderServiceList(); renderServiceDetail(); }
   else if (activeTab === 'dienstplan' && reason === 'resume') loadDpShifts().catch(() => {});
@@ -4645,11 +4601,13 @@ function initAppLifecycle() {
 
   // Rückkehr aus dem Hintergrund: Uhr, Countdown & Daten sofort aktuell
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { saveUiState(); return; }
+    if (document.hidden) { hiddenSince = Date.now(); return; }
+    const away = hiddenSince ? Date.now() - hiddenSince : 0;
+    hiddenSince = 0;
+    if (away > UI_RESET_AFTER && activeTab !== 'home' && resetToHome()) return;
     refreshActiveView('resume');
   });
   window.addEventListener('pageshow', (e) => { if (e.persisted) refreshActiveView('resume'); });
-  window.addEventListener('pagehide', saveUiState);
 
   // Countdown/„läuft noch“-Anzeigen jede Minute nachführen
   setInterval(() => refreshActiveView('tick'), 60 * 1000);
@@ -4717,7 +4675,7 @@ function initAppLifecycle() {
       if (shown) return;
       shown = true;
       const t = toast('Neue Version verfügbar – tippen zum Aktualisieren.', 'info', 15000);
-      t.addEventListener('click', () => { saveUiState(); window.location.reload(); });
+      t.addEventListener('click', () => window.location.reload());
     });
   }
 }
