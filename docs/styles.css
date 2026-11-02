@@ -2445,3 +2445,28 @@ div.hm-row { cursor: default; }
 .dp-shift-top .dp-shift-dur { margin-left: auto; }
 .dp-shift-card.is-saved { border-left-color: var(--green-light); }
 #dienstplan-toolbar[hidden] { display: none; }
+
+/* Dienstplan: Änderungen (vom Worker erkannt) */
+.dp-chg-badge {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 6px;
+}
+.dp-chg-badge.is-added { color: var(--green-light); background: rgba(48, 209, 88, .16); }
+.dp-chg-badge.is-updated { color: var(--orange); background: rgba(255, 159, 10, .16); }
+.dp-chg-badge.is-removed { color: var(--danger); background: var(--accent-soft); }
+.dp-chg { background: var(--panel); border-radius: var(--radius-lg); margin: 4px 0 14px; overflow: hidden; }
+.dp-chg > summary {
+  list-style: none; cursor: pointer; padding: 12px 16px; font-size: 15px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.dp-chg > summary::-webkit-details-marker { display: none; }
+.dp-chg > summary::after { content: '›'; margin-left: auto; color: var(--text3); font-size: 20px; transition: transform .2s; }
+.dp-chg[open] > summary::after { transform: rotate(90deg); }
+.dp-chg-count { font-size: 13px; font-weight: 600; color: var(--text2); background: var(--fill); border-radius: 10px; padding: 1px 8px; }
+.dp-chg-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-top: .5px solid var(--separator); min-width: 0; }
+.dp-chg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dp-chg-title { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dp-chg-sub { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dp-chg-old { color: var(--text3); text-decoration: line-through; }
+.dp-chg-at { font-size: 12px; color: var(--text3); flex-shrink: 0; }

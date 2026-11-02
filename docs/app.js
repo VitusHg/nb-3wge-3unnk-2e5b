@@ -3029,6 +3029,7 @@ function settingsPageDienstplan(el, title) {
       ${dpConfigured() ? '<button type="button" class="set-row set-destructive" id="btn-dp-remove"><span class="set-row-text set-row-title">Verbindung entfernen</span></button>' : ''}
     </div>
     <p class="set-group-footer" id="ics-status">${escHtml(status)}</p>
+    <div id="push-settings"></div>
 
     ${legacy ? `
     <div class="set-group-header">Alte Kalender-URL</div>
@@ -3057,6 +3058,7 @@ function settingsPageDienstplan(el, title) {
     </div>
     <p class="set-group-footer">${isIOSDevice() ? '„In Safari“ nutzt ein iOS-Schema (ab iOS 17). Passiert beim Tippen nichts, „In der App“ wählen.' : 'Auf diesem Gerät öffnen Links immer in einem neuen Tab; die Auswahl gilt für iPhone/iPad.'}</p>`;
   el.querySelector('#btn-dp-open-abt').addEventListener('click', openAbteilungenPopup);
+  renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
   el.querySelectorAll('[data-dp-link]').forEach((btn) => btn.addEventListener('click', () => {
     lsSet(DP_LINK_KEY, btn.dataset.dpLink);
     el.querySelectorAll('[data-dp-link]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
@@ -4032,8 +4034,16 @@ document.addEventListener('DOMContentLoaded', init);
 // ── Dienstplan (ICS via CORS-Proxy) ───────────────────────────────────────
 
 async function loadDienstplan() {
-  await loadDpShifts();
   initDpButtons();
+  await loadDpShifts();
+  // Änderungen (vom Worker erkannt) nachladen und Markierungen setzen
+  const before = JSON.stringify(recentDpChanges());
+  await loadDpChanges();
+  if (activeTab === 'dienstplan' && JSON.stringify(recentDpChanges()) !== before) {
+    const cache = readIcsCache();
+    const container = document.getElementById('dienstplan-container');
+    if (cache && container) renderDpShifts(cache.shifts, container);
+  }
 }
 
 function dpFormatTime(iso) {
@@ -4115,18 +4125,21 @@ function renderDpShifts(shifts, container) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
   }
-  container.innerHTML = '';
+  const changes = recentDpChanges();
+  container.innerHTML = dpChangesPanelHtml(changes);
   for (const dayShifts of groups.values()) {
     const group = document.createElement('div');
     group.className = 'dp-day-group';
     group.innerHTML = `<h3 class="dp-day-heading">${escHtml(dpFormatDayHeading(dayShifts[0].start))}</h3>`;
     for (const s of dayShifts) {
       const saved = findSavedServiceForShift(s);
+      const chg = dpChangeFor(s, changes);
       const card = document.createElement('div');
       card.className = 'dp-shift-card' + (saved ? ' is-saved' : '');
       card.innerHTML = `
         <div class="dp-shift-top">
           ${shiftCodeHtml(new Date(s.start), 'is-small')}
+          ${chg ? `<span class="dp-chg-badge is-${chg.type}">${chg.type === 'added' ? 'Neu' : 'Geändert'}</span>` : ''}
           <span class="dp-shift-time">${escHtml(dpFormatTime(s.start))} – ${escHtml(dpFormatTime(s.end))}</span>
           <span class="dp-shift-dur">${escHtml(dpDuration(s.start, s.end))}</span>
         </div>
@@ -4215,6 +4228,220 @@ function initDpButtons() {
     reloadBtn._bound = true;
     reloadBtn.addEventListener('click', () => loadDpShifts(true));
   }
+}
+
+// ── Benachrichtigungen bei Dienstplan-Änderungen (Web Push über den Worker) ─
+// Der Worker prüft den Kalender per Zeitplan und schickt Mitteilungen; die App
+// meldet hier nur das Gerät an/ab und zeigt die letzten Änderungen an.
+const PUSH_ENDPOINT_KEY = 'etb_push_endpoint';
+const DP_CHANGES_KEY = 'etb_dp_changes';
+const DP_CHANGES_DAYS = 7;
+let launchTabAt = 0;
+
+function workerBase() {
+  const url = dpConfig().url;
+  if (!url) return null;
+  return window.RKDienstplan ? window.RKDienstplan.normalizeWorkerUrl(url) : url.replace(/\/dienstplan\.ics$/, '').replace(/\/+$/, '');
+}
+
+async function workerApi(path, { method = 'GET', body } = {}) {
+  const base = workerBase();
+  if (!base || !dpConfigured()) throw new Error('Dienstplan ist nicht verbunden.');
+  let res;
+  try {
+    res = await fetch(base + path, {
+      method,
+      headers: Object.assign({ Authorization: 'Bearer ' + dpConfig().token }, body ? { 'Content-Type': 'application/json' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+    });
+  } catch (_) { throw new Error('Worker nicht erreichbar.'); }
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const msg = {
+      push_not_configured: 'Der Worker ist noch nicht für Benachrichtigungen eingerichtet (KV-Speicher PUSH_KV fehlt).',
+      unauthorized: 'Zugangsschlüssel passt nicht zum Worker.',
+      not_found: 'Der Worker kennt diese Funktion noch nicht – bitte den neuen Worker-Code bereitstellen.',
+      no_devices: 'Kein Gerät angemeldet.',
+    }[data.error] || ('Fehler vom Worker (' + (data.error || res.status) + ').');
+    const err = new Error(msg); err.code = data.error || res.status; throw err;
+  }
+  return data;
+}
+
+function pushSupport() {
+  const ios = isIOSDevice();
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return { ok: false, reason: ios && !standalone ? 'Auf dem iPhone gehen Mitteilungen nur in der Home-Bildschirm-App (Safari → Teilen → Zum Home-Bildschirm), ab iOS 16.4.' : 'Dieser Browser unterstützt keine Mitteilungen.' };
+  }
+  if (Notification.permission === 'denied') return { ok: false, reason: 'Mitteilungen sind blockiert. In den iOS-Einstellungen → Mitteilungen → Einsatztagebuch erlauben.' };
+  return { ok: true };
+}
+
+function b64urlToBytes(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+
+async function currentPushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch (_) { return null; }
+}
+
+async function enablePush() {
+  const sup = pushSupport();
+  if (!sup.ok) throw new Error(sup.reason);
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Mitteilungen wurden nicht erlaubt.');
+  const { publicKey } = await workerApi('/push/key');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  // Anderer Schlüssel (z. B. neuer Worker) → neu anmelden
+  if (sub && sub.options && sub.options.applicationServerKey) {
+    const cur = new Uint8Array(sub.options.applicationServerKey);
+    const want = b64urlToBytes(publicKey);
+    if (cur.length !== want.length || cur.some((v, i) => v !== want[i])) { await sub.unsubscribe().catch(() => {}); sub = null; }
+  }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(publicKey) });
+  const label = isIOSDevice() ? 'iPhone' : (navigator.userAgentData && navigator.userAgentData.platform) || 'Gerät';
+  await workerApi('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), label } });
+  lsSet(PUSH_ENDPOINT_KEY, sub.endpoint);
+}
+
+async function disablePush() {
+  const sub = await currentPushSubscription();
+  const endpoint = (sub && sub.endpoint) || lsGet(PUSH_ENDPOINT_KEY);
+  if (endpoint) await workerApi('/push/unsubscribe', { method: 'POST', body: { endpoint } }).catch(() => {});
+  if (sub) await sub.unsubscribe().catch(() => {});
+  lsSet(PUSH_ENDPOINT_KEY, '');
+}
+
+/** Baut die Gruppe „Benachrichtigungen“ in Einstellungen → Dienstplan auf. */
+async function renderPushSettings(host) {
+  if (!host) return;
+  if (!dpConfigured()) { host.innerHTML = ''; return; }
+  const sup = pushSupport();
+  const sub = await currentPushSubscription();
+  const active = !!(sub && lsGet(PUSH_ENDPOINT_KEY) === sub.endpoint && Notification.permission === 'granted');
+  host.innerHTML = `
+    <div class="set-group-header">Benachrichtigungen</div>
+    <div class="set-group">
+      ${active
+        ? `<div class="set-row"><span class="set-row-text"><span class="set-row-title">Aktiv auf diesem Gerät</span><span class="set-row-sub" id="push-status">Status wird geladen…</span></span></div>
+           <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text set-row-title">Testmitteilung senden</span></button>
+           <button type="button" class="set-row set-destructive" id="btn-push-off"><span class="set-row-text set-row-title">Benachrichtigungen ausschalten</span></button>`
+        : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
+    </div>
+    <p class="set-group-footer">${escHtml(sup.ok
+      ? 'Der Worker prüft den Dienstplan alle 10 Minuten und meldet neue, geänderte und ausgefallene Dienste – auch wenn die App geschlossen ist.'
+      : sup.reason)}</p>`;
+  const on = host.querySelector('#btn-push-on');
+  if (on) on.addEventListener('click', async () => {
+    on.disabled = true;
+    try { await enablePush(); toast('Benachrichtigungen aktiv.', 'success'); }
+    catch (err) { toast(err.message, 'error', 6000); }
+    renderPushSettings(host);
+  });
+  const off = host.querySelector('#btn-push-off');
+  if (off) off.addEventListener('click', async () => {
+    off.disabled = true;
+    await disablePush();
+    toast('Benachrichtigungen ausgeschaltet.', 'success');
+    renderPushSettings(host);
+  });
+  const test = host.querySelector('#btn-push-test');
+  if (test) test.addEventListener('click', async () => {
+    test.disabled = true;
+    try { await workerApi('/push/test', { method: 'POST', body: { endpoint: sub.endpoint } }); toast('Testmitteilung gesendet.', 'success'); }
+    catch (err) {
+      // Anmeldung beim Worker verloren (z. B. neuer KV-Speicher) → neu anmelden
+      if (err.code === 'no_devices') { try { await enablePush(); toast('Gerät neu angemeldet – bitte nochmal testen.', 'info', 4000); } catch (e2) { toast(e2.message, 'error', 6000); } }
+      else toast(err.message, 'error', 6000);
+    }
+    test.disabled = false;
+  });
+  const st = host.querySelector('#push-status');
+  if (st) {
+    try {
+      const s = await workerApi('/push/status');
+      const when = s.lastCheck ? new Date(s.lastCheck) : null;
+      st.textContent = (when ? `Zuletzt geprüft ${homeDayLabel(when, new Date())}, ${formatTimeHM(when)}` : 'Noch nicht geprüft – Zeitplan (Cron) im Worker eingerichtet?')
+        + (s.lastError ? ` · Fehler: ${s.lastError}` : '')
+        + ` · ${s.devices} ${s.devices === 1 ? 'Gerät' : 'Geräte'}`;
+    } catch (err) { st.textContent = err.message; }
+  }
+}
+
+// — Änderungen im Dienstplan-Tab anzeigen ——————————————————————————————————
+function readDpChanges() {
+  try { const c = JSON.parse(lsGet(DP_CHANGES_KEY, 'null')); return c && Array.isArray(c.changes) ? c : null; } catch (_) { return null; }
+}
+
+/** Holt die letzten Änderungen vom Worker (still; ohne Push-Einrichtung leer). */
+async function loadDpChanges() {
+  if (!dpConfigured()) return null;
+  try {
+    const data = await workerApi('/push/changes');
+    const entry = { at: Date.now(), changes: data.changes || [] };
+    lsSet(DP_CHANGES_KEY, JSON.stringify(entry));
+    return entry;
+  } catch (_) { return readDpChanges(); }
+}
+
+function recentDpChanges() {
+  const c = readDpChanges();
+  if (!c) return [];
+  const since = Date.now() - DP_CHANGES_DAYS * 86400000;
+  return c.changes.filter((x) => x.at >= since);
+}
+
+/** Markierung für eine Dienstkarte: jüngste Änderung zu dieser UID. */
+function dpChangeFor(shift, changes) {
+  const st = new Date(shift.start).getTime();
+  return changes.find((c) => c.type !== 'removed' && c.now && ((shift.uid && c.uid === shift.uid) || c.now.s === st)) || null;
+}
+
+function dpChangesPanelHtml(changes) {
+  if (!changes.length) return '';
+  const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' };
+  const fmt = (x) => {
+    const s = new Date(x.s), e = new Date(x.e);
+    return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
+  };
+  const rows = changes.slice(0, 8).map((c) => {
+    const x = c.now || c.before;
+    const extra = c.type === 'updated' && c.before && (c.before.s !== x.s || c.before.e !== x.e) ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(c.before))}</span>` : '';
+    const at = new Date(c.at);
+    return `<div class="dp-chg-row">
+      <span class="dp-chg-badge is-${c.type}">${label[c.type]}</span>
+      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
+      <span class="dp-chg-at">${escHtml(homeDayLabel(at, new Date()))}</span>
+    </div>`;
+  }).join('');
+  return `<details class="dp-chg" ${changes.some((c) => Date.now() - c.at < 86400000) ? 'open' : ''}>
+    <summary>Änderungen der letzten ${DP_CHANGES_DAYS} Tage <span class="dp-chg-count">${changes.length}</span></summary>
+    <div class="dp-chg-list">${rows}</div>
+  </details>`;
+}
+
+// Öffnen aus einer Mitteilung (#dienstplan) bzw. Nachricht vom Service Worker
+function handleLaunchTarget() {
+  if (location.hash === '#dienstplan') {
+    history.replaceState(null, '', location.pathname + location.search);
+    switchTab('dienstplan');
+    return true;
+  }
+  return false;
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'open-tab' && e.data.tab && TAB_TITLES[e.data.tab]) {
+      launchTabAt = Date.now(); // verhindert das automatische Zurück zu „Start“ beim Aufwachen
+      if (!topVisibleOverlay()) switchTab(e.data.tab);
+    }
+  });
 }
 
 // ── iOS-Navigation: Navigationsleiste, Stack, Wischgesten, Sheets ─────────
@@ -4562,7 +4789,7 @@ let hiddenSince = 0;
 
 function restoreUiState() {
   lsSet('etb_ui_state', null); // Altlast: früher gemerkte letzte Ansicht
-  switchTab('home');
+  if (!handleLaunchTarget()) switchTab('home');
 }
 
 /** Zurück zur Startseite, alle Unterseiten schließen (nicht bei offenen Fenstern). */
@@ -4604,7 +4831,7 @@ function initAppLifecycle() {
     if (document.hidden) { hiddenSince = Date.now(); return; }
     const away = hiddenSince ? Date.now() - hiddenSince : 0;
     hiddenSince = 0;
-    if (away > UI_RESET_AFTER && activeTab !== 'home' && resetToHome()) return;
+    if (away > UI_RESET_AFTER && activeTab !== 'home' && Date.now() - launchTabAt > 5000 && resetToHome()) return;
     refreshActiveView('resume');
   });
   window.addEventListener('pageshow', (e) => { if (e.persisted) refreshActiveView('resume'); });

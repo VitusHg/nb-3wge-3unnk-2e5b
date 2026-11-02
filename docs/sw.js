@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v21';
+const CACHE_NAME = CACHE_PREFIX + 'v22';
 
 // Alle Pfade relativ → funktioniert unter /<repo>/ genauso wie unter /
 const APP_SHELL = [
@@ -88,4 +88,33 @@ self.addEventListener('fetch', (event) => {
       })
     )
   );
+});
+
+// ── Mitteilungen bei Dienstplan-Änderungen (vom Cloudflare Worker) ─────────
+// iOS verlangt, dass jede Push-Nachricht sichtbar angezeigt wird.
+self.addEventListener('push', (event) => {
+  let msg = {};
+  try { msg = event.data ? event.data.json() : {}; } catch (_) { msg = { body: event.data ? event.data.text() : '' }; }
+  const title = msg.title || 'Dienstplan geändert';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: msg.body || '',
+    tag: msg.tag || undefined,
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    data: { url: msg.url || './#dienstplan' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || './#dienstplan', self.registration.scope).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const win = wins.find((w) => w.url.startsWith(self.registration.scope));
+    if (win) {
+      win.postMessage({ type: 'open-tab', tab: 'dienstplan' });
+      return win.focus();
+    }
+    return self.clients.openWindow(target);
+  })());
 });
