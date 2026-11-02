@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Einsatztagebuch</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" id="theme-color-meta" content="#000000" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    // Darstellung vor dem ersten Zeichnen setzen (kein Aufblitzen)
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('etb_theme'); } catch (e) { /* ignorieren */ }
+      if (['system', 'light', 'dark'].indexOf(t) === -1) t = 'system';
+      document.documentElement.setAttribute('data-theme', t);
+      var light = t === 'light' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+      document.getElementById('theme-color-meta').setAttribute('content', light ? '#f2f2f7' : '#000000');
+    })();
+  </script>
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="ETB" />
+  <meta name="format-detection" content="telephone=no" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div id="topbar-left">
+        <button id="nav-back" class="nav-back" type="button" hidden>
+          <svg viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="nav-back-label">Zurück</span>
+        </button>
+        <div id="topbar-title">
+          <span class="app-icon">🚑</span>
+          <span>Einsatztagebuch</span>
+        </div>
+      </div>
+      <div id="nav-title" aria-live="polite"></div>
+      <div id="topbar-right">
+        <span id="user-label"></span>
+      </div>
+    </header>
+
+    <div id="layout">
+      <nav id="sidebar" aria-label="Hauptnavigation">
+        <button class="nav-btn active" data-tab="home">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.2 12 3.5l8.5 6.7V19a1.5 1.5 0 0 1-1.5 1.5h-4.2v-5.8H9.2v5.8H5A1.5 1.5 0 0 1 3.5 19z"/></svg></span>
+          <span>Start</span>
+        </button>
+        <button class="nav-btn" data-tab="dienste">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.8A1.8 1.8 0 0 1 6.8 3H19v14.5H6.8A1.8 1.8 0 0 0 5 19.3z"/><path d="M5 19.3A1.8 1.8 0 0 0 6.8 21H19v-3.5"/><path class="ni-line" d="M9 7.5h6M9 11h4"/></svg></span>
+          <span>Tagebuch</span>
+        </button>
+        <button class="nav-btn" data-tab="statistik">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ni-line" d="M5 20v-7M10 20V5M15 20v-10M20 20V8" stroke-width="2.6"/></svg></span>
+          <span>Statistik</span>
+        </button>
+        <button class="nav-btn" data-tab="einstellungen">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="ni-line" cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+          <span>Einstellungen</span>
+        </button>
+      </nav>
+
+      <main id="main-content">
+        <!-- Tab: Home -->
+        <div id="tab-home" class="tab-panel active">
+          <h1 class="large-title">Start</h1>
+          <div id="home-container"></div>
+        </div>
+
+        <!-- Tab: Dienste -->
+        <div id="tab-dienste" class="tab-panel">
+          <div id="dienste-layout">
+            <div id="service-list-panel">
+              <div id="service-list-header">
+                <h1 class="large-title">Tagebuch</h1>
+                <div id="service-list-actions">
+                  <button id="btn-global-lights" class="btn-global-lights" title="Globales Blaulicht ein/aus"></button>
+                  <button id="btn-new-service" class="btn-primary">+ Dienst</button>
+                  <button id="btn-new-seg" class="btn-secondary">⚡ SEG</button>
+                </div>
+              </div>
+              <button id="btn-open-favorites" class="fav-entry" type="button">
+                <span class="fav-entry-icon" aria-hidden="true">★</span>
+                <span class="fav-entry-label">Favoriten</span>
+                <span id="fav-entry-count" class="fav-entry-count"></span>
+                <span class="fav-entry-chevron" aria-hidden="true">›</span>
+              </button>
+              <div id="search-bar">
+                <input type="search" id="search-input" placeholder="Suchen" aria-label="Suche nach Datum, Ort, Fahrzeug, Kollegen" enterkeyhint="search" />
+              </div>
+              <div id="service-list"></div>
+            </div>
+            <div id="service-detail-panel">
+              <div id="service-detail-empty">
+                <p>Einen Dienst auswählen</p>
+              </div>
+              <div id="service-detail-content" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unterseite: Favoriten (gehört zum Tagebuch-Tab) -->
+        <div id="tab-favoriten" class="tab-panel">
+          <h1 class="large-title">Favoriten</h1>
+          <div id="favoriten-container"></div>
+        </div>
+
+        <!-- Tab: Statistik -->
+        <div id="tab-statistik" class="tab-panel">
+          <h1 class="large-title">Statistik</h1>
+          <div id="stats-container"></div>
+        </div>
+
+        <!-- Tab: Dienstplan (accessible via Home quick action, no nav button) -->
+        <div id="tab-dienstplan" class="tab-panel">
+          <h1 class="large-title">Dienstplan</h1>
+          <div id="dienstplan-layout">
+            <div id="dienstplan-toolbar">
+              <button id="btn-dp-back" class="btn-ghost" style="display:flex;align-items:center;gap:6px">← Start</button>
+              <span id="dienstplan-sync-status" class="dp-sync-status">—</span>
+              <button id="btn-dp-reload" class="btn-secondary">↻ Laden</button>
+            </div>
+            <div id="dienstplan-container">
+              <div class="empty-hint">Kalender-URL in den Einstellungen hinterlegen.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Einstellungen -->
+        <div id="tab-einstellungen" class="tab-panel">
+          <div id="settings-root" class="settings-pane">
+            <h1 class="large-title">Einstellungen</h1>
+            <div id="settings-container"></div>
+          </div>
+          <div id="settings-sub" class="settings-pane"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Service Dialog -->
+  <div id="dialog-service" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3 id="dialog-service-title">Dienst</h3>
+        <button class="dialog-close" data-close="dialog-service" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body fg-body">
+        <div class="fg-group-title">Zeit</div>
+        <div class="form-group">
+          <div class="fg-field fg-inline">
+            <label class="fg-label" for="svc-start">Beginn</label>
+            <input type="datetime-local" id="svc-start" />
+          </div>
+          <div class="fg-field fg-inline">
+            <label class="fg-label" for="svc-end">Ende</label>
+            <input type="datetime-local" id="svc-end" />
+          </div>
+          <div class="fg-field">
+            <div class="fg-label">Dauer <span id="svc-duration-label" class="fg-label-value"></span></div>
+            <div class="dur-chips" role="group" aria-label="Dauer wählen">
+              <button type="button" class="dur-chip" data-hours="8">8 h</button>
+              <button type="button" class="dur-chip" data-hours="10">10 h</button>
+              <button type="button" class="dur-chip" data-hours="12">12 h</button>
+              <button type="button" class="dur-chip" data-hours="24">24 h</button>
+              <input type="text" id="svc-duration-custom" class="dur-custom" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="… h" aria-label="Eigene Dauer in Stunden" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="fg-group-title">Einsatzmittel</div>
+        <div class="form-group">
+          <div class="fg-field suggestion-wrap">
+            <label class="fg-label" for="svc-vehicle">Fahrzeug</label>
+            <div class="fg-with-icon">
+              <input type="text" id="svc-vehicle" placeholder="z. B. RTW 1/23" autocomplete="off" />
+              <span id="svc-vehicle-icon" class="fg-veh-icon" aria-hidden="true"></span>
+            </div>
+            <div id="svc-vehicle-suggestions" class="suggestions-dropdown"></div>
+          </div>
+          <div class="fg-field suggestion-wrap">
+            <label class="fg-label" for="svc-abteilung">Abteilung</label>
+            <input type="text" id="svc-abteilung" placeholder="z. B. MINA" autocomplete="off" />
+            <div id="svc-abteilung-suggestions" class="suggestions-dropdown"></div>
+          </div>
+          <div class="fg-field suggestion-wrap">
+            <label class="fg-label" for="svc-location">Dienststelle</label>
+            <input type="text" id="svc-location" placeholder="Dienststelle" autocomplete="off" />
+            <div id="svc-location-suggestions" class="suggestions-dropdown"></div>
+          </div>
+        </div>
+
+        <div class="fg-group-title">Besatzung</div>
+        <div class="form-group">
+          <div class="fg-field suggestion-wrap">
+            <div class="chip-input" id="svc-colleague-box">
+              <div id="svc-colleague-tags" class="chip-list"></div>
+              <input type="text" id="svc-colleague-input" placeholder="Name hinzufügen" autocomplete="off" enterkeyhint="enter" aria-label="Kolleg:in hinzufügen" />
+            </div>
+            <div id="svc-colleague-suggestions" class="suggestions-dropdown"></div>
+          </div>
+        </div>
+
+        <div class="fg-group-title">Notiz</div>
+        <div class="form-group">
+          <div class="fg-field"><textarea id="svc-note" rows="2" placeholder="Optional" aria-label="Notiz"></textarea></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-svc-delete" class="btn-danger" style="display:none">Löschen</button>
+        <button id="btn-svc-save" class="btn-primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incident Read View (liegt unter dem Bearbeiten-Dialog) -->
+  <div id="dialog-incident-view" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-wide">
+      <div class="dialog-header">
+        <h3 id="inc-view-title">Einsatz</h3>
+        <button class="dialog-close" data-close="dialog-incident-view" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body inc-view-body" id="inc-view-body"></div>
+      <div class="dialog-footer">
+        <button id="btn-inc-view-delete" class="btn-danger">Löschen</button>
+        <button id="btn-inc-view-edit" class="btn-primary">Bearbeiten</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Incident Dialog -->
+  <div id="dialog-incident" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-wide">
+      <div class="dialog-header">
+        <h3 id="dialog-incident-title">Einsatz</h3>
+        <button class="dialog-close" data-close="dialog-incident">✕</button>
+      </div>
+      <div class="dialog-body">
+        <!-- SEG: eigener Einsatz mit Beginn/Ende, Ort und Besatzung -->
+        <div id="inc-seg-section" hidden>
+          <div class="fg-group-title">SEG</div>
+          <div class="form-group">
+            <div class="fg-field fg-inline">
+              <label class="fg-label" for="seg-start">Beginn</label>
+              <input type="datetime-local" id="seg-start" />
+            </div>
+            <div class="fg-field fg-inline">
+              <label class="fg-label" for="seg-end">Ende</label>
+              <input type="datetime-local" id="seg-end" />
+            </div>
+            <div class="fg-field suggestion-wrap">
+              <label class="fg-label" for="seg-location">Ort</label>
+              <input type="text" id="seg-location" placeholder="Einsatzort" autocomplete="off" />
+              <div id="seg-location-suggestions" class="suggestions-dropdown"></div>
+            </div>
+            <div class="fg-field suggestion-wrap">
+              <label class="fg-label" for="seg-vehicle">Fahrzeug</label>
+              <div class="fg-with-icon">
+                <input type="text" id="seg-vehicle" placeholder="z. B. SEG 1" autocomplete="off" />
+                <span id="seg-vehicle-icon" class="fg-veh-icon" aria-hidden="true"></span>
+              </div>
+              <div id="seg-vehicle-suggestions" class="suggestions-dropdown"></div>
+            </div>
+            <div class="fg-field suggestion-wrap">
+              <div class="fg-label">Kolleg:innen</div>
+              <div class="chip-input" id="seg-colleague-box">
+                <div id="seg-colleague-tags" class="chip-list"></div>
+                <input type="text" id="seg-colleague-input" placeholder="Name hinzufügen" autocomplete="off" enterkeyhint="enter" aria-label="Kolleg:in hinzufügen" />
+              </div>
+              <div id="seg-colleague-suggestions" class="suggestions-dropdown"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Einsatzmittel: eigenes Fahrzeug (Blaulicht) + weitere -->
+        <div class="einsatzmittel-row" id="einsatzmittel-row">
+          <button id="btn-lights" class="btn-lights" title="Blaulicht umschalten" type="button">
+            <span id="lights-icon"></span>
+          </button>
+          <button id="btn-add-extra-vehicle" class="btn-add-vehicle" title="Weiteres Fahrzeug hinzufügen" type="button">＋</button>
+        </div>
+
+        <div class="fg-field suggestion-wrap">
+          <label class="fg-label" for="inc-keyword">Einsatzstichwort</label>
+          <input type="text" id="inc-keyword" placeholder="Stichwort eingeben…" autocomplete="off" />
+          <div id="inc-keyword-suggestions" class="suggestions-dropdown"></div>
+        </div>
+
+        <!-- Kennzahlen: kompakt, ID (nur Ziffern) + Suche bzw. Auswahl -->
+        <div class="code-grid">
+          <div class="cg-row">
+            <label class="cg-label" for="inc-einsatzart">Einsatzart</label>
+            <div class="cg-ctrl">
+              <input type="text" id="inc-einsatzart" class="cg-id" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="ID" autocomplete="off" />
+              <div class="suggestion-wrap cg-search-wrap">
+                <input type="search" id="inc-einsatzart-search" class="cg-search" placeholder="Suchen…" autocomplete="off" enterkeyhint="done" aria-label="Einsatzart suchen" />
+                <div id="inc-einsatzart-suggestions" class="suggestions-dropdown"></div>
+              </div>
+            </div>
+          </div>
+          <div class="cg-row">
+            <label class="cg-label" for="inc-statkz">Statistik-KZ</label>
+            <div class="cg-ctrl">
+              <input type="text" id="inc-statkz" class="cg-id" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="ID" autocomplete="off" />
+              <div class="suggestion-wrap cg-search-wrap">
+                <input type="search" id="inc-statkz-search" class="cg-search" placeholder="Suchen…" autocomplete="off" enterkeyhint="done" aria-label="Statistikkennzahl suchen" />
+                <div id="inc-statkz-suggestions" class="suggestions-dropdown"></div>
+              </div>
+            </div>
+          </div>
+          <div class="cg-row">
+            <label class="cg-label" for="pzc-diag">PZC</label>
+            <div class="cg-ctrl">
+              <div class="cg-pzc">
+                <input type="text" id="pzc-diag" class="cg-id pzc-diag" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="000" autocomplete="off" aria-label="PZC Diagnose" />
+                <input type="text" id="pzc-age" class="cg-id pzc-age" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="00" autocomplete="off" aria-label="PZC Alter" />
+                <input type="text" id="pzc-prio" class="cg-id pzc-prio" inputmode="numeric" pattern="[1-3]*" maxlength="1" placeholder="1" autocomplete="off" aria-label="PZC Priorität" />
+              </div>
+              <div class="suggestion-wrap cg-search-wrap">
+                <input type="search" id="pzc-search" class="cg-search" placeholder="Suchen…" autocomplete="off" enterkeyhint="done" aria-label="PZC suchen" />
+                <div id="pzc-search-suggestions" class="suggestions-dropdown"></div>
+              </div>
+            </div>
+          </div>
+          <div id="pzc-resolution" class="cg-hint"></div>
+          <div class="cg-row">
+            <label class="cg-label" for="naca-score">NACA</label>
+            <div class="cg-ctrl">
+              <input type="text" id="naca-score" class="cg-id" inputmode="numeric" pattern="[0-7]*" maxlength="1" placeholder="ID" autocomplete="off" />
+              <select id="naca-select" class="cg-select" aria-label="NACA-Score wählen"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="fg-field">
+          <label class="fg-label" for="inc-note">Notiz</label>
+          <textarea id="inc-note" rows="2" placeholder="Optional"></textarea>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-inc-delete" class="btn-danger" style="display:none">Löschen</button>
+        <button id="btn-inc-save" class="btn-primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vehicle Category Dialog -->
+  <div id="dialog-vehicle-cat" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3 id="vcat-dialog-title">Fahrzeugkategorie</h3>
+        <button class="dialog-close" data-close="dialog-vehicle-cat">✕</button>
+      </div>
+      <div class="dialog-body">
+        <label>
+          <span>Name</span>
+          <input type="text" id="vcat-name" placeholder="z.B. RTW T6, KTW Sprinter…" />
+        </label>
+        <label>
+          <span>Icon normal (PNG-URL)</span>
+          <input type="url" id="vcat-icon-normal" placeholder="https://…_ohne_SoSi.png" />
+        </label>
+        <label>
+          <span>Icon SoSi (APNG-URL)</span>
+          <input type="url" id="vcat-icon-sosi" placeholder="https://…_mit_SoSi.png" />
+        </label>
+        <div class="vcat-preview-row">
+          <span class="field-label">Vorschau</span>
+          <div id="vcat-preview" class="vcat-preview"></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-vcat-save" class="btn-primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vehicles Popup -->
+  <div id="dialog-vehicles" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-fullwide">
+      <div class="dialog-header">
+        <h3>Fahrzeuge &amp; Icons</h3>
+        <button class="dialog-close" data-close="dialog-vehicles">✕</button>
+      </div>
+      <div class="dialog-body popup-two-col">
+        <div class="veh-popup-left popup-col"></div>
+        <div class="veh-popup-right popup-col"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Codes Popup -->
+  <div id="dialog-codes" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-fullwide">
+      <div class="dialog-header">
+        <h3>Codes &amp; PZC</h3>
+        <button class="dialog-close" data-close="dialog-codes">✕</button>
+      </div>
+      <div class="dialog-body popup-two-col">
+        <div class="codes-popup-left popup-col"></div>
+        <div class="codes-popup-right popup-col"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Abteilungen (Aufbau wie Stichwörter & PZC) -->
+  <div id="dialog-abteilungen" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3>Abteilungen</h3>
+        <button class="dialog-close" data-close="dialog-abteilungen" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body popup-col abt-popup"></div>
+    </div>
+  </div>
+
+  <!-- Zurücksetzen: Datenbereiche auswählen -->
+  <div id="dialog-reset" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3>Zurücksetzen</h3>
+        <button class="dialog-close" data-close="dialog-reset" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="settings-hint" style="margin-bottom:4px">Wähle, welche Daten von diesem Gerät gelöscht werden. Das lässt sich nicht rückgängig machen.</p>
+        <div class="export-checklist" id="reset-checklist"></div>
+        <button type="button" id="btn-reset-export-first" class="btn-ghost" style="align-self:flex-start">Vorher Sicherung exportieren…</button>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-reset-all" class="btn-secondary">Alle</button>
+        <button id="btn-reset-none" class="btn-secondary">Keine</button>
+        <button id="btn-reset-confirm" class="btn-danger" disabled>Löschen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Dialog -->
+  <div id="dialog-export" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3>Daten exportieren</h3>
+        <button class="dialog-close" data-close="dialog-export">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="settings-hint" style="margin-bottom:12px">Wähle, welche Daten exportiert werden sollen:</p>
+        <div class="export-checklist">
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-services" checked />
+            <span class="export-check-icon">📋</span>
+            <span class="export-check-label">Dienste &amp; Einsätze</span>
+            <span class="export-check-count" id="exp-services-count"></span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-profile" checked />
+            <span class="export-check-icon">👤</span>
+            <span class="export-check-label">Profil (Anzeigename)</span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-calendar" checked />
+            <span class="export-check-icon">📅</span>
+            <span class="export-check-label">Dienstplan-Worker (Adresse)</span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-vehicles" checked />
+            <span class="export-check-icon">🚑</span>
+            <span class="export-check-label">Fahrzeug-Icons &amp; Zuweisungen</span>
+            <span class="export-check-count" id="exp-vehicles-count"></span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-alarm" checked />
+            <span class="export-check-icon">🚨</span>
+            <span class="export-check-label">Einsatzstichwörter</span>
+            <span class="export-check-count" id="exp-alarm-count"></span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-pzc" checked />
+            <span class="export-check-icon">🏥</span>
+            <span class="export-check-label">PZC-Codes</span>
+            <span class="export-check-count" id="exp-pzc-count"></span>
+          </label>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-export-select-all" class="btn-secondary">Alle</button>
+        <button id="btn-export-none" class="btn-secondary">Keine</button>
+        <button id="btn-export-confirm" class="btn-primary">Exportieren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Dialog -->
+  <div id="dialog-import" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3>Daten importieren</h3>
+        <button class="dialog-close" data-close="dialog-import">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="settings-hint" style="margin-bottom:12px">Folgende Daten wurden in der Datei gefunden. Wähle, was importiert werden soll:</p>
+        <div class="export-checklist" id="import-checklist"></div>
+        <p class="settings-hint import-warn" id="import-warn" style="display:none;color:var(--danger);margin-top:8px"></p>
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-import-confirm" class="btn-primary">Importieren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats filter popup -->
+  <div id="dialog-stats-filter" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-wide">
+      <div class="dialog-header">
+        <h3>Statistik-Filter</h3>
+        <button class="dialog-close" data-close="dialog-stats-filter">✕</button>
+      </div>
+      <div class="dialog-body" style="overflow-y:auto;max-height:70vh">
+        <!-- populated by openStatsFilterPopup() -->
+      </div>
+      <div class="dialog-footer">
+        <button id="btn-sf-apply" class="btn-primary">Anwenden</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/ical.min.js"></script>
+  <script src="vendor/rk-dienstplan.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

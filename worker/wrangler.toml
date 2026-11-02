@@ -1,0 +1,24 @@
+# Cloudflare Worker für den Dienstplan des Einsatztagebuchs (kostenloser Tarif).
+# Unverändert übernommen aus vitushg/rktel – du kannst auch einfach den schon
+# eingerichteten RKTel-Worker mitbenutzen (siehe README).
+#
+# Secrets NICHT hier eintragen, sondern mit:
+#   npx wrangler secret put ICS_URL
+#   npx wrangler secret put ACCESS_TOKEN
+name = "etb-dienstplan"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Erreichbar unter https://etb-dienstplan.<account-subdomain>.workers.dev
+workers_dev = true
+preview_urls = false
+
+[vars]
+# Herkunft der PWA (GitHub Pages). Mehrere Einträge kommagetrennt.
+ALLOWED_ORIGINS = "https://vitushg.github.io"
+# Die ICS_URL muss auf diesen Host zeigen.
+UPSTREAM_HOST = "dienstplan.st.roteskreuz.at"
+
+# Keine Laufzeit-Logs/Traces speichern (Datensparsamkeit).
+[observability]
+enabled = false

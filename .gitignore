@@ -1,0 +1,9 @@
+# Node / Wrangler (nur für den optionalen Worker)
+node_modules/
+worker/node_modules/
+worker/.wrangler/
+.dev.vars
+
+# Temporäre Dateien
+*.log
+.DS_Store
