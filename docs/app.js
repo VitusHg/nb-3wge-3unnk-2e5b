@@ -4377,7 +4377,7 @@ function renderDpShifts(shifts, container) {
       const chg = dpChangeFor(s, changes);
       const histKey = historyKeyForShift(s, hist);
       const card = document.createElement('div');
-      card.className = 'dp-shift-card' + (saved ? ' is-saved' : '');
+      card.className = 'dp-shift-card' + (saved ? ' is-saved' : '') + (dpLink ? ' has-dplink' : '');
       card.innerHTML = `
         <div class="dp-shift-top">
           ${shiftCodeHtml(new Date(s.start), 'is-small')}
@@ -4396,8 +4396,8 @@ function renderDpShifts(shifts, container) {
               ? `<button type="button" class="btn-primary" data-pc-apply="${escHtml(saved.id)}">Übernehmen</button><button type="button" class="btn-secondary btn-dp-open">Öffnen</button>`
               : '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch</button>')
             : '<button type="button" class="btn-primary btn-dp-import">Ins Tagebuch übernehmen</button>'}
-          ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}
-        </div>`;
+        </div>
+        ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}`;
       const imp = card.querySelector('.btn-dp-import');
       if (imp) imp.addEventListener('click', () => importShiftToService(s));
       const open = card.querySelector('.btn-dp-open');
@@ -4844,7 +4844,7 @@ function historyKeyForService(svc, history = readDpHistory()) {
 
 function historyCountHtml(key, history) {
   const n = key && history[key] ? history[key].entries.length : 0;
-  return n ? `<button type="button" class="hist-btn" data-hist="${escHtml(key)}" aria-label="Verlauf (${n})" title="Verlauf">${HIST_ICON}<span>Verlauf · ${n}</span></button>` : '';
+  return n ? `<button type="button" class="hist-btn" data-hist="${escHtml(key)}" aria-label="Verlauf (${n} ${n === 1 ? 'Änderung' : 'Änderungen'})" title="Verlauf">${HIST_ICON}<span>${n}</span></button>` : '';
 }
 const HIST_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 3.5V8h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
