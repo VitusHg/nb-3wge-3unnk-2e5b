@@ -14,6 +14,17 @@ const NACA_LABELS = [
   'Atem- und/oder Kreislaufstillstand',
   'Tödliche Verletzung oder Erkrankung',
 ];
+// Merkhilfe zum NACA-Score: Beispiele und typische Maßnahme
+const NACA_HELP = [
+  { ex: 'Dialyse, Krankentransport, Fehleinsatz', tx: '' },
+  { ex: 'Prellung, Hautabschürfung, Verbrennung I. Grades', tx: 'Keine akute Therapie notwendig' },
+  { ex: 'Finger-/Zehenfrakturen, mäßige Schnittverletzungen, Verbrennung II. Grades', tx: 'Ambulante Abklärung, keine notärztlichen Maßnahmen erforderlich' },
+  { ex: 'Größere Frakturen, offene Wunden, Rauchgasvergiftung', tx: 'Stationäre Abklärung + Therapie' },
+  { ex: 'Myokardinfarkt, schwerer Asthmaanfall, Wirbelkörperverletzung mit neurologischen Ausfällen, Medikamentenintoxikationen', tx: 'Notärztliche Versorgung erforderlich' },
+  { ex: 'Atemwegsverlegung, schweres Schädel-Hirn-Trauma, schwerer Myokardinfarkt, Schlaganfall, offene Beckenfraktur', tx: 'Transport unter CPR-Bereitschaft' },
+  { ex: '', tx: 'Akut-Therapie: CPR' },
+  { ex: '', tx: 'Todesfeststellung oder erfolglose Reanimation' },
+];
 // Einsatzart (Kennzahl laut Einsatzprotokoll)
 const EINSATZART_CODES = [
   ['1', 'Hintransport stationär'],
@@ -901,7 +912,7 @@ function renderServiceDetailContent() {
   }
   // Kompakt: Blaulicht, Stichwort, Einsatzart (+ NACA, weitere Einsatzmittel).
   // Alle Details stehen in der Leseansicht.
-  incList.innerHTML = `<div class="inc-list">${incs.map((inc) => incidentRowHtml(svc, inc)).join('')}</div>`;
+  incList.innerHTML = `<div class="inc-list">${incidentsNewestFirst(incs).map((inc) => incidentRowHtml(svc, inc)).join('')}</div>`;
   bindIncidentRows(incList);
 }
 
@@ -1076,6 +1087,13 @@ function favoriteIncidents() {
   state.services.forEach((svc) => (svc.incidents || []).forEach((inc) => { if (inc.favorite) list.push({ svc, inc }); }));
   return list.sort((a, b) => (b.svc.startAt || '').localeCompare(a.svc.startAt || '')
     || (b.inc.createdAt || '').localeCompare(a.inc.createdAt || ''));
+}
+
+/** Zuletzt angelegter Einsatz zuerst (Anlagezeit, sonst Reihenfolge der Erfassung). */
+function incidentsNewestFirst(list) {
+  return (list || []).map((inc, i) => ({ inc, i }))
+    .sort((a, b) => (b.inc.createdAt || '').localeCompare(a.inc.createdAt || '') || b.i - a.i)
+    .map((x) => x.inc);
 }
 
 /** „Mo., 02.11. · 17:30–05:30 (12 h)“ für Listen. */
@@ -1481,7 +1499,16 @@ function setupKennzahlField(key, map, codes, value) {
     if (document.activeElement !== searchEl) searchEl.value = valid ? map.get(code) : '';
     searchEl.placeholder = code && !valid ? 'Unbekannte ID' : 'Suchen…';
   };
-  idEl.oninput = () => { digitsOnly(idEl, 2); showResolved(); };
+  idEl.oninput = () => {
+    digitsOnly(idEl, 2);
+    // „01“ = Kennzahl 1 – damit lässt sich auch bei 1 vs. 10–17 sofort weiterspringen
+    let explicit = false;
+    if (/^0\d$/.test(idEl.value) && map.has(idEl.value[1])) { idEl.value = idEl.value[1]; explicit = true; }
+    showResolved();
+    const code = idEl.value.trim();
+    const unambiguous = !codes.some(([c]) => c !== code && c.startsWith(code));
+    if (map.has(code) && (explicit || code.length === 2 || unambiguous)) focusNextCodeField(idEl);
+  };
   mountSuggestions(searchEl, dropEl, codes.map(([c, l]) => `${c} – ${l}`), 60, true);
   const pick = (code) => { idEl.value = code; searchEl.blur(); dropEl.classList.remove('open'); showResolved(); };
   // Beim Antippen leeren, damit sofort gesucht werden kann; Liste zeigt alles
@@ -1518,9 +1545,9 @@ function setupPzcField() {
   const search = document.getElementById('pzc-search');
   const drop = document.getElementById('pzc-search-suggestions');
   const show = () => updatePzcPreview();
-  diag.oninput = () => { if (digitsOnly(diag, 3).length === 3) age.focus(); show(); };
-  age.oninput = () => { if (digitsOnly(age, 2).length === 2) prio.focus(); show(); };
-  prio.oninput = () => { digitsOnly(prio, 1, /[1-3]/); show(); };
+  diag.oninput = () => { if (digitsOnly(diag, 3).length === 3) focusField(age); show(); };
+  age.oninput = () => { if (digitsOnly(age, 2).length === 2) focusField(prio); show(); };
+  prio.oninput = () => { if (digitsOnly(prio, 1, /[1-3]/).length === 1) focusNextCodeField(prio); show(); };
   const items = (state.pzcCodes || []).map((p) => `${p.code} - ${p.diagnosis}`);
   mountSuggestions(search, drop, items, 40, items.length > 0);
   search.onfocus = () => { if (search.classList.contains('is-resolved')) search.value = ''; };
@@ -1563,9 +1590,56 @@ function setupNacaField(value) {
     sel.value = /^[0-7]$/.test(v) ? v : '';
     sel.classList.toggle('is-empty', sel.value === '');
   };
-  idEl.oninput = () => { digitsOnly(idEl, 1, /[0-7]/); sync(); };
+  idEl.oninput = () => { if (digitsOnly(idEl, 1, /[0-7]/).length === 1) focusNextCodeField(idEl); sync(); };
   sel.onchange = () => { idEl.value = sel.value; sync(); };
   sync();
+}
+
+/** Setzt den NACA-Wert im Einsatz-Fenster (z. B. aus der Merkhilfe). */
+function setNacaValue(n) {
+  const idEl = document.getElementById('naca-score');
+  const sel = document.getElementById('naca-select');
+  if (!idEl || !sel) return;
+  idEl.value = String(n); sel.value = String(n); sel.classList.remove('is-empty');
+}
+
+function openNacaInfo() {
+  const cur = (document.getElementById('naca-score') || {}).value;
+  const body = document.getElementById('naca-info-body');
+  body.innerHTML = `<p class="naca-info-intro">Antippen übernimmt den Wert in den Einsatz.</p>
+    <div class="naca-info-list">${NACA_LABELS.map((label, n) => {
+      const h = NACA_HELP[n];
+      return `<button type="button" class="naca-info-row${String(n) === cur ? ' is-current' : ''}" data-naca="${n}">
+        <span class="naca-badge naca-${n}">${n}</span>
+        <span class="naca-info-text">
+          <strong>${escHtml(label)}</strong>
+          ${h.ex ? `<span class="naca-info-ex">${escHtml(h.ex)}</span>` : ''}
+          ${h.tx ? `<span class="naca-info-tx">→ ${escHtml(h.tx)}</span>` : ''}
+        </span>
+      </button>`;
+    }).join('')}</div>`;
+  body.querySelectorAll('[data-naca]').forEach((b) => b.addEventListener('click', () => {
+    setNacaValue(b.dataset.naca);
+    closeDialog('dialog-naca-info');
+  }));
+  openDialog('dialog-naca-info');
+}
+
+// ── Kennzahlen nacheinander eintippen: nach gültiger Eingabe weiterspringen ─
+const CODE_FIELD_ORDER = ['inc-einsatzart', 'inc-statkz', 'pzc-diag', 'pzc-age', 'pzc-prio', 'naca-score'];
+
+function focusField(el) {
+  if (!el) return;
+  // erst nach dem aktuellen Eingabe-Ereignis wechseln (iOS behält die Tastatur)
+  setTimeout(() => { el.focus(); try { el.select(); } catch (_) {} }, 0);
+}
+
+function focusNextCodeField(from) {
+  const i = CODE_FIELD_ORDER.indexOf(from.id);
+  if (i < 0) return;
+  const next = CODE_FIELD_ORDER[i + 1];
+  if (next) focusField(document.getElementById(next));
+  else setTimeout(() => from.blur(), 0); // NACA war das letzte Feld → Tastatur zu
 }
 
 function saveIncident() {
@@ -4158,6 +4232,8 @@ function init() {
   document.getElementById('btn-inc-view-delete').addEventListener('click', () => {
     if (incViewRef) deleteIncident(incViewRef.svcId, incViewRef.incId);
   });
+
+  document.getElementById('btn-naca-info').addEventListener('click', openNacaInfo);
 
   // Lights toggle
   document.getElementById('btn-lights').addEventListener('click', () => { incLights = !incLights; updateLightsBtn(); });

@@ -2643,3 +2643,35 @@ div.hm-row { cursor: default; }
 .sf-icon { width: 18px; height: 18px; }
 @media (min-width: 900px) { .stats-facts { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; } }
 .fact-tile-sub { color: var(--text3); }
+
+/* NACA-Merkhilfe */
+.cg-label-info { display: inline-flex; align-items: center; gap: 6px; }
+.cg-info {
+  width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--accent); padding: 0;
+  background: none; color: var(--accent); font: 700 13px/1 Georgia, 'Times New Roman', serif; font-style: italic;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+}
+.naca-info-intro { font-size: 13px; color: var(--text2); margin: 0 0 10px; }
+.naca-info-list { background: var(--panel2); border-radius: var(--radius-lg); overflow: hidden; }
+.naca-info-row {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 12px 14px; position: relative;
+  background: none; border: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.naca-info-row + .naca-info-row::before { content: ''; position: absolute; top: 0; left: 54px; right: 0; border-top: .5px solid var(--separator); }
+.naca-info-row.is-current { background: var(--accent-soft); }
+.naca-badge {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 16px; color: #fff; font-variant-numeric: tabular-nums;
+}
+.naca-0, .naca-1 { background: #30b04f; }
+.naca-2 { background: #c9a400; }
+.naca-3 { background: #ff9f0a; }
+.naca-4 { background: #ff6b2c; }
+.naca-5 { background: #ff3b30; }
+.naca-6 { background: #b0102a; }
+.naca-7 { background: #48484a; }
+.naca-info-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.naca-info-text strong { font-size: 15px; font-weight: 600; line-height: 1.25; }
+.naca-info-ex { font-size: 13px; color: var(--text2); line-height: 1.3; }
+.naca-info-tx { font-size: 13px; color: var(--text); font-weight: 500; }
+@media (hover: none) { .naca-info-row:active { background: var(--card2); } }

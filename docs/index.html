@@ -250,6 +250,17 @@
     </div>
   </div>
 
+  <!-- NACA-Merkhilfe (über dem Einsatz-Fenster) -->
+  <div id="dialog-naca-info" class="dialog-overlay" style="display:none;z-index:2200">
+    <div class="dialog-box dialog-box-wide">
+      <div class="dialog-header">
+        <h3>NACA-Score</h3>
+        <button class="dialog-close" data-close="dialog-naca-info" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body" id="naca-info-body"></div>
+    </div>
+  </div>
+
   <!-- Incident Dialog -->
   <div id="dialog-incident" class="dialog-overlay" style="display:none">
     <div class="dialog-box dialog-box-wide">
@@ -348,7 +359,7 @@
           </div>
           <div id="pzc-resolution" class="cg-hint"></div>
           <div class="cg-row">
-            <label class="cg-label" for="naca-score">NACA</label>
+            <div class="cg-label cg-label-info"><label for="naca-score">NACA</label><button type="button" class="cg-info" id="btn-naca-info" aria-label="NACA-Merkhilfe öffnen" title="Merkhilfe">i</button></div>
             <div class="cg-ctrl">
               <input type="text" id="naca-score" class="cg-id" inputmode="numeric" pattern="[0-7]*" maxlength="1" placeholder="ID" autocomplete="off" />
               <select id="naca-select" class="cg-select" aria-label="NACA-Score wählen"></select>
