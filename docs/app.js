@@ -827,6 +827,7 @@ function renderServiceDetailContent() {
         <a ${dpLinkAttrs(dpUrl)} class="svc-dienstplan-link">${dpLinkMode() === 'safari' && isIOSDevice() ? 'In Safari öffnen ↗' : 'Öffnen ↗'}</a>
       </div>`
     : '';
+  const svcHistKey = historyKeyForService(svc);
   contentEl.innerHTML = `
     ${backBtn}
     <div class="svc-detail-header">
@@ -848,6 +849,7 @@ function renderServiceDetailContent() {
       <div class="svc-meta-row"><span class="svc-meta-label">Kolleg:innen</span><span class="svc-meta-value">${(svc.colleagues || []).length ? (svc.colleagues).map((c) => escHtml(c)).join('<br>') : '-'}</span></div>
       ${svc.note ? `<div class="svc-meta-row" style="grid-column:1/-1"><span class="svc-meta-label">Notiz</span><span class="svc-meta-value">${escHtml(svc.note)}</span></div>` : ''}
     </div>
+    ${svcHistKey ? `<button type="button" class="svc-hist-row" data-hist="${escHtml(svcHistKey)}">${HIST_ICON}<span>Dienstplan-Verlauf</span><span class="svc-hist-count">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : ''}
     <div class="incidents-header">
       <span class="incidents-title">Einsätze (${(svc.incidents || []).length})</span>
       ${addIncBtn}
@@ -4037,9 +4039,9 @@ async function loadDienstplan() {
   initDpButtons();
   await loadDpShifts();
   // Änderungen (vom Worker erkannt) nachladen und Markierungen setzen
-  const before = JSON.stringify(recentDpChanges());
-  await loadDpChanges();
-  if (activeTab === 'dienstplan' && JSON.stringify(recentDpChanges()) !== before) {
+  const before = JSON.stringify(recentDpChanges()) + lsGet(DP_HISTORY_KEY, '').length;
+  await Promise.all([loadDpChanges(), loadDpHistory()]);
+  if (activeTab === 'dienstplan' && JSON.stringify(recentDpChanges()) + lsGet(DP_HISTORY_KEY, '').length !== before) {
     const cache = readIcsCache();
     const container = document.getElementById('dienstplan-container');
     if (cache && container) renderDpShifts(cache.shifts, container);
@@ -4126,6 +4128,7 @@ function renderDpShifts(shifts, container) {
     groups.get(key).push(s);
   }
   const changes = recentDpChanges();
+  const hist = readDpHistory();
   container.innerHTML = dpChangesPanelHtml(changes);
   for (const dayShifts of groups.values()) {
     const group = document.createElement('div');
@@ -4134,6 +4137,7 @@ function renderDpShifts(shifts, container) {
     for (const s of dayShifts) {
       const saved = findSavedServiceForShift(s);
       const chg = dpChangeFor(s, changes);
+      const histKey = historyKeyForShift(s, hist);
       const card = document.createElement('div');
       card.className = 'dp-shift-card' + (saved ? ' is-saved' : '');
       card.innerHTML = `
@@ -4147,6 +4151,7 @@ function renderDpShifts(shifts, container) {
         ${s.location ? `<div class="dp-shift-meta">📍 ${escHtml(s.location)}</div>` : ''}
         ${s.description ? `<div class="dp-shift-meta">👥 ${escHtml(s.description)}</div>` : ''}
         <div class="dp-shift-actions">
+          ${historyCountHtml(histKey, hist)}
           ${saved
             ? '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch · öffnen</button>'
             : '<button type="button" class="btn-primary btn-dp-import">Ins Tagebuch übernehmen</button>'}
@@ -4414,7 +4419,7 @@ function dpChangesPanelHtml(changes) {
     const x = c.now || c.before;
     const extra = c.type === 'updated' && c.before && (c.before.s !== x.s || c.before.e !== x.e) ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(c.before))}</span>` : '';
     const at = new Date(c.at);
-    return `<div class="dp-chg-row">
+    return `<div class="dp-chg-row" role="button" tabindex="0" data-hist="${escHtml(c.key || c.uid)}">
       <span class="dp-chg-badge is-${c.type}">${label[c.type]}</span>
       <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
       <span class="dp-chg-at">${escHtml(homeDayLabel(at, new Date()))}</span>
@@ -4426,20 +4431,163 @@ function dpChangesPanelHtml(changes) {
   </details>`;
 }
 
+// — Verlauf pro Dienst (wie „Verlauf“ in der Dienstplan-App) ——————————————
+const DP_HISTORY_KEY = 'etb_dp_history';
+
+function readDpHistory() {
+  try { const h = JSON.parse(lsGet(DP_HISTORY_KEY, 'null')); return h && h.history && typeof h.history === 'object' ? h.history : {}; } catch (_) { return {}; }
+}
+
+async function loadDpHistory() {
+  if (!dpConfigured()) return readDpHistory();
+  try {
+    const data = await workerApi('/push/history');
+    lsSet(DP_HISTORY_KEY, JSON.stringify({ at: Date.now(), history: data.history || {} }));
+    return data.history || {};
+  } catch (_) { return readDpHistory(); } // alter Worker oder offline → letzter Stand
+}
+
+/** Verlaufs-Schlüssel zu einem Dienstplan-Eintrag (UID, sonst gleicher Beginn). */
+function historyKeyForShift(shift, history = readDpHistory()) {
+  const st = new Date(shift.start).getTime();
+  if (shift.uid && history[shift.uid] && history[shift.uid].last && (history[shift.uid].last.s === st || !Object.keys(history).some((k) => k.startsWith(shift.uid + '|')))) return shift.uid;
+  return Object.keys(history).find((k) => history[k].last && history[k].last.s === st && (!shift.uid || history[k].uid === shift.uid)) || null;
+}
+
+/** Verlauf zu einem Tagebuch-Dienst: irgendein Stand beginnt ±90 min gleich. */
+function historyKeyForService(svc, history = readDpHistory()) {
+  const st = parseLocalDt(svc.startAt);
+  if (!st || svc.isSeg) return null;
+  let best = null, bestDiff = Infinity;
+  for (const [k, item] of Object.entries(history)) {
+    for (const e of item.entries || []) {
+      for (const x of [e.now, e.before]) {
+        if (!x) continue;
+        const d = Math.abs(x.s - st.getTime());
+        const sameVeh = svc.vehicle && x.t && svc.vehicle.toLowerCase() === x.t.toLowerCase();
+        const score = d - (sameVeh ? 1 : 0);
+        if (d < 5400000 && score < bestDiff) { best = k; bestDiff = score; }
+      }
+    }
+  }
+  return best;
+}
+
+function historyCountHtml(key, history) {
+  const n = key && history[key] ? history[key].entries.length : 0;
+  return n ? `<button type="button" class="hist-btn" data-hist="${escHtml(key)}" aria-label="Verlauf (${n})" title="Verlauf">${HIST_ICON}<span>Verlauf · ${n}</span></button>` : '';
+}
+const HIST_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 3.5V8h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function crewOf(desc) {
+  if (!desc) return { colleagues: [], note: '' };
+  if (window.RKDienstplan && window.RKDienstplan.parseDescription) {
+    try { return window.RKDienstplan.parseDescription(desc); } catch (_) {}
+  }
+  const lines = desc.split('\n');
+  return { colleagues: parseCrew(lines[0]), note: lines.slice(1).join('\n') };
+}
+
+function histFmtRange(x) {
+  const s = new Date(x.s), e = new Date(x.e);
+  return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
+}
+
+function histFmtAt(ms) {
+  const d = new Date(ms);
+  return `${d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' })} um ${formatTimeHM(d)}`;
+}
+
+/** Liste der Unterschiede zwischen zwei Ständen (für „Geändert“). */
+function historyDiffHtml(b, n) {
+  const rows = [];
+  const row = (label, from, to) => rows.push(`<div class="hist-diff"><span class="hist-diff-label">${label}</span><span class="hist-diff-val"><s>${escHtml(from || '—')}</s> → <strong>${escHtml(to || '—')}</strong></span></div>`);
+  if (b.s !== n.s || b.e !== n.e) row('Zeit', histFmtRange(b), histFmtRange(n));
+  if (b.t !== n.t) row('Fahrzeug', b.t, n.t);
+  if (b.l !== n.l) row('Ort', b.l, n.l);
+  if (b.d !== n.d) {
+    const cb = crewOf(b.d), cn = crewOf(n.d);
+    const norm = (x) => x.toLowerCase().replace(/\s+/g, ' ').trim();
+    const oldSet = new Set(cb.colleagues.map(norm)), newSet = new Set(cn.colleagues.map(norm));
+    const added = cn.colleagues.filter((x) => !oldSet.has(norm(x)));
+    const removed = cb.colleagues.filter((x) => !newSet.has(norm(x)));
+    if (added.length || removed.length) {
+      rows.push(`<div class="hist-diff"><span class="hist-diff-label">Besatzung</span><span class="hist-diff-val">${
+        added.map((x) => `<span class="hist-crew is-add">+ ${escHtml(x)}</span>`).join('')}${
+        removed.map((x) => `<span class="hist-crew is-del">− ${escHtml(x)}</span>`).join('')}</span></div>`);
+    }
+    if ((cb.note || '') !== (cn.note || '')) row('Info', cb.note, cn.note);
+    if (!added.length && !removed.length && (cb.note || '') === (cn.note || '')) row('Beschreibung', b.d, n.d);
+  }
+  return rows.join('') || '<div class="hist-diff"><span class="hist-diff-val">Kleine Änderung im Kalendereintrag</span></div>';
+}
+
+function historyEntryHtml(e) {
+  const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' }[e.type] || e.type;
+  let body = '';
+  if (e.type === 'added' && e.now) {
+    const crew = crewOf(e.now.d).colleagues;
+    body = `<div class="hist-detail">${escHtml([histFmtRange(e.now), e.now.t, e.now.l].filter(Boolean).join(' · '))}</div>${crew.length ? `<div class="hist-detail is-muted">👥 ${escHtml(crew.join(', '))}</div>` : ''}`;
+  } else if (e.type === 'updated' && e.now && e.before) {
+    body = historyDiffHtml(e.before, e.now);
+  } else if (e.type === 'removed' && e.before) {
+    body = `<div class="hist-detail">Aus dem Dienstplan entfernt: ${escHtml(histFmtRange(e.before))}</div>`;
+  }
+  return `<li class="hist-item is-${e.type}">
+    <span class="hist-dot" aria-hidden="true"></span>
+    <div class="hist-head"><span class="dp-chg-badge is-${e.type}">${label}</span><span class="hist-at">am ${escHtml(histFmtAt(e.at))}</span></div>
+    ${body}
+  </li>`;
+}
+
+function openHistorySheet(key) {
+  const history = readDpHistory();
+  const item = history[key];
+  const box = document.getElementById('hist-body');
+  if (!box) return;
+  if (!item) { toast('Zu diesem Dienst gibt es keinen Verlauf.', 'info'); return; }
+  const last = item.last || {};
+  const removed = item.entries.length && item.entries[item.entries.length - 1].type === 'removed';
+  document.getElementById('hist-title').textContent = last.t || 'Dienst';
+  box.innerHTML = `
+    <div class="hist-summary${removed ? ' is-removed' : ''}">
+      ${shiftCodeHtml(new Date(last.s), 'is-small')}
+      <span>${escHtml(histFmtRange(last))}${last.l ? ' · ' + escHtml(last.l) : ''}</span>
+      ${removed ? '<span class="dp-chg-badge is-removed">Ausgefallen</span>' : ''}
+    </div>
+    <ol class="hist-list">${item.entries.slice().reverse().map(historyEntryHtml).join('')}</ol>
+    <p class="hist-foot">Aufgezeichnet vom Dienstplan-Worker seit dem Einrichten der Benachrichtigungen. Gespeichert bis 30 Tage nach Dienstende.</p>`;
+  openDialog('dialog-history');
+}
+
+/** Klicks auf Verlaufs-Knöpfe überall in der App (eine Stelle für alle). */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('[data-hist]');
+  if (!btn) return;
+  e.preventDefault(); e.stopPropagation();
+  openHistorySheet(btn.dataset.hist);
+});
+
 // Öffnen aus einer Mitteilung (#dienstplan) bzw. Nachricht vom Service Worker
-function handleLaunchTarget() {
-  if (location.hash === '#dienstplan') {
-    history.replaceState(null, '', location.pathname + location.search);
+function handleLaunchTarget(hash = location.hash) {
+  const m = /^#verlauf=(.+)$/.exec(hash || '');
+  if (hash === '#dienstplan' || m) {
+    if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
     switchTab('dienstplan');
+    if (m) {
+      const key = decodeURIComponent(m[1]);
+      // Verlauf erst frisch laden, dann öffnen (Mitteilung kann neuer sein als der Speicher)
+      loadDpHistory().then(() => openHistorySheet(key)).catch(() => openHistorySheet(key));
+    }
     return true;
   }
   return false;
 }
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'open-tab' && e.data.tab && TAB_TITLES[e.data.tab]) {
+    if (e.data && e.data.type === 'open-url' && typeof e.data.hash === 'string') {
       launchTabAt = Date.now(); // verhindert das automatische Zurück zu „Start“ beim Aufwachen
-      if (!topVisibleOverlay()) switchTab(e.data.tab);
+      if (!topVisibleOverlay() || /^#verlauf=/.test(e.data.hash)) handleLaunchTarget(e.data.hash);
     }
   });
 }

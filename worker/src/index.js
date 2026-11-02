@@ -20,6 +20,7 @@
  *      GET  /push/key          öffentlicher VAPID-Schlüssel
  *      GET  /push/status       Anzahl Geräte, letzte Prüfung
  *      GET  /push/changes      letzte Änderungen (für Markierungen in der App)
+ *      GET  /push/history      Verlauf pro Dienst (bis 30 Tage nach Dienstende)
  *      POST /push/subscribe    { subscription, label }
  *      POST /push/unsubscribe  { endpoint }
  *      POST /push/test         { endpoint? }  Testmitteilung
@@ -187,6 +188,10 @@ const KV_SNAPSHOT = "snapshot";
 const KV_CHANGES = "changes";
 const KV_VAPID = "vapid";
 const KV_STATUS = "status";
+const KV_HISTORY = "history";
+const HISTORY_KEEP_MS = 30 * 24 * 3600 * 1000; // Verlauf bis 30 Tage nach Dienstende
+const HISTORY_MAX_ENTRIES = 40;                // je Dienst
+const HISTORY_MAX_SERVICES = 400;
 
 async function kvGet(env, key, fallback) {
   try {
@@ -233,7 +238,11 @@ async function handlePush(request, env, path, cors, fetchImpl) {
     const status = await kvGet(env, KV_STATUS, {});
     return json(200, { changes, lastCheck: status.lastCheck || null, lastError: status.lastError || null }, cors);
   }
-  if (method !== "POST") return json(405, { error: "method_not_allowed" }, { ...cors, Allow: "GET, POST, OPTIONS" });
+  if (path === "/push/history" && method === "GET") {
+    const history = await kvGet(env, KV_HISTORY, {});
+    return json(200, { history }, cors);
+  }
+    if (method !== "POST") return json(405, { error: "method_not_allowed" }, { ...cors, Allow: "GET, POST, OPTIONS" });
 
   let body;
   try {
@@ -384,7 +393,7 @@ function changeNotification(c) {
     if (b.l !== x.l) lines.push(`Ort vorher: ${b.l || "—"}`);
     if (b.d !== x.d) lines.push("Besatzung/Info geändert");
   }
-  return { title, body: lines.join("\n"), tag: "etb-" + c.key, url: "./#dienstplan" };
+  return { title, body: lines.join("\n"), tag: "etb-" + c.key, url: "./#verlauf=" + encodeURIComponent(c.key) };
 }
 
 function summaryNotification(changes) {
@@ -400,6 +409,22 @@ function summaryNotification(changes) {
     tag: "etb-summary",
     url: "./#dienstplan",
   };
+}
+
+/** Verlauf pro Dienst fortschreiben und alte Einträge aufräumen. */
+export function updateHistory(history, changes, now) {
+  const h = { ...history };
+  for (const c of changes) {
+    const item = h[c.key] || { uid: c.uid, entries: [] };
+    item.entries = item.entries.concat({ at: now, type: c.type, now: c.now || null, before: c.before || null }).slice(-HISTORY_MAX_ENTRIES);
+    item.last = c.now || c.before;
+    h[c.key] = item;
+  }
+  const keys = Object.keys(h).filter((k) => h[k] && h[k].last && h[k].last.e + HISTORY_KEEP_MS > now);
+  keys.sort((a, b) => h[b].entries[h[b].entries.length - 1].at - h[a].entries[h[a].entries.length - 1].at);
+  const out = {};
+  for (const k of keys.slice(0, HISTORY_MAX_SERVICES)) out[k] = h[k];
+  return out;
 }
 
 /** Kalender prüfen, Unterschiede melden. Wird vom Zeitplan aufgerufen. */
@@ -437,6 +462,7 @@ export async function checkForChanges(env, fetchImpl = fetch) {
     const history = await kvGet(env, KV_CHANGES, []);
     const stamped = changes.map((c) => ({ at: now, type: c.type, uid: c.uid, key: c.key, now: c.now || null, before: c.before || null }));
     await kvPut(env, KV_CHANGES, stamped.concat(history).slice(0, MAX_CHANGES_KEPT));
+    await kvPut(env, KV_HISTORY, updateHistory(await kvGet(env, KV_HISTORY, {}), changes, now));
     const subs = await kvGet(env, KV_SUBS, []);
     if (subs.length) {
       const messages = changes.length > MAX_SINGLE_NOTIFICATIONS ? [summaryNotification(changes)] : changes.map(changeNotification);
