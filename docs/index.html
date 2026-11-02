@@ -85,9 +85,10 @@
               <div id="service-list-header">
                 <h1 class="large-title">Tagebuch</h1>
                 <div id="service-list-actions">
-                  <button id="btn-global-lights" class="btn-global-lights" title="Globales Blaulicht ein/aus"></button>
-                  <button id="btn-new-service" class="btn-primary">+ Dienst</button>
-                  <button id="btn-new-seg" class="btn-secondary">⚡ SEG</button>
+                  <button id="btn-global-lights" class="btn-global-lights" type="button" title="Fahrzeug-Icons mit Blaulicht anzeigen" aria-label="Fahrzeug-Icons mit Blaulicht anzeigen"></button>
+                  <button id="btn-add-menu" class="btn-round-add" type="button" aria-label="Neuer Eintrag" title="Neuer Dienst oder SEG-Einsatz">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+                  </button>
                 </div>
               </div>
               <button id="btn-open-favorites" class="fav-entry" type="button">
@@ -294,11 +295,13 @@
         </div>
 
         <!-- Einsatzmittel: eigenes Fahrzeug (Blaulicht) + weitere -->
+        <div class="fg-label em-label">Einsatzmittel <span class="em-hint" id="lights-hint">Fahrzeug antippen: Blaulicht an/aus</span></div>
         <div class="einsatzmittel-row" id="einsatzmittel-row">
-          <button id="btn-lights" class="btn-lights" title="Blaulicht umschalten" type="button">
+          <button id="btn-lights" class="btn-lights" title="Blaulicht umschalten" type="button" aria-pressed="false">
             <span id="lights-icon"></span>
+            <span class="lights-caption" id="lights-caption">Ohne Blaulicht</span>
           </button>
-          <button id="btn-add-extra-vehicle" class="btn-add-vehicle" title="Weiteres Fahrzeug hinzufügen" type="button">＋</button>
+          <button id="btn-add-extra-vehicle" class="btn-add-vehicle" title="Weiteres Fahrzeug hinzufügen" type="button"><span aria-hidden="true">＋</span><span class="lights-caption">Weiteres</span></button>
         </div>
 
         <div class="fg-field suggestion-wrap">

@@ -711,15 +711,30 @@ function renderServiceList() {
   }
   listEl.innerHTML = '';
   if (!services.length) {
-    listEl.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:16px;text-align:center">Keine Dienste</div>';
+    listEl.innerHTML = q
+      ? `<div class="list-empty">Keine Treffer für „${escHtml(q)}“.</div>`
+      : '<div class="list-empty"><div class="list-empty-icon">📒</div><strong>Noch keine Dienste</strong><span>Mit ＋ oben rechts legst du deinen ersten Dienst an.</span></div>';
     return;
   }
+  const nowD = new Date();
+  let lastMonth = '';
   services.forEach((svc) => {
+    // Abschnittsköpfe pro Monat (wie in iOS-Listen)
+    const sd = parseLocalDt(svc.startAt);
+    const monthKey = sd ? `${sd.getFullYear()}-${sd.getMonth()}` : 'none';
+    if (monthKey !== lastMonth) {
+      lastMonth = monthKey;
+      const hd = document.createElement('div');
+      hd.className = 'svc-month';
+      const inMonth = services.filter((x) => { const d = parseLocalDt(x.startAt); return d && `${d.getFullYear()}-${d.getMonth()}` === monthKey; });
+      const nInc = inMonth.reduce((n, x) => n + (x.incidents || []).length, 0);
+      hd.innerHTML = `<span>${escHtml(sd ? sd.toLocaleDateString('de-AT', { month: 'long', year: 'numeric' }) : 'Ohne Datum')}</span><span class="svc-month-meta">${inMonth.filter((x) => !x.isSeg).length} Dienste · ${nInc} Einsätze</span>`;
+      listEl.appendChild(hd);
+    }
     const card = document.createElement('div');
     card.className = 'service-card' + (svc.id === selectedServiceId ? ' selected' : '') + (svc.isSeg ? ' is-seg' : '');
     const label = svc.isSeg ? '⚡ SEG' : 'Dienst';
     const incCount = (svc.incidents || []).length;
-    const hours = serviceDurationHours(svc);
 
     // Vehicle icon via assignments map
     const assignedCatId = svc.vehicle ? (state.vehicleAssignments || {})[svc.vehicle] : null;
@@ -735,11 +750,6 @@ function renderServiceList() {
          </div>`
       : '';
 
-    const dpUrl = dienstplanUrl(svc);
-    if (dpUrl) card.classList.add('has-dp');
-    const dpLinkHtml = dpUrl
-      ? `<a ${dpLinkAttrs(dpUrl)} class="svc-card-dp-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen" onclick="event.stopPropagation()">${ICON_CAL}</a>`
-      : '';
     const segInc = svc.isSeg ? (svc.incidents || [])[0] : null;
     if (svc.isSeg) {
       // SEG = ein einzelner Einsatz: Stichwort als Titel, Zeit/Ort darunter
@@ -749,16 +759,13 @@ function renderServiceList() {
         ${iconHtml}
         <div class="svc-card-body">
           <div class="svc-card-top">
-            <div class="service-card-title">${segInc && segInc.favorite ? '<span class="inc-row-fav">★</span>' : ''}${escHtml((segInc && segInc.alarmCode) || 'SEG-Einsatz')}</div>
             <span class="service-card-badge badge-seg">⚡ SEG</span>
+            <div class="service-card-title">${segInc && segInc.favorite ? '<span class="inc-row-fav">★</span>' : ''}${escHtml((segInc && segInc.alarmCode) || 'SEG-Einsatz')}</div>
           </div>
-          <div class="service-card-sub">
-            <span>${escHtml(when)}</span>
-            ${svc.location ? `<span>${escHtml(svc.location)}</span>` : ''}
-            ${a && b && b > a ? `<span>${escHtml(formatDurationMs(b - a))}</span>` : ''}
-          </div>
+          <div class="service-card-sub">${escHtml([svcWhenText(svc), svc.location].filter(Boolean).join(' · '))}</div>
           ${segInc && segInc.note ? `<div class="inc-row-note svc-card-note">${ICON_NOTE}<span>${escHtml(segInc.note.replace(/\s+/g, ' '))}</span></div>` : ''}
-        </div>`;
+        </div>
+        <span class="svc-card-chev" aria-hidden="true">›</span>`;
       card.addEventListener('click', () => { if (segInc) openIncidentView(svc.id, segInc.id); });
       listEl.appendChild(card);
       if (segInc) enableSwipe(card, {
@@ -767,22 +774,23 @@ function renderServiceList() {
       });
       return;
     }
+    const ss = parseLocalDt(svc.startAt), se = parseLocalDt(svc.endAt);
+    const running = ss && se && ss <= nowD && nowD <= se;
     card.innerHTML = `
       ${iconHtml}
       <div class="svc-card-body">
         <div class="svc-card-top">
-          <div class="service-card-title">${escHtml(formatDtDisplay(svc.startAt))}</div>
-          ${shiftCodeHtml(svc.startAt) || `<span class="service-card-badge">${escHtml(label)}</span>`}
+          ${shiftCodeHtml(svc.startAt, 'is-small') || `<span class="service-card-badge">${escHtml(label)}</span>`}
+          <div class="service-card-title">${escHtml(svc.vehicle || 'Dienst')}</div>
+          ${running ? '<span class="svc-live"><span class="home-active-pulse"></span>Läuft</span>' : ''}
         </div>
-        <div class="service-card-sub">
-          <span>${escHtml(svc.location || '-')}</span>
-          <span>${escHtml(svc.vehicle || '-')}</span>
-          <span>${incCount} ${incCount === 1 ? 'Einsatz' : 'Einsätze'}</span>
-          <span>${hours} h</span>
-        </div>
+        <div class="service-card-sub">${escHtml([svcWhenText(svc), svc.location].filter(Boolean).join(' · '))}</div>
         ${svc.note ? `<div class="inc-row-note svc-card-note">${ICON_NOTE}<span>${escHtml(svc.note.replace(/\s+/g, ' '))}</span></div>` : ''}
       </div>
-      ${dpLinkHtml}`;
+      <div class="svc-card-side">
+        <span class="svc-card-count${incCount ? '' : ' is-zero'}" title="${incCount} ${incCount === 1 ? 'Einsatz' : 'Einsätze'}">${incCount}</span>
+        <span class="svc-card-chev" aria-hidden="true">›</span>
+      </div>`;
     card.addEventListener('click', () => {
       if (navAnimating) return;
       const mobile = isMobile();
@@ -834,51 +842,41 @@ function renderServiceDetailContent() {
   emptyEl.style.display = 'none';
   contentEl.style.display = '';
   const label = svc.isSeg ? '⚡ SEG' : 'Dienst';
-  const hours = serviceDurationHours(svc);
   // Mobile: Zurück-Navigation erfolgt über die Navigationsleiste bzw. Wischgeste
   const backBtn = '';
-  const timeRowHtml = svc.isSeg
-    ? `<div class="svc-meta-row"><span class="svc-meta-label">Datum</span><span class="svc-meta-value">${escHtml(formatDtDisplay(svc.startAt))}</span></div>`
-    : `<div class="svc-meta-row"><span class="svc-meta-label">Zeitraum</span><span class="svc-meta-value">${escHtml(formatServiceTimeRange(svc))}</span></div>
-       <div class="svc-meta-row"><span class="svc-meta-label">Dauer</span><span class="svc-meta-value">${hours} h</span></div>`;
-  const addIncBtn = svc.isSeg
-    ? '' // SEGs have exactly one incident
-    : `<button class="btn-primary" id="btn-add-incident" style="font-size:12px;padding:5px 10px">+ Einsatz</button>`;
+  const addIncBtn = `<button class="btn-primary" id="btn-add-incident">+ Einsatz</button>`;
   const dpUrl = dienstplanUrl(svc);
-  const dpBarHtml = dpUrl
-    ? `<div class="svc-dienstplan-bar">
-        <span class="svc-dienstplan-label">📅 Tagesdienstplan</span>
-        <a ${dpLinkAttrs(dpUrl)} class="svc-dienstplan-link">${dpLinkMode() === 'safari' && isIOSDevice() ? 'In Safari öffnen ↗' : 'Öffnen ↗'}</a>
-      </div>`
-    : '';
   const svcHistKey = historyKeyForService(svc);
+  const row = (label, value, cls = '') => `<div class="dv-row ${cls}"><span class="dv-label">${label}</span><span class="dv-value">${value}</span></div>`;
+  const crew = (svc.colleagues || []).filter(Boolean);
+  const links = [
+    dpUrl ? `<a ${dpLinkAttrs(dpUrl)} class="dv-row dv-link">${ICON_CAL}<span class="dv-link-text">Dienstplan</span><span class="dv-link-ext" aria-hidden="true">↗</span></a>` : '',
+    svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
+  ].filter(Boolean).join('');
   contentEl.innerHTML = `
     ${backBtn}
     <div class="svc-detail-header">
       <div class="svc-detail-title">
         ${vehicleIconSrc(svc.vehicle) ? `<span class="svc-detail-veh${globalLightsOn ? ' sosi' : ''}" title="${escHtml(svc.vehicle)}"><img src="${escHtml(vehicleIconSrc(svc.vehicle, true))}" alt="" /></span>` : ''}
-        <div><h2>${escHtml(svc.vehicle || label)}</h2><div class="svc-detail-sub">${shiftCodeHtml(svc.startAt, 'is-small')}<span>${escHtml(formatServiceTimeRange(svc))}</span></div></div>
+        <div><h2>${escHtml(svc.vehicle || label)}</h2><div class="svc-detail-sub">${shiftCodeHtml(svc.startAt, 'is-small')}<span>${escHtml(svcWhenText(svc))}</span></div></div>
       </div>
-      <div class="svc-detail-actions">
-        <button class="btn-secondary" id="btn-edit-svc">Bearbeiten</button>
-        <button class="btn-danger" id="btn-delete-svc">Löschen</button>
-      </div>
+      <button class="btn-secondary dv-edit" id="btn-edit-svc">Bearbeiten</button>
     </div>
-    ${dpBarHtml}
-    <div class="svc-meta-block">
-      ${timeRowHtml}
-      ${svc.abteilung ? `<div class="svc-meta-row"><span class="svc-meta-label">Abteilung</span><span class="svc-meta-value">${escHtml(svc.abteilung)}</span></div>` : ''}
-      <div class="svc-meta-row"><span class="svc-meta-label">Dienststelle</span><span class="svc-meta-value">${escHtml(svc.location || '-')}</span></div>
-      <div class="svc-meta-row"><span class="svc-meta-label">Fahrzeug</span><span class="svc-meta-value">${escHtml(svc.vehicle || '-')}</span></div>
-      <div class="svc-meta-row"><span class="svc-meta-label">Kolleg:innen</span><span class="svc-meta-value">${(svc.colleagues || []).length ? (svc.colleagues).map((c) => escHtml(c)).join('<br>') : '-'}</span></div>
-      ${svc.note ? `<div class="svc-meta-row" style="grid-column:1/-1"><span class="svc-meta-label">Notiz</span><span class="svc-meta-value">${escHtml(svc.note)}</span></div>` : ''}
+    <div class="dv-group">
+      ${svc.abteilung ? row('Abteilung', escHtml(svc.abteilung)) : ''}
+      ${row('Dienststelle', escHtml(svc.location || '—'))}
+      ${row('Besatzung', crew.length ? crew.map(escHtml).join('<br>') : '<span class="dv-muted">—</span>', 'is-multi')}
+      ${svc.note ? row('Notiz', escHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
     </div>
-    ${svcHistKey ? `<button type="button" class="svc-hist-row" data-hist="${escHtml(svcHistKey)}">${HIST_ICON}<span>Dienstplan-Verlauf</span><span class="svc-hist-count">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : ''}
+    ${links ? `<div class="dv-group">${links}</div>` : ''}
     <div class="incidents-header">
       <span class="incidents-title">Einsätze (${(svc.incidents || []).length})</span>
       ${addIncBtn}
     </div>
-    <div id="incidents-list"></div>`;
+    <div id="incidents-list"></div>
+    <div class="dv-group dv-danger-group">
+      <button type="button" class="dv-row dv-destructive" id="btn-delete-svc">Dienst löschen</button>
+    </div>`;
 
   if (isMobile()) {
     const backMobile = document.getElementById('btn-back-mobile');
@@ -1078,6 +1076,16 @@ function favoriteIncidents() {
   state.services.forEach((svc) => (svc.incidents || []).forEach((inc) => { if (inc.favorite) list.push({ svc, inc }); }));
   return list.sort((a, b) => (b.svc.startAt || '').localeCompare(a.svc.startAt || '')
     || (b.inc.createdAt || '').localeCompare(a.inc.createdAt || ''));
+}
+
+/** „Mo., 02.11. · 17:30–05:30 (12 h)“ für Listen. */
+function svcWhenText(svc) {
+  const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt);
+  if (!a) return '';
+  const day = a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  if (!b) return `${day} · ${formatTimeHM(a)}`;
+  const h = (b - a) / 3600000;
+  return `${day} · ${formatTimeHM(a)}–${formatTimeHM(b)} (${Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')} h)`;
 }
 
 function updateFavoritesEntry() {
@@ -1616,6 +1624,9 @@ function updateLightsBtn() {
   const btn = document.getElementById('btn-lights');
   if (!btn) return;
   if (incLights) btn.classList.add('active'); else btn.classList.remove('active');
+  btn.setAttribute('aria-pressed', String(!!incLights));
+  const cap = document.getElementById('lights-caption');
+  if (cap) cap.textContent = incLights ? 'Mit Blaulicht' : 'Ohne Blaulicht';
 
   // Re-render extra vehicle chips so their icons swap too
   renderIncExtraVehicles();
@@ -1909,18 +1920,17 @@ function renderStats() {
   container.innerHTML = `
     <div class="stats-filter-bar">
       <button class="stats-filter-bar-btn" id="btn-open-stats-filter">
-        🔍 Filter${activeFilterCount > 0 ? ` <span class="stats-filter-bar-badge">${activeFilterCount}</span>` : ''}
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="sf-icon"><path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> Filter${activeFilterCount > 0 ? ` <span class="stats-filter-bar-badge">${activeFilterCount}</span>` : ''}
       </button>
       ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
     </div>
     <div class="stats-facts">
-      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze gesamt</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${totalSvcs}</div><div class="fact-tile-label">Dienste gesamt</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${segInc}</div><div class="fact-tile-label">SEG-Einsätze</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${totalHours.toFixed(1)}</div><div class="fact-tile-label">Dienststunden</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${avgInc}</div><div class="fact-tile-label">Ø Einsätze / Dienst</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulichtquote</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Patientenalter</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze${segInc ? ` <span class="fact-tile-sub">· ${segInc} SEG</span>` : ''}</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${totalSvcs}</div><div class="fact-tile-label">Dienste</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${Math.round(totalHours)}</div><div class="fact-tile-label">Stunden</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${String(avgInc).replace('.', ',')}</div><div class="fact-tile-label">Ø pro Dienst</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
     </div>
     <div class="stats-grid">
       ${statsCard('Top Einsätze', allAlarm, true)}
@@ -3037,15 +3047,12 @@ function settingsPageDienstplan(el, title) {
     : 'Noch nicht geladen.';
   const minLen = (window.RKDienstplan && window.RKDienstplan.MIN_TOKEN_LENGTH) || 32;
   el.innerHTML = `${title}
-    <div class="set-info" style="margin-top:4px">
-      <p>Der Dienstplan wird über deinen eigenen <strong>Cloudflare Worker</strong> geladen (gleicher Aufbau wie in RKTel). Die private Kalender-URL liegt dort als Secret; hier stehen nur Worker-Adresse und Zugangsschlüssel.</p>
-    </div>
 
     <div class="set-group-header">Verbindung</div>
     <div class="set-group">
       <div class="set-form">
         <label for="dp-worker-url">Worker-Adresse</label>
-        <input type="url" id="dp-worker-url" value="${escHtml(cfg.url)}" placeholder="https://rktel-dienstplan.<name>.workers.dev" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false">
+        <input type="url" id="dp-worker-url" value="${escHtml(cfg.url)}" placeholder="https://….workers.dev" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false">
       </div>
       <div class="set-form">
         <label for="dp-worker-token">Zugangsschlüssel</label>
@@ -3065,7 +3072,7 @@ function settingsPageDienstplan(el, title) {
       <button type="button" class="set-row set-action" id="btn-dp-legacy-copy"><span class="set-row-text set-row-title">URL kopieren</span></button>
       <button type="button" class="set-row set-destructive" id="btn-dp-legacy-del"><span class="set-row-text set-row-title">Alte URL vom Gerät löschen</span></button>
     </div>
-    <p class="set-group-footer">Diese URL gehört jetzt als Secret <code>ICS_URL</code> in den Worker (<code>npx wrangler secret put ICS_URL</code>). Nutzt du schon den RKTel-Worker, kannst du sie einfach löschen.</p>` : ''}
+    <p class="set-group-footer">Wird nicht mehr gebraucht – der Dienstplan kommt über den Worker.</p>` : ''}
 
     <div class="set-group">
       ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-dp-open-abt' })}
@@ -3159,7 +3166,7 @@ function settingsPageDaten(el, title) {
       <button type="button" class="set-row set-action" id="btn-export"><span class="set-row-text set-row-title">Daten exportieren…</span></button>
       <button type="button" class="set-row set-action" id="btn-import-trigger"><span class="set-row-text set-row-title">Daten importieren…</span></button>
     </div>
-    <p class="set-group-footer">${lastBackupAt() ? `Letzte Sicherung: ${escHtml(new Date(lastBackupAt()).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }))}. ` : 'Noch keine Sicherung erstellt. '}JSON-Sicherung für ein neues Gerät. Auch Henri-Exporte können importiert werden.</p>
+    <p class="set-group-footer">${lastBackupAt() ? `Letzte Sicherung: ${escHtml(new Date(lastBackupAt()).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }))}. ` : 'Noch keine Sicherung erstellt. '}Am iPhone öffnet „Exportieren“ das Teilen-Menü – z. B. „In Dateien sichern“ (iCloud Drive). Auch Henri-Exporte können importiert werden.</p>
     <input type="file" id="file-import" accept=".json,application/json" hidden>
 
     <div class="set-group-header">Kalender</div>
@@ -3446,9 +3453,7 @@ function renderAbteilungenPopup() {
   body.querySelector('#file-abt-json').addEventListener('change', (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; });
   const exp = body.querySelector('#btn-export-abt');
   if (exp) exp.addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify({ abteilungen: list }, null, 2)], { type: 'application/json' }));
-    a.download = 'abteilungen.json'; a.click();
+    saveFile(new Blob([JSON.stringify({ abteilungen: list }, null, 2)], { type: 'application/json' }), 'abteilungen.json');
   });
   setupDropZone(body, importFile);
 }
@@ -3579,9 +3584,7 @@ function renderCodesPopupContent() {
   });
   const exportAlarmBtn = popup.querySelector('#btn-export-alarm');
   if (exportAlarmBtn) exportAlarmBtn.addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(state.alarmCodes, null, 2)], { type: 'application/json' }));
-    a.download = 'alarmcodes.json'; a.click();
+    saveFile(new Blob([JSON.stringify(state.alarmCodes, null, 2)], { type: 'application/json' }), 'alarmcodes.json');
   });
   const addAlarmFn = () => {
     const input = popup.querySelector('#new-alarm-code');
@@ -3612,9 +3615,7 @@ function renderCodesPopupContent() {
   });
   const exportPzcBtn = popup.querySelector('#btn-export-pzc');
   if (exportPzcBtn) exportPzcBtn.addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(state.pzcCodes, null, 2)], { type: 'application/json' }));
-    a.download = 'pzccodes.json'; a.click();
+    saveFile(new Blob([JSON.stringify(state.pzcCodes, null, 2)], { type: 'application/json' }), 'pzccodes.json');
   });
   const addPzcFn = () => {
     const codeInput = popup.querySelector('#new-pzc-code');
@@ -3739,7 +3740,7 @@ function openExportDialog() {
     dlg.querySelectorAll('input[type=checkbox]').forEach((cb) => (cb.checked = true));
   document.getElementById('btn-export-none').onclick = () =>
     dlg.querySelectorAll('input[type=checkbox]').forEach((cb) => (cb.checked = false));
-  document.getElementById('btn-export-confirm').onclick = () => {
+  document.getElementById('btn-export-confirm').onclick = async () => {
     const sel = {
       services: document.getElementById('exp-services').checked,
       profile: document.getElementById('exp-profile').checked,
@@ -3750,10 +3751,8 @@ function openExportDialog() {
     };
     const payload = buildExportPayload(sel);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `einsatztagebuch-export-${localDateStr(new Date())}.json`;
-    a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+    const ok = await saveFile(blob, `einsatztagebuch-${localDateStr(new Date())}.json`, 'Einsatztagebuch – Sicherung');
+    if (!ok) { toast('Sicherung abgebrochen.', 'info', 1800); return; }
     // Nur eine Sicherung mit Diensten zählt für die Backup-Erinnerung
     if (sel.services) { lsSet(BACKUP_KEY, String(Date.now())); lsSet(BACKUP_SNOOZE_KEY, ''); }
     closeDialog('dialog-export');
@@ -3944,12 +3943,7 @@ function exportIcs() {
   lines.push('END:VCALENDAR');
 
   const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `dienste-${localDateStr(new Date())}.ics`;
-  a.click();
-  URL.revokeObjectURL(url);
+  saveFile(blob, `dienste-${localDateStr(new Date())}.ics`, 'Dienste (Kalender)');
 }
 
 // ── Fahrzeuggrafiken lokal speichern ──────────────────────────────────────
@@ -4004,6 +3998,52 @@ async function vehicleIconCacheStatus() {
   const cache = await caches.open(ICON_CACHE);
   const have = new Set((await cache.keys()).map((r) => r.url));
   return { total: wanted.length, cached: wanted.filter((u) => have.has(u)).length };
+}
+
+// ── Datei speichern: auf iPhone/iPad über das Teilen-Menü ─────────────────
+// (In Dateien sichern, iCloud Drive, AirDrop …); sonst normaler Download.
+// Liefert true, wenn gespeichert/geteilt wurde, false bei Abbruch.
+async function saveFile(blob, filename, title) {
+  try {
+    const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+    if (navigator.canShare && navigator.share && (isIOSDevice() || isMobile()) && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: title || filename });
+      return true;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return false; // Teilen abgebrochen
+    // anderer Fehler → auf Download zurückfallen
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return true;
+}
+
+// ── Aktionsblatt (wie iOS UIAlertController .actionSheet) ──────────────────
+function showActionSheet({ title, message, actions }) {
+  document.querySelectorAll('.action-sheet-overlay').forEach((el) => el.remove());
+  const ov = document.createElement('div');
+  ov.className = 'action-sheet-overlay';
+  ov.innerHTML = `<div class="action-sheet" role="dialog" aria-label="${escHtml(title || 'Aktionen')}">
+    <div class="as-group">
+      ${title || message ? `<div class="as-head">${title ? `<strong>${escHtml(title)}</strong>` : ''}${message ? `<span>${escHtml(message)}</span>` : ''}</div>` : ''}
+      ${actions.map((a, i) => `<button type="button" class="as-btn${a.destructive ? ' is-destructive' : ''}" data-i="${i}">
+        ${a.icon ? `<span class="as-icon" aria-hidden="true">${a.icon}</span>` : ''}
+        <span class="as-text"><span>${escHtml(a.label)}</span>${a.sub ? `<small>${escHtml(a.sub)}</small>` : ''}</span>
+      </button>`).join('')}
+    </div>
+    <button type="button" class="as-btn as-cancel">Abbrechen</button>
+  </div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 220); };
+  ov.addEventListener('click', (e) => {
+    const b = e.target.closest('.as-btn');
+    if (e.target === ov || (b && b.classList.contains('as-cancel'))) { close(); return; }
+    if (b && b.dataset.i !== undefined) { close(); setTimeout(() => actions[+b.dataset.i].run(), 120); }
+  });
+  document.body.appendChild(ov);
 }
 
 // ── Dialog helpers ─────────────────────────────────────────────────────────
@@ -4061,8 +4101,13 @@ function init() {
   });
 
   // Service toolbar
-  document.getElementById('btn-new-service').addEventListener('click', () => openServiceDialog(null));
-  document.getElementById('btn-new-seg').addEventListener('click', () => openIncidentDialog(null, null, { newSeg: true }));
+  document.getElementById('btn-add-menu').addEventListener('click', () => showActionSheet({
+    title: 'Neuer Eintrag',
+    actions: [
+      { label: 'Dienst', sub: 'Schicht mit Fahrzeug und Besatzung', icon: '🚑', run: () => openServiceDialog(null) },
+      { label: 'SEG-Einsatz', sub: 'Einzelner Einsatz mit Beginn und Ende', icon: '⚡', run: () => openIncidentDialog(null, null, { newSeg: true }) },
+    ],
+  }));
   const globalLightsBtn = document.getElementById('btn-global-lights');
   if (globalLightsBtn) {
     globalLightsBtn.innerHTML = LIGHTS_ON_SVG;
@@ -4181,7 +4226,7 @@ async function loadDpShifts(force = false) {
   if (toolbar) toolbar.hidden = !dpConfigured();
   if (!dpConfigured()) {
     if (statusEl) statusEl.textContent = '—';
-    container.innerHTML = '<div class="empty-hint">Noch kein Dienstplan verbunden.<br><small>Der Kalender aus dem Online-Dienstplan wird über deinen Cloudflare Worker geladen.</small><br><button type="button" class="btn-primary dp-connect" style="margin-top:14px">Dienstplan verbinden</button></div>';
+    container.innerHTML = '<div class="empty-hint">Noch kein Dienstplan verbunden.<br><button type="button" class="btn-primary dp-connect" style="margin-top:14px">Dienstplan verbinden</button></div>';
     const btn = container.querySelector('.dp-connect');
     if (btn) btn.addEventListener('click', () => { switchTab('einstellungen'); setTimeout(() => openSettingsPage('dienstplan'), 60); });
     return;
@@ -4371,9 +4416,9 @@ async function workerApi(path, { method = 'GET', body } = {}) {
   try { data = await res.json(); } catch (_) {}
   if (!res.ok) {
     const msg = {
-      push_not_configured: 'Der Worker ist noch nicht für Benachrichtigungen eingerichtet (KV-Speicher PUSH_KV fehlt).',
+      push_not_configured: 'Der Worker unterstützt noch keine Benachrichtigungen.',
       unauthorized: 'Zugangsschlüssel passt nicht zum Worker.',
-      not_found: 'Der Worker kennt diese Funktion noch nicht – bitte den neuen Worker-Code bereitstellen.',
+      not_found: 'Der Worker kennt diese Funktion noch nicht.',
       no_devices: 'Kein Gerät angemeldet.',
     }[data.error] || ('Fehler vom Worker (' + (data.error || res.status) + ').');
     const err = new Error(msg); err.code = data.error || res.status; throw err;
@@ -4478,7 +4523,7 @@ async function renderPushSettings(host) {
     try {
       const s = await workerApi('/push/status');
       const when = s.lastCheck ? new Date(s.lastCheck) : null;
-      st.textContent = (when ? `Zuletzt geprüft ${homeDayLabel(when, new Date())}, ${formatTimeHM(when)}` : 'Noch nicht geprüft – Zeitplan (Cron) im Worker eingerichtet?')
+      st.textContent = (when ? `Zuletzt geprüft ${homeDayLabel(when, new Date())}, ${formatTimeHM(when)}` : 'Noch nicht geprüft')
         + (s.lastError ? ` · Fehler: ${s.lastError}` : '')
         + ` · ${s.devices} ${s.devices === 1 ? 'Gerät' : 'Geräte'}`;
     } catch (err) { st.textContent = err.message; }
