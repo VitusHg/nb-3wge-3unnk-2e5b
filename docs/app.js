@@ -179,6 +179,7 @@ let incLights = false;
 let incExtraVehicles = [];
 // Service dialog transient state
 let svcDialogId = null;
+let svcDialogDpUid = '';
 let svcColleagues = [];
 
 function loadState() {
@@ -229,6 +230,8 @@ function normalizeState(s) {
     svc.abteilung = txt(svc.abteilung);
     svc.note = txt(svc.note);
     svc.isSeg = !!svc.isSeg;
+    if (svc.dpUid !== undefined) svc.dpUid = str(svc.dpUid);
+    if (svc.dpAck !== undefined) svc.dpAck = str(svc.dpAck);
     // Titel, die früher als eigene Person gespeichert wurden („BSc“), wieder anhängen
     svc.colleagues = Array.isArray(svc.colleagues) ? mergeCrewTitles(svc.colleagues.map(txt).filter(Boolean)) : [];
     svc.incidents = objList(svc.incidents);
@@ -545,7 +548,14 @@ function serviceDurationHours(svc) {
 
 function dienstplanUrl(svc) {
   const abtName = svc.abteilung || svc.location || '';
-  const abt = (state.abteilungen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
+  let abt = (state.abteilungen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
+  // sonst unscharf wie in RKTel („MINA RKZ“ → „MINA“, Groß-/Kleinschreibung, Kurzformen)
+  if (!abt && window.RKDienstplan && (state.abteilungen || []).length) {
+    try {
+      const match = window.RKDienstplan.createDepartmentMatcher(state.abteilungen);
+      abt = (svc.abteilung && match(svc.abteilung)) || (svc.location && match(svc.location)) || null;
+    } catch (_) { abt = null; }
+  }
   if (!abt || !abt.deptId) return null;
   const dateStr = (svc.startAt || '').slice(0, 10);
   if (!dateStr) return null;
@@ -794,6 +804,7 @@ function renderServiceList() {
           ${shiftCodeHtml(svc.startAt, 'is-small') || `<span class="service-card-badge">${escHtml(label)}</span>`}
           <div class="service-card-title">${escHtml(svc.vehicle || 'Dienst')}</div>
           ${running ? '<span class="svc-live"><span class="home-active-pulse"></span>Läuft</span>' : ''}
+          ${pendingPlanChange(svc) ? '<span class="dp-chg-badge is-updated">Geändert</span>' : ''}
         </div>
         <div class="service-card-sub">${escHtml([svcWhenText(svc), svc.location].filter(Boolean).join(' · '))}</div>
         ${svc.note ? `<div class="inc-row-note svc-card-note">${ICON_NOTE}<span>${escHtml(svc.note.replace(/\s+/g, ' '))}</span></div>` : ''}
@@ -873,6 +884,7 @@ function renderServiceDetailContent() {
       </div>
       <button class="btn-secondary dv-edit" id="btn-edit-svc">Bearbeiten</button>
     </div>
+    ${planChangeBannerHtml(svc)}
     <div class="dv-group">
       ${svc.abteilung ? row('Abteilung', escHtml(svc.abteilung)) : ''}
       ${row('Dienststelle', escHtml(svc.location || '—'))}
@@ -1290,6 +1302,7 @@ let svcChips = null;
 
 function openServiceDialog(serviceId, prefill = null) {
   svcDialogId = serviceId || null;
+  svcDialogDpUid = (!serviceId && prefill && prefill.dpUid) || '';
   const svc = serviceId ? state.services.find((s) => s.id === serviceId) : null;
   document.getElementById('dialog-service-title').textContent = svc ? 'Dienst bearbeiten' : 'Neuer Dienst';
   const startEl = document.getElementById('svc-start');
@@ -1398,6 +1411,7 @@ function saveService() {
     if (svc) Object.assign(svc, data);
   } else {
     const svc = { id: uid(), ...data, incidents: [], isSeg: false };
+    if (svcDialogDpUid) svc.dpUid = svcDialogDpUid;
     state.services.push(svc);
     selectedServiceId = svc.id; // neuen Dienst gleich öffnen
   }
@@ -4358,6 +4372,8 @@ function renderDpShifts(shifts, container) {
     group.innerHTML = `<h3 class="dp-day-heading">${escHtml(dpFormatDayHeading(dayShifts[0].start))}</h3>`;
     for (const s of dayShifts) {
       const saved = findSavedServiceForShift(s);
+      const savedChange = saved ? pendingPlanChange(saved) : null;
+      const dpLink = (saved && dienstplanUrl(saved)) || dienstplanUrl({ abteilung: '', location: s.location || '', startAt: localDtStr(new Date(s.start)) });
       const chg = dpChangeFor(s, changes);
       const histKey = historyKeyForShift(s, hist);
       const card = document.createElement('div');
@@ -4372,11 +4388,15 @@ function renderDpShifts(shifts, container) {
         <div class="dp-shift-summary">${escHtml(s.summary || '—')}</div>
         ${s.location ? `<div class="dp-shift-meta">📍 ${escHtml(s.location)}</div>` : ''}
         ${dpCrewHtml(s)}
+        ${savedChange ? `<div class="dp-shift-meta dp-pc-hint">⚠︎ Tagebuch weicht ab: ${escHtml(savedChange.diff.map((d) => d.label).join(', '))}</div>` : ''}
         <div class="dp-shift-actions">
           ${historyCountHtml(histKey, hist)}
           ${saved
-            ? '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch · öffnen</button>'
+            ? (savedChange
+              ? `<button type="button" class="btn-primary" data-pc-apply="${escHtml(saved.id)}">Übernehmen</button><button type="button" class="btn-secondary btn-dp-open">Öffnen</button>`
+              : '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch</button>')
             : '<button type="button" class="btn-primary btn-dp-import">Ins Tagebuch übernehmen</button>'}
+          ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}
         </div>`;
       const imp = card.querySelector('.btn-dp-import');
       if (imp) imp.addEventListener('click', () => importShiftToService(s));
@@ -4398,12 +4418,16 @@ function dpCrewHtml(shift) {
 
 /** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */
 function findSavedServiceForShift(shift) {
+  const svcs = state.services.filter((x) => !x.isSeg);
+  if (shift.uid) {
+    // 1. gemerkte Termin-ID, 2. Zuordnung über Verlauf/Beginnzeit (auch wenn sich die Zeit verschoben hat)
+    const byId = svcs.find((x) => x.dpUid === shift.uid);
+    if (byId) return byId;
+    const viaPlan = svcs.find((x) => { const p = planShiftForService(x); return p && p.uid === shift.uid && p.start === shift.start; });
+    if (viaPlan) return viaPlan;
+  }
   const st = new Date(shift.start);
-  return state.services.find((svc) => {
-    if (svc.isSeg) return false;
-    const d = parseLocalDt(svc.startAt);
-    return d && Math.abs(d - st) < 5400000;
-  }) || null;
+  return svcs.find((x) => { const d = parseLocalDt(x.startAt); return d && Math.abs(d - st) < 5400000; }) || null;
 }
 
 /** Hängt reine Titel-Einträge an die Person davor („Name Vorname, BSc“). */
@@ -4426,33 +4450,151 @@ function parseCrew(description) {
   return mergeCrewTitles(String(description).split(/\s*[,;]\s*/));
 }
 
-function importShiftToService(shift) {
-  const toLocal = (iso) => {
-    const d = new Date(iso);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
+/** Werte eines Dienstplan-Eintrags so, wie sie im Tagebuch gespeichert werden. */
+function planValuesFromShift(shift) {
   // Besatzung direkt aus dem Kalender-Parser (Titel wie „BSc“ bleiben beim
   // Namen); weitere Beschreibungszeilen (z. B. Zimmer) → an den Ort anhängen.
   const parsed = Array.isArray(shift.colleagues) ? { colleagues: mergeCrewTitles(shift.colleagues), note: shift.note || '' } : crewOf(shift.description || '');
   const extras = String(parsed.note || '').split(/\n/).map((x) => x.trim()).filter(Boolean).join(' · ');
   let location = shift.location || '';
   if (extras) location = location ? `${location} · ${extras}` : extras;
-  const startLocal = toLocal(shift.start);
-  const dup = state.services.find((x) => x.startAt === startLocal && (x.vehicle || '') === (shift.summary || ''));
+  return {
+    startAt: localDtStr(new Date(shift.start)),
+    endAt: localDtStr(new Date(shift.end)),
+    vehicle: shift.summary || '',
+    location,
+    colleagues: parsed.colleagues,
+  };
+}
+
+function importShiftToService(shift) {
+  const v = planValuesFromShift(shift);
+  const dup = state.services.find((x) => (shift.uid && x.dpUid === shift.uid) || (x.startAt === v.startAt && (x.vehicle || '') === v.vehicle));
   if (dup && !confirm('Dieser Dienst ist bereits im Tagebuch. Trotzdem nochmal anlegen?')) {
     selectedServiceId = dup.id;
     switchTab('dienste');
     return;
   }
-  openServiceDialog(null, {
-    start: startLocal,
-    end: toLocal(shift.end),
-    location,
-    vehicle: shift.summary || '',
-    colleagues: parsed.colleagues,
-  });
+  openServiceDialog(null, { start: v.startAt, end: v.endAt, location: v.location, vehicle: v.vehicle, colleagues: v.colleagues, dpUid: shift.uid || '' });
 }
+
+// ── Abgleich Tagebuch ↔ Dienstplan ────────────────────────────────────────
+// Ein übernommener Dienst merkt sich die Termin-ID (dpUid). Ändert sich der
+// Termin im Dienstplan, zeigt das Tagebuch die Unterschiede mit „Übernehmen“.
+function planShiftForService(svc) {
+  if (!svc || svc.isSeg) return null;
+  const cache = readIcsCache();
+  if (!cache || !Array.isArray(cache.shifts)) return null;
+  const st = parseLocalDt(svc.startAt);
+  const byUid = (uid) => {
+    const hits = cache.shifts.filter((x) => x.uid === uid);
+    if (hits.length <= 1 || !st) return hits[0] || null;
+    return hits.sort((a, b) => Math.abs(new Date(a.start) - st) - Math.abs(new Date(b.start) - st))[0];
+  };
+  if (svc.dpUid) return byUid(svc.dpUid);
+  // ältere Dienste ohne Termin-ID: über den Verlauf oder gleiche Beginnzeit (±90 min)
+  const hk = historyKeyForService(svc);
+  const hist = hk ? readDpHistory()[hk] : null;
+  if (hist && hist.uid) { const s = byUid(hist.uid); if (s) return s; }
+  if (!st) return null;
+  let best = null, bestD = Infinity;
+  for (const x of cache.shifts) {
+    const d = Math.abs(new Date(x.start) - st);
+    const sameVeh = (x.summary || '').toLowerCase() === (svc.vehicle || '').toLowerCase();
+    if (d < 5400000 && d - (sameVeh ? 1 : 0) < bestD) { best = x; bestD = d - (sameVeh ? 1 : 0); }
+  }
+  return best;
+}
+
+/** Unterschiede zwischen Tagebuch-Dienst und Dienstplan (leer = gleich). */
+function planDiff(svc, plan) {
+  if (!plan) return [];
+  const v = planValuesFromShift(plan);
+  const out = [];
+  const range = (a, b) => { const x = parseLocalDt(a), y = parseLocalDt(b); return x ? `${x.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(x)}${y ? '–' + formatTimeHM(y) : ''}` : '—'; };
+  if (svc.startAt !== v.startAt || (svc.endAt || '') !== v.endAt) out.push({ key: 'time', label: 'Zeit', from: range(svc.startAt, svc.endAt), to: range(v.startAt, v.endAt) });
+  if ((svc.vehicle || '').trim() !== v.vehicle.trim()) out.push({ key: 'vehicle', label: 'Fahrzeug', from: svc.vehicle, to: v.vehicle });
+  if ((svc.location || '').trim() !== v.location.trim()) out.push({ key: 'location', label: 'Dienststelle', from: svc.location, to: v.location });
+  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
+  const a = new Set((svc.colleagues || []).map(norm)), b = new Set(v.colleagues.map(norm));
+  const added = v.colleagues.filter((x) => !a.has(norm(x)));
+  const removed = (svc.colleagues || []).filter((x) => !b.has(norm(x)));
+  if (added.length || removed.length) out.push({ key: 'crew', label: 'Besatzung', added, removed });
+  return out;
+}
+
+/** Fingerabdruck eines Plan-Stands – „Ignorieren“ gilt nur bis zur nächsten Änderung. */
+function planSignature(plan) {
+  const v = planValuesFromShift(plan);
+  return [v.startAt, v.endAt, v.vehicle, v.location, v.colleagues.join('|')].join('#');
+}
+
+/** Offene (nicht ignorierte) Abweichung eines Dienstes oder null. */
+function pendingPlanChange(svc) {
+  const plan = planShiftForService(svc);
+  if (!plan) return null;
+  const diff = planDiff(svc, plan);
+  if (!diff.length || svc.dpAck === planSignature(plan)) return null;
+  return { plan, diff };
+}
+
+function applyPlanChange(svcId) {
+  const svc = state.services.find((x) => x.id === svcId);
+  const pc = svc && pendingPlanChange(svc);
+  if (!pc) return;
+  const v = planValuesFromShift(pc.plan);
+  for (const d of pc.diff) {
+    if (d.key === 'time') { svc.startAt = v.startAt; svc.endAt = v.endAt; }
+    if (d.key === 'vehicle') svc.vehicle = v.vehicle;
+    if (d.key === 'location') svc.location = v.location;
+    if (d.key === 'crew') svc.colleagues = v.colleagues;
+  }
+  if (pc.plan.uid) svc.dpUid = pc.plan.uid;
+  delete svc.dpAck;
+  saveState();
+  toast('Dienst an den Dienstplan angepasst.', 'success');
+  refreshAfterPlanChange();
+}
+
+function ignorePlanChange(svcId) {
+  const svc = state.services.find((x) => x.id === svcId);
+  const plan = svc && planShiftForService(svc);
+  if (!plan) return;
+  svc.dpAck = planSignature(plan);
+  if (plan.uid) svc.dpUid = plan.uid;
+  saveState();
+  refreshAfterPlanChange();
+}
+
+function refreshAfterPlanChange() {
+  renderServiceList(); if (selectedServiceId) renderServiceDetail();
+  const c = readIcsCache(), box = document.getElementById('dienstplan-container');
+  if (activeTab === 'dienstplan' && c && box) renderDpShifts(c.shifts, box);
+  if (activeTab === 'home') renderHome().catch(() => {});
+}
+
+function planChangeBannerHtml(svc) {
+  const pc = pendingPlanChange(svc);
+  if (!pc) return '';
+  const rows = pc.diff.map((d) => d.key === 'crew'
+    ? `<div class="pc-row"><span class="pc-label">${d.label}</span><span class="pc-val">${d.added.map((x) => `<span class="hist-crew is-add">+ ${escHtml(x)}</span>`).join('')}${d.removed.map((x) => `<span class="hist-crew is-del">− ${escHtml(x)}</span>`).join('')}</span></div>`
+    : `<div class="pc-row"><span class="pc-label">${d.label}</span><span class="pc-val"><s>${escHtml(d.from || '—')}</s> → <strong>${escHtml(d.to || '—')}</strong></span></div>`).join('');
+  return `<div class="pc-banner" role="status">
+    <div class="pc-head">⚠︎ Im Dienstplan geändert</div>
+    ${rows}
+    <div class="pc-actions">
+      <button type="button" class="btn-primary" data-pc-apply="${escHtml(svc.id)}">Übernehmen</button>
+      <button type="button" class="btn-ghost" data-pc-ignore="${escHtml(svc.id)}">Ignorieren</button>
+    </div>
+  </div>`;
+}
+
+document.addEventListener('click', (e) => {
+  const ap = e.target.closest && e.target.closest('[data-pc-apply]');
+  if (ap) { e.stopPropagation(); applyPlanChange(ap.dataset.pcApply); return; }
+  const ig = e.target.closest && e.target.closest('[data-pc-ignore]');
+  if (ig) { e.stopPropagation(); ignorePlanChange(ig.dataset.pcIgnore); }
+});
 
 function initDpButtons() {
   const reloadBtn = document.getElementById('btn-dp-reload');
