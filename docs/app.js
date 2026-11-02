@@ -715,23 +715,46 @@ function renderServiceList() {
   const listEl = document.getElementById('service-list');
   const q = (document.getElementById('search-input') ? document.getElementById('search-input').value : '').toLowerCase().trim();
   let services = state.services.slice().sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
+  let incHits = [];
   if (q) {
+    // Einsätze direkt finden (Stichwort, Notiz, Kennzahlen, PZC, NACA, weitere Einsatzmittel)
+    incHits = searchIncidents(q);
+    // Dienste über ihre eigenen Angaben (Datum, Ort, Fahrzeug, Besatzung, Notiz)
     services = services.filter((svc) => {
-      const incidentText = (svc.incidents || []).map((i) =>
-        [i.alarmCode || '', i.note || ''].join(' ')
-      ).join(' ');
+      const d = parseLocalDt(svc.startAt);
       const haystack = [
-        svc.startAt || '', svc.endAt || '',
-        svc.location || '', svc.vehicle || '',
-        svc.note || '',
-        (svc.colleagues || []).join(' '),
-        incidentText,
+        svc.startAt || '', d ? d.toLocaleDateString('de-AT', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) : '',
+        d ? d.toLocaleDateString('de-AT', { month: 'long' }) : '',
+        svc.location || '', svc.abteilung || '', svc.vehicle || '',
+        svc.note || '', (svc.colleagues || []).join(' '),
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
   }
   listEl.innerHTML = '';
+  if (q && incHits.length) {
+    const sec = document.createElement('div');
+    sec.className = 'srch-section';
+    const shown = incHits.slice(0, 80);
+    sec.innerHTML = `<div class="svc-month"><span>Einsätze</span><span class="svc-month-meta">${incHits.length} ${incHits.length === 1 ? 'Treffer' : 'Treffer'}</span></div>
+      <div class="srch-list">${shown.map((h) => searchIncidentRowHtml(h, q)).join('')}</div>
+      ${incHits.length > shown.length ? `<div class="srch-more">… und ${incHits.length - shown.length} weitere – Suche verfeinern</div>` : ''}`;
+    listEl.appendChild(sec);
+    sec.querySelectorAll('.srch-inc').forEach((row) => row.addEventListener('click', (e) => {
+      if (navAnimating) return;
+      const jump = e.target.closest('.srch-svc-btn');
+      if (jump) { e.stopPropagation(); openServiceDetail(row.dataset.svcId); return; }
+      openIncidentView(row.dataset.svcId, row.dataset.incId);
+    }));
+    if (services.length) {
+      const hd = document.createElement('div');
+      hd.className = 'svc-month';
+      hd.innerHTML = `<span>Dienste</span><span class="svc-month-meta">${services.length} Treffer</span>`;
+      listEl.appendChild(hd);
+    }
+  }
   if (!services.length) {
+    if (q && incHits.length) return;
     listEl.innerHTML = q
       ? `<div class="list-empty">Keine Treffer für „${escHtml(q)}“.</div>`
       : '<div class="list-empty"><div class="list-empty-icon">📒</div><strong>Noch keine Dienste</strong><span>Mit ＋ oben rechts legst du deinen ersten Dienst an.</span></div>';
@@ -743,7 +766,7 @@ function renderServiceList() {
     // Abschnittsköpfe pro Monat (wie in iOS-Listen)
     const sd = parseLocalDt(svc.startAt);
     const monthKey = sd ? `${sd.getFullYear()}-${sd.getMonth()}` : 'none';
-    if (monthKey !== lastMonth) {
+    if (!q && monthKey !== lastMonth) {
       lastMonth = monthKey;
       const hd = document.createElement('div');
       hd.className = 'svc-month';
@@ -813,20 +836,7 @@ function renderServiceList() {
         <span class="svc-card-count${incCount ? '' : ' is-zero'}" title="${incCount} ${incCount === 1 ? 'Einsatz' : 'Einsätze'}">${incCount}</span>
         <span class="svc-card-chev" aria-hidden="true">›</span>
       </div>`;
-    card.addEventListener('click', () => {
-      if (navAnimating) return;
-      const mobile = isMobile();
-      if (mobile) {
-        const listPanel = document.getElementById('service-list-panel');
-        if (listPanel) serviceListScrollTop = listPanel.scrollTop;
-      }
-      selectedServiceId = svc.id; renderServiceList(); renderServiceDetail();
-      if (mobile) {
-        const detailPanel = document.getElementById('service-detail-panel');
-        if (detailPanel) detailPanel.scrollTop = 0;
-        pushAnimated(getBackTarget());
-      }
-    });
+    card.addEventListener('click', () => { if (!navAnimating) openServiceDetail(svc.id); });
     listEl.appendChild(card);
     enableSwipe(card, {
       edit: () => openServiceDialog(svc.id),
@@ -1071,7 +1081,14 @@ function renderIncidentView() {
         svc.vehicle && row('Fahrzeug', escHtml(svc.vehicle)),
         svc.location && row('Dienststelle', escHtml(svc.location)),
         createdStr && row('Erfasst', escHtml(createdStr)),
+        `<button type="button" class="iv-jump" id="btn-iv-jump">Dienst öffnen<span aria-hidden="true">›</span></button>`,
       ]));
+  const jump = document.getElementById('btn-iv-jump');
+  if (jump) jump.onclick = () => {
+    closeDialog('dialog-incident-view');
+    if (selectedServiceId === svc.id && activeTab === 'dienste') return;
+    setTimeout(() => openServiceDetail(svc.id), 280);
+  };
   const favBtn = document.getElementById('btn-iv-fav');
   if (favBtn) favBtn.onclick = () => toggleFavorite(svc.id, inc.id);
 }
@@ -1099,6 +1116,64 @@ function favoriteIncidents() {
   state.services.forEach((svc) => (svc.incidents || []).forEach((inc) => { if (inc.favorite) list.push({ svc, inc }); }));
   return list.sort((a, b) => (b.svc.startAt || '').localeCompare(a.svc.startAt || '')
     || (b.inc.createdAt || '').localeCompare(a.inc.createdAt || ''));
+}
+
+/** Öffnet die Detailansicht eines Dienstes (auf dem iPhone mit Push-Animation). */
+function openServiceDetail(id) {
+  if (!state.services.some((x) => x.id === id && !x.isSeg)) return;
+  if (activeTab !== 'dienste') { selectedServiceId = id; switchTab('dienste'); return; }
+  const mobile = isMobile();
+  if (mobile) {
+    const listPanel = document.getElementById('service-list-panel');
+    if (listPanel) serviceListScrollTop = listPanel.scrollTop;
+  }
+  selectedServiceId = id; renderServiceList(); renderServiceDetail();
+  if (mobile) {
+    const detailPanel = document.getElementById('service-detail-panel');
+    if (detailPanel) detailPanel.scrollTop = 0;
+    pushAnimated(getBackTarget());
+  }
+}
+
+/** Alle Einsätze, die zum Suchbegriff passen – neueste zuerst. */
+function searchIncidents(q) {
+  const hits = [];
+  for (const svc of state.services) {
+    for (const inc of svc.incidents || []) {
+      const ea = inc.einsatzart ? EINSATZART_MAP.get(String(inc.einsatzart)) || '' : '';
+      const kz = inc.statKz ? STATKZ_MAP.get(String(inc.statKz)) || '' : '';
+      const p = inc.pzc || {};
+      const hasNaca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '';
+      const fields = [inc.alarmCode, inc.note, ea, kz, p.diag, pzcDiagnosis(p.diag), hasNaca ? `naca ${inc.naca}` : '', (inc.extraVehicles || []).join(' '), svc.isSeg ? svc.location : ''];
+      if (fields.some((f) => f && String(f).toLowerCase().includes(q))) hits.push({ svc, inc });
+    }
+  }
+  return hits.sort((a, b) => (b.svc.startAt || '').localeCompare(a.svc.startAt || '') || (b.inc.createdAt || '').localeCompare(a.inc.createdAt || ''));
+}
+
+function markMatch(text, q) {
+  const t = String(text || '');
+  const i = t.toLowerCase().indexOf(q);
+  if (!q || i < 0) return escHtml(t);
+  return escHtml(t.slice(0, i)) + '<mark>' + escHtml(t.slice(i, i + q.length)) + '</mark>' + escHtml(t.slice(i + q.length));
+}
+
+function searchIncidentRowHtml({ svc, inc }, q) {
+  const d = parseLocalDt(svc.startAt);
+  const day = d ? d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+  const ea = inc.einsatzart ? EINSATZART_MAP.get(String(inc.einsatzart)) || '' : '';
+  const hasNaca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '';
+  const sub = [day, svc.isSeg ? 'SEG' : svc.vehicle, ea, hasNaca ? `NACA ${inc.naca}` : ''].filter(Boolean).join(' · ');
+  const noteHit = inc.note && inc.note.toLowerCase().includes(q);
+  return `<div class="srch-inc" role="button" tabindex="0" data-svc-id="${escHtml(svc.id)}" data-inc-id="${escHtml(inc.id)}">
+    <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
+    <span class="srch-main">
+      <span class="srch-title">${inc.favorite ? '<span class="inc-row-fav">★</span>' : ''}${markMatch(inc.alarmCode || 'Einsatz', q)}</span>
+      <span class="srch-sub">${markMatch(sub, q)}</span>
+      ${noteHit ? `<span class="srch-note">${ICON_NOTE}<span>${markMatch(inc.note.replace(/\s+/g, ' '), q)}</span></span>` : ''}
+    </span>
+    ${svc.isSeg ? '<span class="hm-chev" aria-hidden="true">›</span>' : `<button type="button" class="srch-svc-btn" aria-label="Zum Dienst" title="Zum Dienst">Dienst<span aria-hidden="true">›</span></button>`}
+  </div>`;
 }
 
 /** Zuletzt angelegter Einsatz zuerst (Anlagezeit, sonst Reihenfolge der Erfassung). */
@@ -4608,6 +4683,19 @@ function initDpButtons() {
 // Der Worker prüft den Kalender per Zeitplan und schickt Mitteilungen; die App
 // meldet hier nur das Gerät an/ab und zeigt die letzten Änderungen an.
 const PUSH_ENDPOINT_KEY = 'etb_push_endpoint';
+// Testmitteilungen – ein bisschen Wachenhumor (zufällig ausgewählt)
+const PUSH_TEST_MESSAGES = [
+  { title: '📻 Funkprobe', body: 'Hier Einsatztagebuch, wie hören Sie mich? Kommen! – Laut und deutlich. Mitteilungen funktionieren.' },
+  { title: '🚨 Alarm! … oder doch nicht', body: 'Nur ein Test. Der Kaffee darf in Ruhe ausgetrunken werden. ☕' },
+  { title: 'Neu: Dienst „Sofa“', body: 'Heute 20:00 – open end · Besatzung: du und die Fernbedienung. (Leider nur ein Test.)' },
+  { title: 'Einsatzstichwort: TESTMITTEILUNG', body: 'Lage: alles ruhig. Maßnahme: weiterschlafen. 😴' },
+  { title: 'NACA 0', body: 'Keine Erkrankung oder Verletzung. Nur eine kerngesunde Testmitteilung. ✅' },
+  { title: 'Übergabe', body: 'Patientin „Benachrichtigung“: wach, orientiert, Kreislauf stabil. Übergabe ohne Besonderheiten.' },
+  { title: 'Ausfall: Kaffeemaschine', body: 'Die Mitteilungen funktionieren. Die Kaffeemaschine auf der Wache leider weiterhin nicht.' },
+  { title: 'Aktualisiert: Dienstplan', body: 'Vorher: Stress · Jetzt: Feierabend. (Wunschdenken – das ist nur ein Test.)' },
+  { title: '🚑 Blaulicht an!', body: 'Keine Sorge, nur zur Deko. Die Testmitteilung ist sicher angekommen.' },
+  { title: 'Rückmeldung vom Fahrzeug', body: 'Einsatzbereit, vollgetankt, Snacks an Bord. Mitteilungen: läuft.' },
+];
 const DP_CHANGES_KEY = 'etb_dp_changes';
 const DP_CHANGES_DAYS = 7;
 let launchTabAt = 0;
@@ -4728,7 +4816,8 @@ async function renderPushSettings(host) {
   const test = host.querySelector('#btn-push-test');
   if (test) test.addEventListener('click', async () => {
     test.disabled = true;
-    try { await workerApi('/push/test', { method: 'POST', body: { endpoint: sub.endpoint } }); toast('Testmitteilung gesendet.', 'success'); }
+    const m = PUSH_TEST_MESSAGES[Math.floor(Math.random() * PUSH_TEST_MESSAGES.length)];
+    try { await workerApi('/push/test', { method: 'POST', body: { endpoint: sub.endpoint, title: m.title, body: m.body } }); toast('Testmitteilung gesendet.', 'success'); }
     catch (err) {
       // Anmeldung beim Worker verloren (z. B. neuer KV-Speicher) → neu anmelden
       if (err.code === 'no_devices') { try { await enablePush(); toast('Gerät neu angemeldet – bitte nochmal testen.', 'info', 4000); } catch (e2) { toast(e2.message, 'error', 6000); } }
