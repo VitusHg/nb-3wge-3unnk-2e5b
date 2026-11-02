@@ -2512,3 +2512,8 @@ div.hm-row { cursor: default; }
 .dp-shift-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dp-shift-actions .hist-btn { order: 2; padding: 7px 12px 7px 10px; font-size: 13px; border-radius: 10px; }
 .svc-hist-row { margin-bottom: 16px; }
+
+/* Fahrzeuggrafiken lokal */
+.icon-cache-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text2); margin: 8px 0 2px; }
+.icon-cache-row:empty { display: none; }
+.icon-cache-btn { font-size: 13px; padding: 4px 10px; }

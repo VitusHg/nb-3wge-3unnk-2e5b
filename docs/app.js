@@ -2795,6 +2795,7 @@ function saveVehicleCat() {
     state.vehicleCategories.push({ id: uid(), name, iconNormal, iconSoSi });
   }
   saveState(); closeDialog('dialog-vehicle-cat'); renderSettings();
+  syncVehicleIcons().then(() => { if (document.getElementById('dialog-vehicles').style.display === 'flex') renderIconCacheRow(); }).catch(() => {});
   if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent();
   renderServiceList(); if (selectedServiceId) renderServiceDetail();
 }
@@ -3227,6 +3228,7 @@ function renderVehiclesPopupContent() {
     <div class="settings-row codes-popup-import-row">
       <button id="btn-add-vehicle-cat" class="btn-secondary">+ Neue Kategorie</button>
     </div>
+    <div class="icon-cache-row" id="icon-cache-row"></div>
     <input type="search" id="vcat-filter" class="settings-filter-input" placeholder="Kategorien filtern…" value="${escHtml(_vcatFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="vehicle-cat-list" style="margin-top:4px"></div>`;
   popup.querySelector('.veh-popup-right').innerHTML = `
@@ -3239,6 +3241,7 @@ function renderVehiclesPopupContent() {
     <div class="settings-code-list" id="vehicle-assign-list" style="margin-top:4px"></div>`;
   refreshVehicleCatList();
   refreshVehicleAssignList();
+  renderIconCacheRow();
 
   popup.querySelector('#btn-add-vehicle-cat').addEventListener('click', () => openVehicleCatDialog(null));
   popup.querySelector('#vcat-filter').addEventListener('input', (e) => { _vcatFilter = e.target.value; refreshVehicleCatList(); });
@@ -3253,6 +3256,23 @@ function renderVehiclesPopupContent() {
   };
   popup.querySelector('#btn-add-vehicle').addEventListener('click', addVehicle);
   popup.querySelector('#new-vehicle-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addVehicle(); } });
+}
+
+/** Zeile „Grafiken auf dem Gerät: 8 von 8“ mit „Neu laden“ im Fahrzeug-Fenster. */
+async function renderIconCacheRow() {
+  const el = document.getElementById('icon-cache-row');
+  if (!el) return;
+  const st = await vehicleIconCacheStatus().catch(() => null);
+  if (!st || !st.total) { el.innerHTML = ''; return; }
+  el.innerHTML = `<span>📥 Grafiken auf dem Gerät: <strong>${st.cached} von ${st.total}</strong></span>
+    <button type="button" class="btn-ghost icon-cache-btn">${st.cached < st.total ? 'Jetzt laden' : 'Neu laden'}</button>`;
+  el.querySelector('.icon-cache-btn').addEventListener('click', async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Lädt…';
+    const r = await syncVehicleIcons({ force: true }).catch(() => null);
+    if (r && r.failed) toast(`${r.failed} Grafik(en) nicht erreichbar – Adresse prüfen.`, 'error', 5000);
+    else if (r) toast('Grafiken gespeichert.', 'success', 1800);
+    renderIconCacheRow();
+  });
 }
 
 let _vcatFilter = '';
@@ -3834,6 +3854,7 @@ function doSelectiveImport(data, chosen) {
   }
   if (chosen['imp-vehicles'] && Array.isArray(data.vehicleCategories)) {
     state.vehicleCategories = data.vehicleCategories;
+    setTimeout(() => syncVehicleIcons().catch(() => {}), 500);
     if (data.vehicleAssignments) state.vehicleAssignments = data.vehicleAssignments;
     msgs.push(`${data.vehicleCategories.length} Fahrzeugkategorien`);
   }
@@ -3929,6 +3950,60 @@ function exportIcs() {
   a.download = `dienste-${localDateStr(new Date())}.ics`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Fahrzeuggrafiken lokal speichern ──────────────────────────────────────
+// Die Bilder liegen meist auf fremden Servern und laden langsam. Sie werden
+// einmal geholt und im Cache „etb-icons“ abgelegt; der Service Worker liefert
+// sie danach sofort vom Gerät. Nicht mehr benutzte Grafiken werden entfernt.
+const ICON_CACHE = 'etb-icons';
+
+function vehicleIconUrls() {
+  const set = new Set();
+  (state.vehicleCategories || []).forEach((c) => [c.iconNormal, c.iconSoSi].forEach((u) => {
+    if (u && /^https?:\/\//i.test(u)) { try { set.add(new URL(u, location.href).href); } catch (_) {} }
+  }));
+  return [...set];
+}
+
+async function fetchIconForCache(url) {
+  try {
+    const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    if (res.ok) return res;
+  } catch (_) {}
+  // Server ohne CORS → „undurchsichtige“ Antwort; für <img> trotzdem verwendbar
+  const res = await fetch(url, { mode: 'no-cors', cache: 'no-store' });
+  if (res.ok || res.type === 'opaque') return res;
+  throw new Error('HTTP ' + res.status);
+}
+
+let iconSyncRunning = null;
+/** Fehlende Grafiken holen, unbenutzte löschen. force = alle neu laden. */
+function syncVehicleIcons({ force = false } = {}) {
+  if (!('caches' in window)) return Promise.resolve({ total: 0, cached: 0, failed: 0 });
+  if (iconSyncRunning && !force) return iconSyncRunning;
+  iconSyncRunning = (async () => {
+    const cache = await caches.open(ICON_CACHE);
+    const wanted = vehicleIconUrls();
+    const keys = await cache.keys();
+    const have = new Set(keys.map((r) => r.url));
+    await Promise.all(keys.filter((r) => !wanted.includes(r.url)).map((r) => cache.delete(r)));
+    let failed = 0;
+    for (const url of wanted) {
+      if (have.has(url) && !force) continue;
+      try { await cache.put(url, await fetchIconForCache(url)); } catch (_) { failed++; }
+    }
+    return { total: wanted.length, cached: wanted.length - failed, failed };
+  })().finally(() => { iconSyncRunning = null; });
+  return iconSyncRunning;
+}
+
+async function vehicleIconCacheStatus() {
+  if (!('caches' in window)) return null;
+  const wanted = vehicleIconUrls();
+  const cache = await caches.open(ICON_CACHE);
+  const have = new Set((await cache.keys()).map((r) => r.url));
+  return { total: wanted.length, cached: wanted.filter((u) => have.has(u)).length };
 }
 
 // ── Dialog helpers ─────────────────────────────────────────────────────────
@@ -4053,6 +4128,8 @@ function init() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
+  // Fahrzeuggrafiken im Hintergrund lokal ablegen (nach dem ersten Zeichnen)
+  setTimeout(() => { if (navigator.onLine !== false) syncVehicleIcons().catch(() => {}); }, 2500);
 }
 
 document.addEventListener('DOMContentLoaded', init);

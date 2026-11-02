@@ -4,7 +4,10 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v24';
+const CACHE_NAME = CACHE_PREFIX + 'v25';
+// Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
+// der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
+const ICON_CACHE = 'etb-icons';
 
 // Alle Pfade relativ → funktioniert unter /<repo>/ genauso wie unter /
 const APP_SHELL = [
@@ -53,7 +56,18 @@ function inScope(url) {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-  // Fremde Herkunft (Cloudflare Worker, Fahrzeug-Icons …) immer direkt ans Netz
+  // Fahrzeuggrafiken: zuerst vom Gerät, nur beim ersten Mal aus dem Netz
+  if (event.request.destination === 'image' && !inScope(url) && /^https?:$/.test(url.protocol)) {
+    event.respondWith(caches.open(ICON_CACHE).then(async (cache) => {
+      const hit = await cache.match(event.request.url);
+      if (hit) return hit;
+      const res = await fetch(event.request);
+      if (res && (res.ok || res.type === 'opaque')) cache.put(event.request.url, res.clone()).catch(() => {});
+      return res;
+    }).catch(() => fetch(event.request)));
+    return;
+  }
+  // Übrige fremde Herkunft (Cloudflare Worker …) immer direkt ans Netz
   if (!inScope(url)) return;
 
   // Seitenaufruf: Netzwerk zuerst mit kurzem Zeitlimit (Updates kommen an),
