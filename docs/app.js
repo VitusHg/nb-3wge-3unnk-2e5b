@@ -83,6 +83,27 @@ const STATKZ_CODES = [
   ['99', 'Sonstiges'],
 ];
 const EINSATZART_MAP = new Map(EINSATZART_CODES);
+
+// Akademische Grade/Titel – im Dienstplan stehen sie als eigener Listeneintrag
+// hinter dem Namen: "Nachname Vorname, BSc, Beispiel Anna". Gleiche Liste wie
+// in RKTel (rk-dienstplan.js), hier ergänzt um Schreibweisen mit Punkten.
+const CREW_TITLE_WORDS = new Set([
+  'mag', 'mmag', 'dr', 'ddr', 'prof', 'univ', 'med', 'dent', 'vet', 'rer', 'nat', 'techn', 'jur',
+  'phil', 'oec', 'pharm', 'habil', 'di', 'dipl', 'ing', 'dipl-ing', 'di(fh)', 'fh', 'bsc', 'msc',
+  'ba', 'ma', 'bed', 'mba', 'mas', 'mpa', 'mph', 'llb', 'llm', 'phd', 'bakk', 'dgkp',
+  'dgks', 'dsa', 'pd', 'ao', 'emer', 'hon', 'rn', 'ol', 'beng', 'meng', 'msc(wu)', 'mbs',
+]);
+
+function isCrewTitleOnly(segment) {
+  const words = String(segment).trim().split(/\s+/).filter(Boolean);
+  const isTitle = (w) => {
+    const k = w.toLowerCase().replace(/\./g, '').replace(/[–—]/g, '-');
+    return CREW_TITLE_WORDS.has(k) || (k.includes('-') && k.split('-').every((x) => CREW_TITLE_WORDS.has(x)));
+  };
+  // bekannte Titel – oder lauter Kürzel mit Punkt („Prof. Ing.“)
+  return words.length > 0 && (words.every(isTitle) || words.every((w) => /^[A-ZÄÖÜ][a-zäöü]*\.$/.test(w)));
+}
+
 const STATKZ_MAP = new Map(STATKZ_CODES);
 
 /** "1" → "1 – Hintransport stationär"; unbekannte IDs bleiben sichtbar. */
@@ -197,7 +218,8 @@ function normalizeState(s) {
     svc.abteilung = txt(svc.abteilung);
     svc.note = txt(svc.note);
     svc.isSeg = !!svc.isSeg;
-    svc.colleagues = Array.isArray(svc.colleagues) ? svc.colleagues.map(txt).filter(Boolean) : [];
+    // Titel, die früher als eigene Person gespeichert wurden („BSc“), wieder anhängen
+    svc.colleagues = Array.isArray(svc.colleagues) ? mergeCrewTitles(svc.colleagues.map(txt).filter(Boolean)) : [];
     svc.incidents = objList(svc.incidents);
     svc.incidents.forEach((inc) => {
       inc.id = inc.id ? String(inc.id) : uid();
@@ -354,6 +376,8 @@ function occurrenceToShift(o) {
     summary: o.title || '',
     location: o.location || '',
     description: [crew, o.note].filter(Boolean).join('\n'),
+    colleagues: o.colleagues || [],
+    note: o.note || '',
   };
 }
 
@@ -2476,7 +2500,7 @@ function homeActiveCardHtml(svc, now) {
         <span class="hm-progress-track"><span class="hm-progress-fill" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="hm-progress-time">${end ? formatTimeHM(end) : '?'}</span>
       </div>
-      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(', '))}</div>` : ''}
+      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
@@ -2492,7 +2516,7 @@ function homeNextCardHtml(item, now) {
   const vehicle = item.svc?.vehicle || item.ics?.summary || '';
   const location = item.svc?.location || item.ics?.location || '';
   const end = item.svc ? parseLocalDt(item.svc.endAt) : (item.ics ? new Date(item.ics.end) : null);
-  const crew = item.svc ? (item.svc.colleagues || []) : parseCrew((item.ics?.description || '').split('\n')[0]);
+  const crew = item.svc ? (item.svc.colleagues || []) : (Array.isArray(item.ics?.colleagues) ? mergeCrewTitles(item.ics.colleagues) : crewOf(item.ics?.description || '').colleagues);
   const when = `${homeDayLabel(start, now)}, ${formatTimeHM(start)}${end ? '–' + formatTimeHM(end) : ''}`;
   const inner = `
       <div class="hm-hero-top">
@@ -2510,7 +2534,7 @@ function homeNextCardHtml(item, now) {
         </div>
         ${item.svc ? '<span class="hm-chev" aria-hidden="true">›</span>' : ''}
       </div>
-      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(', '))}</div>` : ''}`;
+      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}`;
   if (item.svc) {
     return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
   }
@@ -4149,7 +4173,7 @@ function renderDpShifts(shifts, container) {
         </div>
         <div class="dp-shift-summary">${escHtml(s.summary || '—')}</div>
         ${s.location ? `<div class="dp-shift-meta">📍 ${escHtml(s.location)}</div>` : ''}
-        ${s.description ? `<div class="dp-shift-meta">👥 ${escHtml(s.description)}</div>` : ''}
+        ${dpCrewHtml(s)}
         <div class="dp-shift-actions">
           ${historyCountHtml(histKey, hist)}
           ${saved
@@ -4166,6 +4190,14 @@ function renderDpShifts(shifts, container) {
   }
 }
 
+/** Besatzung (+ Zusatzinfo) einer Dienstplan-Karte; Personen mit „·“ getrennt,
+ *  damit „Name, BSc“ als eine Person erkennbar bleibt. */
+function dpCrewHtml(shift) {
+  const p = Array.isArray(shift.colleagues) ? { colleagues: mergeCrewTitles(shift.colleagues), note: shift.note || '' } : crewOf(shift.description || '');
+  return (p.colleagues.length ? `<div class="dp-shift-meta">👥 ${p.colleagues.map(escHtml).join(' · ')}</div>` : '')
+    + (p.note ? `<div class="dp-shift-meta">ℹ️ ${escHtml(p.note).replace(/\n/g, ' · ')}</div>` : '');
+}
+
 /** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */
 function findSavedServiceForShift(shift) {
   const st = new Date(shift.start);
@@ -4176,25 +4208,24 @@ function findSavedServiceForShift(shift) {
   }) || null;
 }
 
-// Teilt Besatzungsstring per Komma auf, erkennt dabei Titel-Blöcke
-// (z.B. "Prof. Ing. Mag.") und hängt sie an die vorherige Person.
-// Beispiel: "Muster Max, Prof. Ing. Mag., Beispiel Anna"
-//        → ["Muster Max, Prof. Ing. Mag.", "Beispiel Anna"]
-function parseCrew(description) {
-  if (!description) return [];
-  const tokens = description.split(/\s*,\s*/);
-  const isTitleBlock = (t) => t.trim().split(/\s+/).every((w) => /^[A-ZÄÖÜ][a-zäöü]*\.$/.test(w));
+/** Hängt reine Titel-Einträge an die Person davor („Name Vorname, BSc“). */
+function mergeCrewTitles(list) {
   const people = [];
-  for (const token of tokens) {
-    const t = token.trim();
+  for (const raw of list || []) {
+    const t = String(raw || '').trim();
     if (!t) continue;
-    if (people.length > 0 && isTitleBlock(t)) {
-      people[people.length - 1] += ', ' + t;
-    } else {
-      people.push(t);
-    }
+    if (people.length && isCrewTitleOnly(t)) people[people.length - 1] += ', ' + t;
+    else people.push(t);
   }
   return people;
+}
+
+// Teilt die Besatzungszeile per Komma auf und erkennt Titel-Einträge.
+// Beispiel: "Muster Max, BSc, Beispiel Anna, Prof. Ing. Mag."
+//        → ["Muster Max, BSc", "Beispiel Anna, Prof. Ing. Mag."]
+function parseCrew(description) {
+  if (!description) return [];
+  return mergeCrewTitles(String(description).split(/\s*[,;]\s*/));
 }
 
 function importShiftToService(shift) {
@@ -4203,14 +4234,12 @@ function importShiftToService(shift) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
-  // Split description on newlines: first line = crew, further lines = room/Zimmer info → append to location
-  const descLines = (shift.description || '').split(/\n/).map((s) => s.trim()).filter(Boolean);
-  const crewText = descLines[0] || '';
+  // Besatzung direkt aus dem Kalender-Parser (Titel wie „BSc“ bleiben beim
+  // Namen); weitere Beschreibungszeilen (z. B. Zimmer) → an den Ort anhängen.
+  const parsed = Array.isArray(shift.colleagues) ? { colleagues: mergeCrewTitles(shift.colleagues), note: shift.note || '' } : crewOf(shift.description || '');
+  const extras = String(parsed.note || '').split(/\n/).map((x) => x.trim()).filter(Boolean).join(' · ');
   let location = shift.location || '';
-  if (descLines.length > 1) {
-    const extras = descLines.slice(1).join(' · ');
-    location = location ? `${location} · ${extras}` : extras;
-  }
+  if (extras) location = location ? `${location} · ${extras}` : extras;
   const startLocal = toLocal(shift.start);
   const dup = state.services.find((x) => x.startAt === startLocal && (x.vehicle || '') === (shift.summary || ''));
   if (dup && !confirm('Dieser Dienst ist bereits im Tagebuch. Trotzdem nochmal anlegen?')) {
@@ -4223,7 +4252,7 @@ function importShiftToService(shift) {
     end: toLocal(shift.end),
     location,
     vehicle: shift.summary || '',
-    colleagues: parseCrew(crewText),
+    colleagues: parsed.colleagues,
   });
 }
 
@@ -4482,7 +4511,7 @@ const HIST_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a
 function crewOf(desc) {
   if (!desc) return { colleagues: [], note: '' };
   if (window.RKDienstplan && window.RKDienstplan.parseDescription) {
-    try { return window.RKDienstplan.parseDescription(desc); } catch (_) {}
+    try { const r = window.RKDienstplan.parseDescription(desc); return { colleagues: mergeCrewTitles(r.colleagues), note: r.note }; } catch (_) {}
   }
   const lines = desc.split('\n');
   return { colleagues: parseCrew(lines[0]), note: lines.slice(1).join('\n') };
@@ -4527,7 +4556,7 @@ function historyEntryHtml(e) {
   let body = '';
   if (e.type === 'added' && e.now) {
     const crew = crewOf(e.now.d).colleagues;
-    body = `<div class="hist-detail">${escHtml([histFmtRange(e.now), e.now.t, e.now.l].filter(Boolean).join(' · '))}</div>${crew.length ? `<div class="hist-detail is-muted">👥 ${escHtml(crew.join(', '))}</div>` : ''}`;
+    body = `<div class="hist-detail">${escHtml([histFmtRange(e.now), e.now.t, e.now.l].filter(Boolean).join(' · '))}</div>${crew.length ? `<div class="hist-detail is-muted">👥 ${escHtml(crew.join(' · '))}</div>` : ''}`;
   } else if (e.type === 'updated' && e.now && e.before) {
     body = historyDiffHtml(e.before, e.now);
   } else if (e.type === 'removed' && e.before) {
