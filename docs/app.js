@@ -5294,7 +5294,135 @@ function initIosNavigation() {
   initSwipeBack();
   initSheetGestures();
   initSwipeRows();
+  enablePullToRefresh(document.getElementById('tab-dienstplan'), refreshDienstplanTab, () => activeTab === 'dienstplan' && dpConfigured());
+  enablePullToRefresh(document.getElementById('tab-home'), refreshHomeTab, () => activeTab === 'home');
+  initStatusBarTap();
+  // Tipp auf die Navigationsleiste (außer „Zurück“) → ebenfalls nach oben
+  const topbar = document.getElementById('topbar');
+  if (topbar) topbar.addEventListener('click', (e) => { if (!e.target.closest('#nav-back, button, a')) scrollActiveToTop(); });
   updateNavBar();
+}
+
+// ── Ziehen zum Aktualisieren (wie in RKTel) ────────────────────────────────
+// Am Seitenanfang nach unten ziehen → loslassen lädt neu. Gilt für Start und
+// Dienstplan. Die Anzeige ist eine kleine Pille unter der Navigationsleiste.
+const PTR_THRESHOLD = 70;
+const PTR_MAX = 110;
+let ptrBusy = false;
+
+function ptrPill() {
+  let el = document.getElementById('ptr-pill');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ptr-pill';
+    el.className = 'ptr-pill';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<span class="ptr-icon">↓</span><span class="ptr-text">Zum Aktualisieren ziehen</span>';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function ptrShow(dist, state) {
+  const el = ptrPill();
+  const ready = state === 'ready';
+  el.classList.add('visible');
+  el.classList.toggle('ready', ready || state === 'loading');
+  el.classList.toggle('loading', state === 'loading');
+  el.style.transform = `translate(-50%, ${Math.round(Math.min(dist, PTR_MAX) - 50)}px)`;
+  el.querySelector('.ptr-icon').textContent = state === 'loading' ? '↻' : state === 'done' ? '✓' : ready ? '↻' : '↓';
+  el.querySelector('.ptr-text').textContent = state === 'loading' ? 'Wird aktualisiert…' : state === 'done' ? 'Aktualisiert' : ready ? 'Loslassen zum Aktualisieren' : 'Zum Aktualisieren ziehen';
+}
+
+function ptrHide() {
+  const el = document.getElementById('ptr-pill');
+  if (!el) return;
+  el.classList.remove('visible', 'ready', 'loading');
+  el.style.transform = '';
+}
+
+/** Aktiviert Ziehen-zum-Aktualisieren auf einem Scroll-Bereich. */
+function enablePullToRefresh(scroller, onRefresh, isEnabled = () => true) {
+  if (!scroller) return;
+  let startY = null, startX = 0, dist = 0;
+  scroller.addEventListener('touchstart', (e) => {
+    startY = null;
+    if (e.touches.length !== 1 || ptrBusy || scroller.scrollTop > 0 || topVisibleOverlay() || !isEnabled()) return;
+    startY = e.touches[0].clientY; startX = e.touches[0].clientX; dist = 0;
+  }, { passive: true });
+  scroller.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    const dx = Math.abs(e.touches[0].clientX - startX);
+    // nur senkrechtes Ziehen nach unten am Seitenanfang zählt
+    if (dy <= 0 || dx > dy || scroller.scrollTop > 0) {
+      if (scroller.scrollTop > 0 || dx > Math.abs(dy)) startY = null;
+      dist = 0; ptrHide(); return;
+    }
+    dist = Math.min(PTR_MAX, dy * 0.5);
+    if (dist > 8) ptrShow(dist, dist >= PTR_THRESHOLD ? 'ready' : 'pull');
+  }, { passive: true });
+  const end = async () => {
+    if (startY === null) return;
+    const trigger = dist >= PTR_THRESHOLD;
+    startY = null; dist = 0;
+    if (!trigger) { ptrHide(); return; }
+    ptrBusy = true;
+    ptrShow(PTR_THRESHOLD, 'loading');
+    try { await onRefresh(); ptrShow(PTR_THRESHOLD, 'done'); }
+    catch (_) { /* Fehler zeigt die Ansicht selbst */ }
+    finally { setTimeout(() => { ptrHide(); ptrBusy = false; }, 600); }
+  };
+  scroller.addEventListener('touchend', end);
+  scroller.addEventListener('touchcancel', () => { startY = null; dist = 0; ptrHide(); });
+}
+
+async function refreshDienstplanTab() {
+  icsLastError = null;
+  await loadDpShifts(true);
+  await Promise.all([loadDpChanges(), loadDpHistory()]);
+  const cache = readIcsCache();
+  const box = document.getElementById('dienstplan-container');
+  if (cache && box && activeTab === 'dienstplan') renderDpShifts(cache.shifts, box);
+}
+
+async function refreshHomeTab() {
+  if (dpConfigured()) {
+    icsLastError = null;
+    await getIcsShifts(true).catch(() => {});
+  }
+  await renderHome();
+}
+
+// ── Tippen auf die Statusleiste (Uhrzeit) → nach oben ─────────────────────
+// iOS scrollt dabei nur das Dokument selbst. Die App scrollt in eigenen
+// Bereichen; deshalb steht das Dokument 1 px tiefer. Springt es durch den
+// Tipp auf die Statusleiste auf 0, wird die aktuelle Ansicht nach oben
+// gescrollt und das Dokument wieder um 1 px versetzt.
+let lastTouchAt = 0;
+function initStatusBarTap() {
+  if (!isIOSDevice() && !/[?&]sbtap=1/.test(location.search)) return;
+  document.documentElement.classList.add('sb-tap');
+  const arm = () => { if (window.scrollY < 1) window.scrollTo(0, 1); };
+  const touch = () => { lastTouchAt = Date.now(); };
+  ['touchstart', 'touchmove', 'touchend'].forEach((t) => document.addEventListener(t, touch, { passive: true, capture: true }));
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 0) return;
+    const userGesture = Date.now() - lastTouchAt < 500;
+    if (!userGesture && !isTypingSomewhere()) {
+      const ov = topVisibleOverlay();
+      if (ov) {
+        const body = ov.querySelector('.dialog-body') || ov.querySelector('.dialog-box');
+        if (body) body.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      } else {
+        scrollActiveToTop();
+      }
+    }
+    setTimeout(arm, 350);
+  }, { passive: true });
+  window.addEventListener('resize', () => setTimeout(arm, 300));
+  document.addEventListener('focusout', () => setTimeout(arm, 400));
+  setTimeout(arm, 50);
 }
 
 // ── App-Lebenszyklus: Stabilität im Alltag ─────────────────────────────────
