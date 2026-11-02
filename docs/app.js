@@ -607,6 +607,50 @@ function pzcFullLabel(diag, age, prio) {
   return parts.join(' · ');
 }
 
+/** JSON aus einer Datei lesen – mit verständlicher Meldung, falls statt der
+ *  Datei die GitHub-Webseite gespeichert wurde. */
+function parseJsonText(text) {
+  const t = String(text || '').replace(/^\uFEFF/, '').trim();
+  if (/^<(!doctype|html)/i.test(t)) {
+    throw new Error('Das ist eine Webseite, keine JSON-Datei. Auf GitHub die Datei öffnen und „Raw“ bzw. das Download-Symbol verwenden.');
+  }
+  try { return JSON.parse(t); } catch (_) { throw new Error('Die Datei ist kein gültiges JSON.'); }
+}
+
+/** Erkennt eine reine Stichwortliste (Texte oder { code, blaulicht }). */
+function looksLikeKeywordList(data) {
+  const raw = Array.isArray(data) ? data : (data && Array.isArray(data.alarmCodes) && !data.version ? data.alarmCodes : null);
+  if (!raw || !raw.length) return null;
+  const ok = raw.every((it) => typeof it === 'string' || (it && typeof it.code === 'string' && it.diagnosis === undefined));
+  return ok ? raw : null;
+}
+
+/** Erkennt eine reine PZC-Liste ({ code, diagnosis }). */
+function looksLikePzcList(data) {
+  const raw = Array.isArray(data) ? data : (data && Array.isArray(data.pzcCodes) && !data.version ? data.pzcCodes : null);
+  if (!raw || !raw.length) return null;
+  return raw.every((p) => p && typeof p.code === 'string' && typeof p.diagnosis === 'string') ? raw : null;
+}
+
+function importKeywordListWithToast(raw, blMap) {
+  const before = JSON.stringify(state.alarmBlaulicht || {});
+  const added = mergeKeywordList(raw, blMap);
+  const changedBl = raw.filter((it) => it && typeof it === 'object').length && before !== JSON.stringify(state.alarmBlaulicht || {});
+  saveState();
+  const total = state.alarmCodes.length;
+  toast(added
+    ? `${added} Stichwörter neu übernommen (insgesamt ${total}).`
+    : (changedBl ? `Blaulicht-Zuordnung aktualisiert – alle ${total} Stichwörter waren schon vorhanden.` : `Alle Stichwörter waren schon vorhanden (${total}).`), 'success', 4000);
+}
+
+function importPzcList(raw) {
+  const existing = new Set((state.pzcCodes || []).map((p) => p.code));
+  let added = 0;
+  raw.forEach((p) => { if (!existing.has(p.code)) { (state.pzcCodes = state.pzcCodes || []).push({ code: p.code, diagnosis: p.diagnosis }); existing.add(p.code); added++; } });
+  saveState();
+  toast(added ? `${added} PZC-Codes übernommen.` : 'Alle PZC-Codes waren schon vorhanden.', 'success');
+}
+
 /** Stichwörter übernehmen: Liste aus Texten oder { code, blaulicht }; optional Zuordnung als Objekt. */
 function mergeKeywordList(raw, blMap) {
   state.alarmCodes = state.alarmCodes || [];
@@ -3391,7 +3435,7 @@ function settingsPageDaten(el, title) {
       <button type="button" class="set-row set-action" id="btn-import-trigger"><span class="set-row-text set-row-title">Daten importieren…</span></button>
     </div>
     <p class="set-group-footer">${lastBackupAt() ? `Letzte Sicherung: ${escHtml(new Date(lastBackupAt()).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }))}. ` : 'Noch keine Sicherung erstellt. '}Am iPhone öffnet „Exportieren“ das Teilen-Menü – z. B. „In Dateien sichern“ (iCloud Drive). Auch Henri-Exporte können importiert werden.</p>
-    <input type="file" id="file-import" accept=".json,application/json" hidden>
+    <input type="file" id="file-import" accept=".json,application/json,text/json,text/plain,.txt" hidden>
 
     <div class="set-group-header">Kalender</div>
     <div class="set-group">
@@ -3599,7 +3643,7 @@ function renderAbteilungenPopup() {
       <button id="btn-import-abt" class="btn-secondary">JSON importieren</button>
       ${list.length ? '<button id="btn-export-abt" class="btn-secondary">Exportieren</button>' : ''}
     </div>
-    <input type="file" id="file-abt-json" accept=".json,application/json" hidden>
+    <input type="file" id="file-abt-json" accept=".json,application/json,text/json,text/plain,.txt" hidden>
     <div class="settings-add-row">
       <input type="text" id="new-abt-name" class="settings-pzc-diag-input" placeholder="Name, z. B. MINA" value="${escHtml(editing ? editing.name : '')}" autocomplete="off">
       <input type="text" id="new-abt-id" class="settings-pzc-code-input" placeholder="ID" inputmode="numeric" pattern="[0-9]*" value="${escHtml(editing ? editing.deptId : '')}" autocomplete="off">
@@ -3657,7 +3701,7 @@ function renderAbteilungenPopup() {
 
   const importFile = async (file) => {
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.abteilungen || data.departments || []);
       const valid = raw.filter((a) => a && (a.name || '').trim() && String(a.deptId ?? a.id ?? '').trim())
         .map((a) => ({ name: a.name.trim(), deptId: String(a.deptId ?? a.id).trim() }));
@@ -3762,7 +3806,7 @@ function renderCodesPopupContent() {
       <button id="btn-import-alarm" class="btn-secondary">JSON importieren</button>
       ${alarm.length ? `<button id="btn-export-alarm" class="btn-secondary">Exportieren</button>` : ''}
     </div>
-    <input type="file" id="file-alarm-json" accept=".json" style="display:none">
+    <input type="file" id="file-alarm-json" accept=".json,application/json,text/json,text/plain,.txt" style="display:none">
     <div class="settings-add-row">
       <input type="text" id="new-alarm-code" class="settings-code-input" placeholder="Neuer Code, z.B. A1 CODE">
       <button id="btn-add-alarm" class="btn-secondary settings-add-btn">+</button>
@@ -3778,7 +3822,7 @@ function renderCodesPopupContent() {
       <button id="btn-import-pzc" class="btn-secondary">JSON importieren</button>
       ${pzc.length ? `<button id="btn-export-pzc" class="btn-secondary">Exportieren</button>` : ''}
     </div>
-    <input type="file" id="file-pzc-json" accept=".json" style="display:none">
+    <input type="file" id="file-pzc-json" accept=".json,application/json,text/json,text/plain,.txt" style="display:none">
     <div class="settings-add-row">
       <input type="text" id="new-pzc-code" class="settings-pzc-code-input" placeholder="Code" maxlength="5">
       <input type="text" id="new-pzc-diag" class="settings-pzc-diag-input" placeholder="Diagnose">
@@ -3795,11 +3839,11 @@ function renderCodesPopupContent() {
   popup.querySelector('#file-alarm-json').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.codes || data.alarmCodes || []);
-      const added = mergeKeywordList(raw, data.alarmBlaulicht);
-      saveState(); _alarmFilter = ''; renderCodesPopupContent();
-      toast(`${added} Alarmcodes importiert.`, 'success');
+      if (!raw.length) throw new Error('In der Datei wurden keine Stichwörter gefunden.');
+      importKeywordListWithToast(raw, data.alarmBlaulicht);
+      _alarmFilter = ''; renderCodesPopupContent();
     } catch (err) { toast('Fehler: ' + err.message, 'error', 5000); }
     e.target.value = '';
   });
@@ -3829,14 +3873,12 @@ function renderCodesPopupContent() {
   popup.querySelector('#file-pzc-json').addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.codes || data.pzcCodes || []);
       const valid = raw.filter((p) => p && typeof p.code === 'string' && typeof p.diagnosis === 'string');
-      const existing = new Set((state.pzcCodes || []).map((p) => p.code));
-      let added = 0;
-      valid.forEach((p) => { if (!existing.has(p.code)) { (state.pzcCodes = state.pzcCodes || []).push(p); existing.add(p.code); added++; } });
-      saveState(); _pzcFilter = ''; renderCodesPopupContent();
-      toast(`${added} PZC-Codes importiert.`, 'success');
+      if (!valid.length) throw new Error('In der Datei wurden keine PZC-Codes gefunden.');
+      importPzcList(valid);
+      _pzcFilter = ''; renderCodesPopupContent();
     } catch (err) { toast('Fehler: ' + err.message, 'error', 5000); }
     e.target.value = '';
   });
@@ -3860,7 +3902,7 @@ function renderCodesPopupContent() {
   // Drop zones in popup
   setupDropZone(popup.querySelector('.codes-popup-left'), async (file) => {
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.codes || data.alarmCodes || []);
       const codes = raw.filter((c) => typeof c === 'string').map((c) => c.trim()).filter(Boolean);
       const existing = new Set(state.alarmCodes || []);
@@ -3872,7 +3914,7 @@ function renderCodesPopupContent() {
   });
   setupDropZone(popup.querySelector('.codes-popup-right'), async (file) => {
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.codes || data.pzcCodes || []);
       const valid = raw.filter((p) => p && typeof p.code === 'string' && typeof p.diagnosis === 'string');
       const existing = new Set((state.pzcCodes || []).map((p) => p.code));
@@ -4011,8 +4053,17 @@ function openImportDialog(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
-      const data = JSON.parse(e.target.result);
+      const data = parseJsonText(e.target.result);
       _importPayload = data;
+      // Reine Vorlagen-Listen (z. B. data/alarmcodes.json) direkt übernehmen
+      const kw = looksLikeKeywordList(data);
+      if (kw) {
+        importKeywordListWithToast(kw, data.alarmBlaulicht);
+        renderSettings(); if (settingsSub) renderSettingsPage();
+        return;
+      }
+      const pzc = looksLikePzcList(data);
+      if (pzc) { importPzcList(pzc); renderSettings(); if (settingsSub) renderSettingsPage(); return; }
 
       if (data.version === 2) {
         // new selective format — show checklist
@@ -4052,7 +4103,7 @@ function openImportDialog(file) {
         toast('Import erfolgreich: ' + state.services.length + ' Dienste geladen.', 'success', 4000);
         renderServiceList(); renderServiceDetail(); updateUserLabel(); renderSettings();
       } else {
-        toast('Unbekanntes Format. Bitte eine gültige Einsatztagebuch-JSON-Datei wählen.', 'error');
+        toast('Unbekanntes Format. Erkannt werden Sicherungen des Einsatztagebuchs, Henri-Exporte sowie Stichwort- und PZC-Listen.', 'error', 6000);
       }
     } catch (err) { toast('Importfehler: ' + err.message, 'error', 5000); }
   };
