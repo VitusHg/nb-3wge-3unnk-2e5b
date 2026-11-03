@@ -125,11 +125,19 @@
 
         <!-- Tab: Dienstplan -->
         <div id="tab-dienstplan" class="tab-panel">
+          <div class="dp-head-actions" id="dp-head-actions">
+            <button id="btn-dp-reload" class="icon-round" type="button" aria-label="Dienstplan aktualisieren" title="Aktualisieren">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="btn-dp-inbox" class="icon-round" type="button" aria-label="Änderungen" title="Änderungen">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5 6 5.5A2 2 0 0 1 7.9 4h8.2a2 2 0 0 1 1.9 1.5l2.5 8V18a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+              <span class="icon-badge" id="dp-inbox-badge" hidden>0</span>
+            </button>
+          </div>
           <h1 class="large-title">Dienstplan</h1>
           <div id="dienstplan-layout">
             <div id="dienstplan-toolbar">
               <span id="dienstplan-sync-status" class="dp-sync-status">—</span>
-              <button id="btn-dp-reload" class="btn-secondary">↻ Laden</button>
             </div>
             <div id="dienstplan-container">
               <div class="empty-hint">Dienstplan wird geladen…</div>
@@ -235,6 +243,34 @@
       <div class="dialog-footer">
         <button id="btn-inc-view-delete" class="btn-danger">Löschen</button>
         <button id="btn-inc-view-edit" class="btn-primary">Bearbeiten</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kalender-Export mit Zeitraum -->
+  <div id="dialog-ics-export" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header">
+        <h3>Kalender exportieren</h3>
+        <button class="dialog-close" data-close="dialog-ics-export" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body" id="ics-export-body"></div>
+      <div class="dialog-footer">
+        <button id="btn-ics-export-confirm" class="btn-primary" type="button">Exportieren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Postfach: Änderungen im Dienstplan -->
+  <div id="dialog-dp-inbox" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-wide">
+      <div class="dialog-header">
+        <h3>Änderungen</h3>
+        <button class="dialog-close" data-close="dialog-dp-inbox" aria-label="Schließen">✕</button>
+      </div>
+      <div class="dialog-body" id="dp-inbox-body"></div>
+      <div class="dialog-footer">
+        <button id="btn-dp-inbox-readall" class="btn-secondary" type="button">Alle als gelesen markieren</button>
       </div>
     </div>
   </div>

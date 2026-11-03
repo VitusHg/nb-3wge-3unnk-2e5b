@@ -739,6 +739,10 @@ function initTabs() {
       // Wurzel des Tabs; ist man schon dort, wird nach oben gescrollt.
       if (tab === (TAB_ROOT[activeTab] || activeTab)) {
         if (navAnimating) return;
+        if (tab === 'dienste') {
+          const si = document.getElementById('search-input');
+          if (si && si.value) { si.value = ''; si.blur(); renderServiceList(); }
+        }
         const target = getBackTarget();
         if (target) popAnimated(target);
         else scrollActiveToTop();
@@ -3436,7 +3440,7 @@ function settingsPageDaten(el, title) {
       <p>Einsatzdaten sind sensibel: Gerät sperren, Sicherungen nicht weitergeben.</p>
     </div>`;
   el.querySelector('#btn-export').addEventListener('click', openExportDialog);
-  el.querySelector('#btn-export-ics').addEventListener('click', exportIcs);
+  el.querySelector('#btn-export-ics').addEventListener('click', openIcsExportDialog);
   el.querySelector('#btn-import-trigger').addEventListener('click', () => el.querySelector('#file-import').click());
   el.querySelector('#file-import').addEventListener('change', (e) => { if (e.target.files[0]) openImportDialog(e.target.files[0]); e.target.value = ''; });
   setupDropZone(el.querySelector('#settings-backup-group'), (file) => doImport(file));
@@ -4136,7 +4140,63 @@ function doSelectiveImport(data, chosen) {
 
 function doImport(file) { openImportDialog(file); }
 
-function exportIcs() {
+/** Fenster „Kalender exportieren“: Zeitraum wählen, Anzahl sehen, exportieren. */
+let icsRange = { preset: 'year', from: '', to: '' };
+function icsPresetRange(preset) {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  const d = (yy, mm, dd) => localDateStr(new Date(yy, mm, dd));
+  switch (preset) {
+    case 'year': return { from: d(y, 0, 1), to: d(y, 11, 31) };
+    case 'lastyear': return { from: d(y - 1, 0, 1), to: d(y - 1, 11, 31) };
+    case 'month': return { from: d(y, m, 1), to: d(y, m + 1, 0) };
+    case 'lastmonth': return { from: d(y, m - 1, 1), to: d(y, m, 0) };
+    case 'all': return { from: '', to: '' };
+    default: return { from: icsRange.from, to: icsRange.to };
+  }
+}
+
+function servicesInRange(from, to) {
+  return state.services.filter((svc) => {
+    const day = (svc.startAt || '').slice(0, 10);
+    if (!day) return false;
+    return (!from || day >= from) && (!to || day <= to);
+  });
+}
+
+function openIcsExportDialog() {
+  const box = document.getElementById('ics-export-body');
+  const presets = [['year', 'Dieses Jahr'], ['lastyear', 'Letztes Jahr'], ['month', 'Dieser Monat'], ['lastmonth', 'Letzter Monat'], ['all', 'Alles'], ['custom', 'Zeitraum']];
+  const render = () => {
+    const r = icsRange.preset === 'custom' ? { from: icsRange.from, to: icsRange.to } : icsPresetRange(icsRange.preset);
+    const list = servicesInRange(r.from, r.to);
+    const nInc = list.reduce((n, x) => n + (x.incidents || []).length, 0);
+    box.innerHTML = `
+      <div class="ics-presets">${presets.map(([k, l]) => `<button type="button" class="sf-chip${icsRange.preset === k ? ' active' : ''}" data-preset="${k}">${l}</button>`).join('')}</div>
+      <div class="ics-dates">
+        <label>Von<input type="date" id="ics-from" value="${escHtml(r.from)}"></label>
+        <label>Bis<input type="date" id="ics-to" value="${escHtml(r.to)}"></label>
+      </div>
+      <p class="ics-count">${list.length ? `<strong>${list.length}</strong> ${list.length === 1 ? 'Eintrag' : 'Einträge'} (Dienste und SEG) mit ${nInc} ${nInc === 1 ? 'Einsatz' : 'Einsätzen'}` : 'Keine Dienste in diesem Zeitraum.'}</p>
+      <p class="settings-hint">Jeder Dienst wird ein Kalendertermin: Fahrzeug als Titel, Dienststelle als Ort, in der Beschreibung Besatzung, Notiz und alle Einsätze.</p>`;
+    document.getElementById('btn-ics-export-confirm').disabled = !list.length;
+    box.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
+      icsRange.preset = b.dataset.preset;
+      if (icsRange.preset === 'custom' && !icsRange.from && !icsRange.to) Object.assign(icsRange, icsPresetRange('year'));
+      render();
+    }));
+    const onDate = () => { icsRange = { preset: 'custom', from: box.querySelector('#ics-from').value, to: box.querySelector('#ics-to').value }; render(); };
+    box.querySelector('#ics-from').addEventListener('change', onDate);
+    box.querySelector('#ics-to').addEventListener('change', onDate);
+    document.getElementById('btn-ics-export-confirm').onclick = () => {
+      exportIcs(r.from, r.to);
+      closeDialog('dialog-ics-export');
+    };
+  };
+  render();
+  openDialog('dialog-ics-export');
+}
+
+function exportIcs(from = '', to = '') {
   const toIcsDt = (s) => {
     if (!s) return null;
     return s.replace(/-/g, '').replace(':', '').replace(':', '') + '00';
@@ -4149,7 +4209,9 @@ function exportIcs() {
     'PRODID:-//Einsatztagebuch//DE',
     'CALSCALE:GREGORIAN',
   ];
-  for (const svc of state.services) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const list = servicesInRange(from, to).sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  for (const svc of list) {
     if (!svc.startAt) continue;
     const vehicle = svc.vehicle || '';
     const location = svc.location || '';
@@ -4190,6 +4252,7 @@ function exportIcs() {
 
     lines.push('BEGIN:VEVENT');
     lines.push('UID:' + svc.id + '@einsatztagebuch');
+    lines.push('DTSTAMP:' + stamp);
     lines.push('DTSTART:' + toIcsDt(svc.startAt));
     if (svc.endAt) lines.push('DTEND:' + toIcsDt(svc.endAt));
     lines.push('SUMMARY:' + icsEscape(summary));
@@ -4199,8 +4262,20 @@ function exportIcs() {
   }
   lines.push('END:VCALENDAR');
 
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
-  saveFile(blob, `dienste-${localDateStr(new Date())}.ics`, 'Dienste (Kalender)');
+  // Zeilen nach RFC 5545 auf 75 Byte falten (Kalender-Apps erwarten das)
+  const fold = (line) => {
+    const enc = new TextEncoder();
+    if (enc.encode(line).length <= 75) return line;
+    const parts = []; let cur = '';
+    for (const ch of line) {
+      if (enc.encode(cur + ch).length > (parts.length ? 74 : 75)) { parts.push(cur); cur = ch; } else cur += ch;
+    }
+    parts.push(cur);
+    return parts.join('\r\n ');
+  };
+  const blob = new Blob([lines.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
+  const span = from || to ? `${from || 'anfang'}_bis_${to || 'heute'}` : localDateStr(new Date());
+  saveFile(blob, `dienste-${span}.ics`, 'Dienste (Kalender)');
 }
 
 // ── Fahrzeuggrafiken lokal speichern ──────────────────────────────────────
@@ -4483,6 +4558,8 @@ async function loadDpShifts(force = false) {
   if (!container) return;
   const toolbar = document.getElementById('dienstplan-toolbar');
   if (toolbar) toolbar.hidden = !dpConfigured();
+  const headActions = document.getElementById('dp-head-actions');
+  if (headActions) headActions.hidden = !dpConfigured();
   if (!dpConfigured()) {
     if (statusEl) statusEl.textContent = '—';
     container.innerHTML = '<div class="empty-hint">Noch kein Dienstplan verbunden.<br><button type="button" class="btn-primary dp-connect" style="margin-top:14px">Dienstplan verbinden</button></div>';
@@ -4534,7 +4611,8 @@ function renderDpShifts(shifts, container) {
   }
   const changes = recentDpChanges();
   const hist = readDpHistory();
-  container.innerHTML = dpChangesPanelHtml(changes);
+  container.innerHTML = '';
+  updateDpInboxBadge();
   for (const dayShifts of groups.values()) {
     const group = document.createElement('div');
     group.className = 'dp-day-group';
@@ -4766,13 +4844,20 @@ document.addEventListener('click', (e) => {
 });
 
 function initDpButtons() {
+  const inboxBtn = document.getElementById('btn-dp-inbox');
+  if (inboxBtn && !inboxBtn._bound) {
+    inboxBtn._bound = true;
+    inboxBtn.addEventListener('click', openDpInbox);
+    document.getElementById('btn-dp-inbox-readall').addEventListener('click', dpInboxMarkAllRead);
+  }
   const reloadBtn = document.getElementById('btn-dp-reload');
   if (reloadBtn && !reloadBtn._bound) {
     reloadBtn._bound = true;
     reloadBtn.addEventListener('click', async () => {
       if (reloadBtn.dataset.busy) return;
       reloadBtn.dataset.busy = '1';
-      try { await refreshDienstplanTab(); } finally { delete reloadBtn.dataset.busy; }
+      reloadBtn.classList.add('is-busy');
+      try { await refreshDienstplanTab(); } finally { delete reloadBtn.dataset.busy; reloadBtn.classList.remove('is-busy'); }
     });
   }
 }
@@ -4947,6 +5032,7 @@ async function loadDpChanges() {
     const data = await workerApi('/push/changes');
     const entry = { at: Date.now(), changes: data.changes || [] };
     lsSet(DP_CHANGES_KEY, JSON.stringify(entry));
+    updateDpInboxBadge();
     return entry;
   } catch (_) { return readDpChanges(); }
 }
@@ -4966,45 +5052,119 @@ function recentDpChanges() {
 /** Markierung für eine Dienstkarte: jüngste Änderung zu dieser UID. */
 function dpChangeFor(shift, changes) {
   const st = new Date(shift.start).getTime();
-  return changes.find((c) => c.type !== 'removed' && c.now && ((shift.uid && c.uid === shift.uid) || c.now.s === st)) || null;
+  return changes.find((c) => c.type !== 'removed' && c.now && ((shift.uid && c.uid === shift.uid) || c.now.s === st) && isDpChangeUnread(c)) || null;
 }
 
-function dpChangesPanelHtml(changes) {
-  if (!changes.length) return '';
-  const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' };
-  const fmt = (x) => {
-    const s = new Date(x.s), e = new Date(x.e);
-    return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
-  };
-  // Je Dienst eine Zeile: alle Änderungen desselben Termins zusammenfassen
+// — Postfach „Änderungen“: je Dienst eine Zeile, gelesen/ungelesen ———————————
+const DP_READ_KEY = 'etb_dp_read';
+
+function readDpRead() {
+  try { const r = JSON.parse(lsGet(DP_READ_KEY, 'null')); return r && typeof r === 'object' ? r : {}; } catch (_) { return {}; }
+}
+function saveDpRead(r) {
+  // nur Einträge der letzten Wochen behalten
+  const since = Date.now() - 30 * 86400000;
+  const out = {};
+  Object.entries(r).forEach(([k, v]) => { if (v > since) out[k] = v; });
+  lsSet(DP_READ_KEY, JSON.stringify(out));
+}
+
+/** Änderungen desselben Termins zusammenfassen (neueste zuerst). */
+function groupDpChanges(changes) {
   const groups = new Map();
   for (const c of changes) {
     const k = c.key || c.uid;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(c);
   }
-  const items = [...groups.entries()].map(([key, list]) => {
-    list.sort((x, y) => y.at - x.at);           // neueste zuerst
+  const read = readDpRead();
+  return [...groups.entries()].map(([key, list]) => {
+    list.sort((x, y) => y.at - x.at);
     const latest = list[0], oldest = list[list.length - 1];
     const type = latest.type === 'removed' ? 'removed' : list.some((c) => c.type === 'added') ? 'added' : 'updated';
     const x = latest.now || latest.before;
-    const first = oldest.before; // Stand vor der ersten Änderung im Zeitraum
+    const first = oldest.before;
     const moved = type === 'updated' && first && x && (first.s !== x.s || first.e !== x.e);
-    return { key, list, latest, type, x, first, moved };
+    const unread = latest.at > (read[key] || 0);
+    return { key, list, latest, type, x, first, moved, unread };
   }).sort((p, q) => q.latest.at - p.latest.at);
-  const rows = items.map(({ key, list, latest, type, x, first, moved }) => {
+}
+
+function dpUnreadCount() {
+  return groupDpChanges(recentDpChanges()).filter((g) => g.unread).length;
+}
+
+function isDpChangeUnread(c) {
+  return c.at > (readDpRead()[c.key || c.uid] || 0);
+}
+
+function markDpRead(keys) {
+  const r = readDpRead();
+  const now = Date.now();
+  keys.forEach((k) => { r[k] = now; });
+  saveDpRead(r);
+  updateDpInboxBadge();
+  // Markierungen auf den Dienstkarten gleich mit aktualisieren
+  const cache = readIcsCache(), box = document.getElementById('dienstplan-container');
+  if (cache && box && activeTab === 'dienstplan') renderDpShifts(cache.shifts, box);
+}
+
+function updateDpInboxBadge() {
+  const badge = document.getElementById('dp-inbox-badge');
+  if (!badge) return;
+  const n = dpConfigured() ? dpUnreadCount() : 0;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.hidden = !n;
+  const btn = document.getElementById('btn-dp-inbox');
+  if (btn) btn.setAttribute('aria-label', n ? `Änderungen (${n} ungelesen)` : 'Änderungen');
+}
+
+function dpInboxRowsHtml(items) {
+  const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' };
+  const fmt = (x) => {
+    const s = new Date(x.s), e = new Date(x.e);
+    return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
+  };
+  return items.map(({ key, list, latest, type, x, first, moved, unread }) => {
     const extra = moved ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(first))}</span>` : '';
     const n = list.length;
-    return `<div class="dp-chg-row" role="button" tabindex="0" data-hist="${escHtml(key)}">
+    return `<div class="dp-chg-row${unread ? ' is-unread' : ''}" role="button" tabindex="0" data-inbox-key="${escHtml(key)}">
+      <span class="inbox-dot" aria-label="${unread ? 'ungelesen' : 'gelesen'}"></span>
       <span class="dp-chg-badge is-${type}">${label[type]}</span>
       <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}${n > 1 ? ` <span class="dp-chg-n">${n} Änderungen</span>` : ''}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
       <span class="dp-chg-at">${escHtml(homeDayLabel(new Date(latest.at), new Date()))}</span>
     </div>`;
   }).join('');
-  return `<details class="dp-chg" ${changes.some((c) => Date.now() - c.at < 86400000) ? 'open' : ''}>
-    <summary>Änderungen der letzten ${DP_CHANGES_DAYS} Tage <span class="dp-chg-count">${items.length}</span></summary>
-    <div class="dp-chg-list">${rows}</div>
-  </details>`;
+}
+
+function renderDpInbox() {
+  const body = document.getElementById('dp-inbox-body');
+  if (!body) return;
+  const items = groupDpChanges(recentDpChanges());
+  const unread = items.filter((g) => g.unread).length;
+  document.getElementById('btn-dp-inbox-readall').disabled = !unread;
+  body.innerHTML = items.length
+    ? `<p class="inbox-hint">${unread ? `${unread} ungelesen · ` : ''}Änderungen der letzten ${DP_CHANGES_DAYS} Tage. Antippen zeigt den Verlauf.</p>
+       <div class="dp-chg inbox-list">${dpInboxRowsHtml(items)}</div>`
+    : '<div class="list-empty"><div class="list-empty-icon">📭</div><strong>Keine Änderungen</strong><span>In den letzten 7 Tagen hat sich im Dienstplan nichts geändert.</span></div>';
+  body.querySelectorAll('[data-inbox-key]').forEach((row) => row.addEventListener('click', () => {
+    const key = row.dataset.inboxKey;
+    markDpRead([key]);
+    row.classList.remove('is-unread');
+    renderDpInbox();
+    openHistorySheet(key);
+  }));
+}
+
+function openDpInbox() {
+  renderDpInbox();
+  openDialog('dialog-dp-inbox');
+}
+
+function dpInboxMarkAllRead() {
+  markDpRead(groupDpChanges(recentDpChanges()).map((g) => g.key));
+  renderDpInbox();
+  toast('Alle Änderungen als gelesen markiert.', 'success', 1800);
 }
 
 // — Verlauf pro Dienst (wie „Verlauf“ in der Dienstplan-App) ——————————————
@@ -5127,7 +5287,13 @@ function historyEntryHtml(e) {
 
 function openHistorySheet(key) {
   const history = readDpHistory();
-  const item = history[key];
+  let item = history[key];
+  if (!item) {
+    // kein gespeicherter Verlauf (z. B. älterer Worker): aus der Änderungsliste zusammenstellen
+    const entries = recentDpChanges().filter((c) => (c.key || c.uid) === key).sort((a, b) => a.at - b.at)
+      .map((c) => ({ at: c.at, type: c.type, now: c.now, before: c.before }));
+    if (entries.length) item = { uid: key, entries, last: entries[entries.length - 1].now || entries[entries.length - 1].before };
+  }
   const box = document.getElementById('hist-body');
   if (!box) return;
   if (!item) { toast('Zu diesem Dienst gibt es keinen Verlauf.', 'info'); return; }
