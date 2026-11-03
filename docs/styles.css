@@ -2761,3 +2761,4 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .kw-toggle { width: 34px; height: 34px; margin: -6px 2px -6px -8px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
 @media (hover: none) { .kw-toggle:active { background: var(--fill); } }
 .kw-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 2px 0; font-size: 12px; }
+.dp-chg-n { font-size: 12px; font-weight: 600; color: var(--text2); background: var(--fill); border-radius: 8px; padding: 1px 7px; margin-left: 4px; vertical-align: 2px; }

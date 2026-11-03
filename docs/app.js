@@ -4505,7 +4505,7 @@ async function loadDpShifts(force = false) {
     if (statusEl) {
       statusEl.textContent = data.stale
         ? `Offline · Stand ${atStr}`
-        : `${data.shifts.length} Dienste · aktualisiert ${atStr}`;
+        : `${data.shifts.length} ${data.shifts.length === 1 ? "Dienst" : "Dienste"} · aktualisiert ${atStr}`;
       statusEl.classList.toggle('is-stale', !!data.stale);
     }
     if (data.stale && force) toast('Aktualisierung fehlgeschlagen – zeige letzten Stand.', 'error');
@@ -4971,18 +4971,33 @@ function dpChangesPanelHtml(changes) {
     const s = new Date(x.s), e = new Date(x.e);
     return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
   };
-  const rows = changes.slice(0, 8).map((c) => {
-    const x = c.now || c.before;
-    const extra = c.type === 'updated' && c.before && (c.before.s !== x.s || c.before.e !== x.e) ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(c.before))}</span>` : '';
-    const at = new Date(c.at);
-    return `<div class="dp-chg-row" role="button" tabindex="0" data-hist="${escHtml(c.key || c.uid)}">
-      <span class="dp-chg-badge is-${c.type}">${label[c.type]}</span>
-      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
-      <span class="dp-chg-at">${escHtml(homeDayLabel(at, new Date()))}</span>
+  // Je Dienst eine Zeile: alle Änderungen desselben Termins zusammenfassen
+  const groups = new Map();
+  for (const c of changes) {
+    const k = c.key || c.uid;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+  const items = [...groups.entries()].map(([key, list]) => {
+    list.sort((x, y) => y.at - x.at);           // neueste zuerst
+    const latest = list[0], oldest = list[list.length - 1];
+    const type = latest.type === 'removed' ? 'removed' : list.some((c) => c.type === 'added') ? 'added' : 'updated';
+    const x = latest.now || latest.before;
+    const first = oldest.before; // Stand vor der ersten Änderung im Zeitraum
+    const moved = type === 'updated' && first && x && (first.s !== x.s || first.e !== x.e);
+    return { key, list, latest, type, x, first, moved };
+  }).sort((p, q) => q.latest.at - p.latest.at);
+  const rows = items.map(({ key, list, latest, type, x, first, moved }) => {
+    const extra = moved ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(first))}</span>` : '';
+    const n = list.length;
+    return `<div class="dp-chg-row" role="button" tabindex="0" data-hist="${escHtml(key)}">
+      <span class="dp-chg-badge is-${type}">${label[type]}</span>
+      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}${n > 1 ? ` <span class="dp-chg-n">${n} Änderungen</span>` : ''}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
+      <span class="dp-chg-at">${escHtml(homeDayLabel(new Date(latest.at), new Date()))}</span>
     </div>`;
   }).join('');
   return `<details class="dp-chg" ${changes.some((c) => Date.now() - c.at < 86400000) ? 'open' : ''}>
-    <summary>Änderungen der letzten ${DP_CHANGES_DAYS} Tage <span class="dp-chg-count">${changes.length}</span></summary>
+    <summary>Änderungen der letzten ${DP_CHANGES_DAYS} Tage <span class="dp-chg-count">${items.length}</span></summary>
     <div class="dp-chg-list">${rows}</div>
   </details>`;
 }
