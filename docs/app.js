@@ -4769,7 +4769,11 @@ function initDpButtons() {
   const reloadBtn = document.getElementById('btn-dp-reload');
   if (reloadBtn && !reloadBtn._bound) {
     reloadBtn._bound = true;
-    reloadBtn.addEventListener('click', () => loadDpShifts(true));
+    reloadBtn.addEventListener('click', async () => {
+      if (reloadBtn.dataset.busy) return;
+      reloadBtn.dataset.busy = '1';
+      try { await refreshDienstplanTab(); } finally { delete reloadBtn.dataset.busy; }
+    });
   }
 }
 
@@ -5560,9 +5564,18 @@ function enablePullToRefresh(scroller, onRefresh, isEnabled = () => true) {
   scroller.addEventListener('touchcancel', () => { startY = null; dist = 0; ptrHide(); });
 }
 
+/** Lässt den Worker sofort auf Änderungen prüfen (Verlauf + Mitteilungen wie beim Zeitplan). */
+async function workerCheckNow() {
+  if (!dpConfigured()) return null;
+  try { return await workerApi('/push/check', { method: 'POST', body: {} }); }
+  catch (_) { return null; } // älterer Worker oder ohne Benachrichtigungen – dann nur neu laden
+}
+
 async function refreshDienstplanTab() {
   icsLastError = null;
+  const check = workerCheckNow(); // parallel zum Laden des Kalenders
   await loadDpShifts(true);
+  await check;
   await Promise.all([loadDpChanges(), loadDpHistory()]);
   const cache = readIcsCache();
   const box = document.getElementById('dienstplan-container');
@@ -5572,7 +5585,10 @@ async function refreshDienstplanTab() {
 async function refreshHomeTab() {
   if (dpConfigured()) {
     icsLastError = null;
+    const check = workerCheckNow();
     await getIcsShifts(true).catch(() => {});
+    await check;
+    await Promise.all([loadDpChanges(), loadDpHistory()]);
   }
   await renderHome();
 }
