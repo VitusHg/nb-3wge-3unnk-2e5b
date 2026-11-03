@@ -4163,32 +4163,114 @@ function servicesInRange(from, to) {
   });
 }
 
+let icsMode = 'range';            // 'range' = Zeitraum, 'pick' = Dienste auswählen
+let icsPicked = new Set();
+let icsPickFilter = '';
+
 function openIcsExportDialog() {
   const box = document.getElementById('ics-export-body');
+  const btn = document.getElementById('btn-ics-export-confirm');
   const presets = [['year', 'Dieses Jahr'], ['lastyear', 'Letztes Jahr'], ['month', 'Dieser Monat'], ['lastmonth', 'Letzter Monat'], ['all', 'Alles'], ['custom', 'Zeitraum']];
-  const render = () => {
-    const r = icsRange.preset === 'custom' ? { from: icsRange.from, to: icsRange.to } : icsPresetRange(icsRange.preset);
-    const list = servicesInRange(r.from, r.to);
+  // Auswahl auf noch vorhandene Dienste beschränken
+  icsPicked = new Set([...icsPicked].filter((id) => state.services.some((x) => x.id === id)));
+  const svcLabel = (svc) => {
+    if (svc.isSeg) { const inc = (svc.incidents || [])[0]; return '⚡ ' + ((inc && inc.alarmCode) || 'SEG-Einsatz'); }
+    return svc.vehicle || 'Dienst';
+  };
+  const countLine = (list) => {
     const nInc = list.reduce((n, x) => n + (x.incidents || []).length, 0);
-    box.innerHTML = `
-      <div class="ics-presets">${presets.map(([k, l]) => `<button type="button" class="sf-chip${icsRange.preset === k ? ' active' : ''}" data-preset="${k}">${l}</button>`).join('')}</div>
-      <div class="ics-dates">
-        <label>Von<input type="date" id="ics-from" value="${escHtml(r.from)}"></label>
-        <label>Bis<input type="date" id="ics-to" value="${escHtml(r.to)}"></label>
-      </div>
-      <p class="ics-count">${list.length ? `<strong>${list.length}</strong> ${list.length === 1 ? 'Eintrag' : 'Einträge'} (Dienste und SEG) mit ${nInc} ${nInc === 1 ? 'Einsatz' : 'Einsätzen'}` : 'Keine Dienste in diesem Zeitraum.'}</p>
+    return list.length ? `<strong>${list.length}</strong> ${list.length === 1 ? 'Eintrag' : 'Einträge'} mit ${nInc} ${nInc === 1 ? 'Einsatz' : 'Einsätzen'}` : (icsMode === 'pick' ? 'Noch nichts ausgewählt.' : 'Keine Dienste in diesem Zeitraum.');
+  };
+  const render = () => {
+    const modeHtml = `<div class="seg-control" role="tablist">
+        <button type="button" role="tab" class="${icsMode === 'range' ? 'active' : ''}" data-mode="range" aria-selected="${icsMode === 'range'}">Zeitraum</button>
+        <button type="button" role="tab" class="${icsMode === 'pick' ? 'active' : ''}" data-mode="pick" aria-selected="${icsMode === 'pick'}">Dienste auswählen</button>
+      </div>`;
+    let list, inner;
+    if (icsMode === 'range') {
+      const r = icsRange.preset === 'custom' ? { from: icsRange.from, to: icsRange.to } : icsPresetRange(icsRange.preset);
+      list = servicesInRange(r.from, r.to);
+      inner = `<div class="ics-presets">${presets.map(([k, l]) => `<button type="button" class="sf-chip${icsRange.preset === k ? ' active' : ''}" data-preset="${k}">${l}</button>`).join('')}</div>
+        <div class="ics-dates">
+          <label>Von<input type="date" id="ics-from" value="${escHtml(r.from)}"></label>
+          <label>Bis<input type="date" id="ics-to" value="${escHtml(r.to)}"></label>
+        </div>`;
+    } else {
+      const all = state.services.filter((x) => x.startAt).sort((x, y) => (y.startAt || '').localeCompare(x.startAt || ''));
+      const q = icsPickFilter.trim().toLowerCase();
+      const shown = q ? all.filter((x) => [svcLabel(x), x.location, x.startAt, svcWhenText(x)].join(' ').toLowerCase().includes(q)) : all;
+      list = all.filter((x) => icsPicked.has(x.id));
+      let lastMonth = '';
+      const rows = shown.map((x) => {
+        const d = parseLocalDt(x.startAt);
+        const mk = d ? `${d.getFullYear()}-${d.getMonth()}` : '';
+        const head = mk !== lastMonth ? `<div class="ics-pick-month">${escHtml(d ? d.toLocaleDateString('de-AT', { month: 'long', year: 'numeric' }) : '')}</div>` : '';
+        lastMonth = mk;
+        const n = (x.incidents || []).length;
+        return `${head}<label class="ics-pick-row">
+          <input type="checkbox" data-pick="${escHtml(x.id)}" ${icsPicked.has(x.id) ? 'checked' : ''}>
+          <span class="ics-pick-main"><span class="ics-pick-title">${escHtml(svcLabel(x))}</span><span class="ics-pick-sub">${escHtml([svcWhenText(x), x.location].filter(Boolean).join(' · '))}</span></span>
+          <span class="ics-pick-n">${n}</span>
+        </label>`;
+      }).join('');
+      inner = `<input type="search" id="ics-pick-filter" class="settings-filter-input" placeholder="Fahrzeug, Ort, Datum …" value="${escHtml(icsPickFilter)}">
+        <div class="ics-pick-tools">
+          <button type="button" class="btn-ghost" id="ics-pick-all">${q ? 'Treffer auswählen' : 'Alle auswählen'}</button>
+          <button type="button" class="btn-ghost" id="ics-pick-none">Auswahl leeren</button>
+        </div>
+        <div class="ics-pick-list">${rows || '<div class="code-empty">Keine Dienste gefunden.</div>'}</div>`;
+      box.dataset.shown = JSON.stringify(shown.map((x) => x.id));
+    }
+    box.innerHTML = `${modeHtml}${inner}
+      <p class="ics-count">${countLine(list)}</p>
       <p class="settings-hint">Jeder Dienst wird ein Kalendertermin: Fahrzeug als Titel, Dienststelle als Ort, in der Beschreibung Besatzung, Notiz und alle Einsätze.</p>`;
-    document.getElementById('btn-ics-export-confirm').disabled = !list.length;
-    box.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
-      icsRange.preset = b.dataset.preset;
-      if (icsRange.preset === 'custom' && !icsRange.from && !icsRange.to) Object.assign(icsRange, icsPresetRange('year'));
-      render();
-    }));
-    const onDate = () => { icsRange = { preset: 'custom', from: box.querySelector('#ics-from').value, to: box.querySelector('#ics-to').value }; render(); };
-    box.querySelector('#ics-from').addEventListener('change', onDate);
-    box.querySelector('#ics-to').addEventListener('change', onDate);
-    document.getElementById('btn-ics-export-confirm').onclick = () => {
-      exportIcs(r.from, r.to);
+    btn.disabled = !list.length;
+    btn.textContent = list.length ? `${list.length} exportieren` : 'Exportieren';
+
+    box.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { icsMode = b.dataset.mode; render(); }));
+    if (icsMode === 'range') {
+      box.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
+        icsRange.preset = b.dataset.preset;
+        if (icsRange.preset === 'custom' && !icsRange.from && !icsRange.to) Object.assign(icsRange, icsPresetRange('year'));
+        render();
+      }));
+      const onDate = () => { icsRange = { preset: 'custom', from: box.querySelector('#ics-from').value, to: box.querySelector('#ics-to').value }; render(); };
+      box.querySelector('#ics-from').addEventListener('change', onDate);
+      box.querySelector('#ics-to').addEventListener('change', onDate);
+    } else {
+      // Häkchen ohne kompletten Neuaufbau (Scrollposition und Tastatur bleiben)
+      const refreshCount = () => {
+        const sel = state.services.filter((x) => icsPicked.has(x.id));
+        box.querySelector('.ics-count').innerHTML = countLine(sel);
+        btn.disabled = !sel.length;
+        btn.textContent = sel.length ? `${sel.length} exportieren` : 'Exportieren';
+      };
+      box.querySelectorAll('[data-pick]').forEach((cb) => cb.addEventListener('change', () => {
+        if (cb.checked) icsPicked.add(cb.dataset.pick); else icsPicked.delete(cb.dataset.pick);
+        refreshCount();
+      }));
+      const shownIds = JSON.parse(box.dataset.shown || '[]');
+      box.querySelector('#ics-pick-all').addEventListener('click', () => { shownIds.forEach((id) => icsPicked.add(id)); render(); });
+      box.querySelector('#ics-pick-none').addEventListener('click', () => { icsPicked.clear(); render(); });
+      const f = box.querySelector('#ics-pick-filter');
+      f.addEventListener('input', () => {
+        icsPickFilter = f.value;
+        const pos = f.selectionStart;
+        render();
+        const nf = box.querySelector('#ics-pick-filter');
+        nf.focus(); try { nf.setSelectionRange(pos, pos); } catch (_) {}
+      });
+    }
+    btn.onclick = () => {
+      let sel;
+      if (icsMode === 'range') {
+        const r = icsRange.preset === 'custom' ? { from: icsRange.from, to: icsRange.to } : icsPresetRange(icsRange.preset);
+        sel = servicesInRange(r.from, r.to);
+        exportIcsServices(sel, r.from || r.to ? `${r.from || 'anfang'}_bis_${r.to || 'heute'}` : localDateStr(new Date()));
+      } else {
+        sel = state.services.filter((x) => icsPicked.has(x.id));
+        exportIcsServices(sel, `auswahl-${sel.length}-${localDateStr(new Date())}`);
+      }
       closeDialog('dialog-ics-export');
     };
   };
@@ -4197,6 +4279,10 @@ function openIcsExportDialog() {
 }
 
 function exportIcs(from = '', to = '') {
+  exportIcsServices(servicesInRange(from, to), from || to ? `${from || 'anfang'}_bis_${to || 'heute'}` : localDateStr(new Date()));
+}
+
+function exportIcsServices(services, nameSuffix) {
   const toIcsDt = (s) => {
     if (!s) return null;
     return s.replace(/-/g, '').replace(':', '').replace(':', '') + '00';
@@ -4210,7 +4296,7 @@ function exportIcs(from = '', to = '') {
     'CALSCALE:GREGORIAN',
   ];
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const list = servicesInRange(from, to).sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  const list = services.slice().sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
   for (const svc of list) {
     if (!svc.startAt) continue;
     const vehicle = svc.vehicle || '';
@@ -4274,8 +4360,7 @@ function exportIcs(from = '', to = '') {
     return parts.join('\r\n ');
   };
   const blob = new Blob([lines.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar' });
-  const span = from || to ? `${from || 'anfang'}_bis_${to || 'heute'}` : localDateStr(new Date());
-  saveFile(blob, `dienste-${span}.ics`, 'Dienste (Kalender)');
+  saveFile(blob, `dienste-${nameSuffix}.ics`, 'Dienste (Kalender)');
 }
 
 // ── Fahrzeuggrafiken lokal speichern ──────────────────────────────────────
@@ -4517,6 +4602,7 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function loadDienstplan() {
   initDpButtons();
+  updateDpInboxBadge();
   await loadDpShifts();
   // Änderungen (vom Worker erkannt) nachladen und Markierungen setzen
   const before = JSON.stringify(recentDpChanges()) + lsGet(DP_HISTORY_KEY, '').length;
@@ -4598,6 +4684,7 @@ async function loadDpShifts(force = false) {
 }
 
 function renderDpShifts(shifts, container) {
+  updateDpInboxBadge();
   shifts = (shifts || []).filter((x) => x && x.start && x.end).sort((a, b) => new Date(a.start) - new Date(b.start));
   if (!shifts.length) {
     container.innerHTML = '<div class="empty-hint">Keine Dienste im Kalender gefunden.</div>';

@@ -2793,3 +2793,40 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .ics-dates input { min-width: 0; width: 100%; box-sizing: border-box; }
 .ics-dates label { font-size: 13px; }
 .ics-count { font-size: 15px; margin: 14px 0 6px; }
+/* Kalender-Export: Umschalter Zeitraum / Auswahl */
+.seg-control { display: grid; grid-template-columns: 1fr 1fr; background: var(--fill); border-radius: 9px; padding: 2px; margin-bottom: 14px; }
+.seg-control button { border: none; background: none; padding: 7px 8px; border-radius: 7px; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; }
+.seg-control button.active { background: var(--panel); box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+.ics-pick-tools { display: flex; justify-content: space-between; gap: 8px; margin: 8px 0 4px; }
+.ics-pick-tools .btn-ghost { font-size: 14px; padding: 4px 2px; color: var(--accent); }
+.ics-pick-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--panel2); border-radius: var(--radius); }
+.ics-pick-month { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text2); padding: 10px 14px 4px; }
+.ics-pick-row { display: flex !important; flex-direction: row !important; align-items: center; gap: 12px; padding: 9px 14px; cursor: pointer; font-size: 15px; color: var(--text); }
+.ics-pick-row + .ics-pick-row { border-top: .5px solid var(--separator); }
+.ics-pick-row input { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--accent); margin: 0; }
+.ics-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ics-pick-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ics-pick-sub { font-size: 13px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.ics-pick-n { min-width: 24px; height: 24px; padding: 0 7px; border-radius: 12px; background: var(--fill); color: var(--text2); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+/* Dienstplan: Titel und Knöpfe in einer Zeile, Knöpfe größer */
+.dp-titlebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dp-titlebar .large-title { flex: 1; min-width: 0; }
+.dp-titlebar .dp-head-actions { margin: 0; gap: 12px; flex-shrink: 0; }
+.dp-titlebar .icon-round { width: 44px; height: 44px; }
+.dp-titlebar .icon-round svg { width: 24px; height: 24px; }
+.dp-titlebar .icon-badge { top: -3px; right: -4px; }
+/* Segment-Umschalter: aktive Fläche wie iOS (hell: weiß, dunkel: grau) */
+:root { --seg-thumb: #636366; }
+:root[data-theme="light"] { --seg-thumb: #ffffff; }
+@media (prefers-color-scheme: light) { :root[data-theme="system"] { --seg-thumb: #ffffff; } }
+.seg-control button.active { background: var(--seg-thumb); }
+/* Tagebuch: Titel und Knöpfe in einer Zeile (wie Dienstplan) */
+#service-list-header { flex-direction: row !important; align-items: center !important; justify-content: space-between; gap: 12px; }
+#service-list-header .large-title { flex: 1; min-width: 0; }
+#service-list-actions { flex-shrink: 0; gap: 12px !important; }
+#btn-global-lights, .btn-round-add { width: 44px !important; height: 44px !important; }
+.btn-round-add svg { width: 24px; height: 24px; }
+#btn-global-lights svg { width: 26px; height: 26px; }
+/* Titel und Knöpfe exakt mittig zueinander */
+.dp-titlebar .large-title, #service-list-header .large-title { margin-top: 0 !important; margin-bottom: 0 !important; }
+.dp-titlebar { margin-bottom: 8px; }

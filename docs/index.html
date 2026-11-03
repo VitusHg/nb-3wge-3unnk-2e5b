@@ -125,16 +125,18 @@
 
         <!-- Tab: Dienstplan -->
         <div id="tab-dienstplan" class="tab-panel">
-          <div class="dp-head-actions" id="dp-head-actions">
-            <button id="btn-dp-reload" class="icon-round" type="button" aria-label="Dienstplan aktualisieren" title="Aktualisieren">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <button id="btn-dp-inbox" class="icon-round" type="button" aria-label="Änderungen" title="Änderungen">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5 6 5.5A2 2 0 0 1 7.9 4h8.2a2 2 0 0 1 1.9 1.5l2.5 8V18a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-              <span class="icon-badge" id="dp-inbox-badge" hidden>0</span>
-            </button>
+          <div class="dp-titlebar">
+            <h1 class="large-title">Dienstplan</h1>
+            <div class="dp-head-actions" id="dp-head-actions">
+              <button id="btn-dp-reload" class="icon-round" type="button" aria-label="Dienstplan aktualisieren" title="Aktualisieren">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button id="btn-dp-inbox" class="icon-round" type="button" aria-label="Änderungen" title="Änderungen">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 13.5 6 5.5A2 2 0 0 1 7.9 4h8.2a2 2 0 0 1 1.9 1.5l2.5 8V18a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3.5 13.5H8l1.5 2.5h5l1.5-2.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                <span class="icon-badge" id="dp-inbox-badge" hidden>0</span>
+              </button>
+            </div>
           </div>
-          <h1 class="large-title">Dienstplan</h1>
           <div id="dienstplan-layout">
             <div id="dienstplan-toolbar">
               <span id="dienstplan-sync-status" class="dp-sync-status">—</span>
