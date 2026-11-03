@@ -4424,7 +4424,9 @@ async function saveFile(blob, filename, title) {
   try {
     const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
     if (navigator.canShare && navigator.share && (isIOSDevice() || isMobile()) && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: title || filename });
+      // Nur die Datei teilen: Ein mitgegebener Titel/Text landet bei „In Dateien
+      // sichern“ sonst als zusätzliche text.txt.
+      await navigator.share({ files: [file] });
       return true;
     }
   } catch (err) {
