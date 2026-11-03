@@ -4951,11 +4951,16 @@ async function loadDpChanges() {
   } catch (_) { return readDpChanges(); }
 }
 
+/** „Ausfall“ eines bereits begonnenen Dienstes = Eintrag zu Dienstende entfernt, keine echte Änderung. */
+function isEndOfShiftRemoval(c) {
+  return c && c.type === 'removed' && c.before && c.before.s <= c.at;
+}
+
 function recentDpChanges() {
   const c = readDpChanges();
   if (!c) return [];
   const since = Date.now() - DP_CHANGES_DAYS * 86400000;
-  return c.changes.filter((x) => x.at >= since);
+  return c.changes.filter((x) => x.at >= since && !isEndOfShiftRemoval(x));
 }
 
 /** Markierung für eine Dienstkarte: jüngste Änderung zu dieser UID. */
@@ -5006,7 +5011,16 @@ function dpChangesPanelHtml(changes) {
 const DP_HISTORY_KEY = 'etb_dp_history';
 
 function readDpHistory() {
-  try { const h = JSON.parse(lsGet(DP_HISTORY_KEY, 'null')); return h && h.history && typeof h.history === 'object' ? h.history : {}; } catch (_) { return {}; }
+  let h = {};
+  try { const x = JSON.parse(lsGet(DP_HISTORY_KEY, 'null')); h = x && x.history && typeof x.history === 'object' ? x.history : {}; } catch (_) { return {}; }
+  // ältere Einträge „Ausfall zu Dienstende“ (vor der Korrektur im Worker) ausblenden
+  const out = {};
+  for (const [k, item] of Object.entries(h)) {
+    const entries = (item.entries || []).filter((e) => !isEndOfShiftRemoval(e));
+    if (!entries.length) continue;
+    out[k] = { ...item, entries, last: item.last && entries[entries.length - 1].type !== 'removed' && (item.entries || []).length !== entries.length ? (entries[entries.length - 1].now || item.last) : item.last };
+  }
+  return out;
 }
 
 async function loadDpHistory() {
