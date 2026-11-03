@@ -4316,10 +4316,8 @@ function exportIcsServices(services, nameSuffix) {
     // Each incident as its own paragraph
     for (const inc of (svc.incidents || [])) {
       descLines.push('');
-      // Header: Alarmcode + Blaulicht
-      let header = (inc.alarmCode || '—');
-      if (inc.lights) header += ' 🔵';
-      descLines.push(header);
+      // Blaulicht vorne: 🔵 = mit Sonderrechten, ⚪ = ohne
+      descLines.push((inc.lights ? '🔵 ' : '⚪ ') + (inc.alarmCode || '—'));
       // Kennzahlen
       if (inc.einsatzart) descLines.push('Einsatzart: ' + kennzahlLabel(EINSATZART_MAP, inc.einsatzart));
       if (inc.statKz) descLines.push('Statistik-KZ: ' + kennzahlLabel(STATKZ_MAP, inc.statKz));
