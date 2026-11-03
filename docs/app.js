@@ -1025,6 +1025,7 @@ const ICON_DELETE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6
 function incidentRowHtml(svc, inc) {
   const sub = [];
   if (inc.einsatzart) sub.push(EINSATZART_MAP.get(String(inc.einsatzart)) || `EA ${inc.einsatzart}`);
+  if (inc.statKz) sub.push(STATKZ_MAP.get(String(inc.statKz)) || `KZ ${inc.statKz}`);
   if (inc.naca !== null && inc.naca !== undefined && inc.naca !== '') sub.push(`NACA ${inc.naca}`);
   const extra = (inc.extraVehicles || []).length;
   if (extra) sub.push(`+${extra} Einsatzmittel`);
@@ -1242,7 +1243,8 @@ function searchIncidentRowHtml({ svc, inc }, q) {
   const day = d ? d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
   const ea = inc.einsatzart ? EINSATZART_MAP.get(String(inc.einsatzart)) || '' : '';
   const hasNaca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '';
-  const sub = [day, svc.isSeg ? 'SEG' : svc.vehicle, ea, hasNaca ? `NACA ${inc.naca}` : ''].filter(Boolean).join(' · ');
+  const kz = inc.statKz ? STATKZ_MAP.get(String(inc.statKz)) || '' : '';
+  const sub = [day, svc.isSeg ? 'SEG' : svc.vehicle, ea, kz, hasNaca ? `NACA ${inc.naca}` : ''].filter(Boolean).join(' · ');
   const noteHit = inc.note && inc.note.toLowerCase().includes(q);
   return `<div class="srch-inc" role="button" tabindex="0" data-svc-id="${escHtml(svc.id)}" data-inc-id="${escHtml(inc.id)}">
     <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
@@ -2714,7 +2716,8 @@ function homeDayLabel(d, now) {
 function homeIncRowHtml(inc, svc, showDate) {
   const ea = inc.einsatzart && EINSATZART_MAP.has(String(inc.einsatzart)) ? EINSATZART_MAP.get(String(inc.einsatzart)) : '';
   const naca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '' ? `NACA ${inc.naca}` : '';
-  const sub = [ea, naca].filter(Boolean).join(' · ');
+  const kz = inc.statKz && STATKZ_MAP.has(String(inc.statKz)) ? STATKZ_MAP.get(String(inc.statKz)) : '';
+  const sub = [ea, kz, naca].filter(Boolean).join(' · ');
   const d = showDate ? parseLocalDt(svc.startAt) : null;
   return `<button type="button" class="hm-row hm-inc" data-svc-id="${escHtml(svc.id)}" data-inc-id="${escHtml(inc.id)}">
     <span class="home-inc-dot ${inc.lights ? 'lights' : 'normal'}"></span>
