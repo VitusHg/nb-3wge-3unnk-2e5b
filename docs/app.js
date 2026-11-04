@@ -3372,7 +3372,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 66;
+const APP_VERSION = 67;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5086,6 +5086,15 @@ function pzcQuip(t, n) {
 }
 
 /** Wie „ergiebig“ ist ein Einsatz? Kennzahlen zählen, eine Notiz und Favorit deutlich mehr. */
+/** Lange Notizen für Story-Anzeigen an einer Wortgrenze kürzen. */
+function shortNote(text, max = 140) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, '') + ' …';
+}
+
 function incRichness(inc) {
   const p = inc.pzc || {};
   const has = (v) => v !== null && v !== undefined && String(v).trim() !== '';
@@ -5276,7 +5285,7 @@ function buildStorySlides(r) {
       <h2 class="st-title">${escHtml(f.inc.alarmCode || 'Einsatz')}</h2>
       <p class="st-text">${escHtml(fmtDay(f.svc))}${f.svc.vehicle ? ' · ' + escHtml(f.svc.vehicle) : ''}</p>
       ${ea ? `<p class="st-text">${escHtml(ea)}</p>` : ''}
-      ${f.inc.note ? `<p class="st-quote">„${escHtml(f.inc.note)}“</p>` : ''}
+      ${f.inc.note ? `<p class="st-quote">„${escHtml(shortNote(f.inc.note))}“</p>` : ''}
       <button type="button" class="st-link" data-st-inc="${escHtml(f.inc.id)}" data-st-svc="${escHtml(f.svc.id)}">Einsatz ansehen ›</button>` });
   }
 
@@ -5284,7 +5293,7 @@ function buildStorySlides(r) {
   if (r.notes.length >= 2) {
     const n = pickRich(r.notes);
     pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Zitat ${isAll ? 'für die Ewigkeit' : isYear ? 'des Jahres' : 'des Monats'}</div><div class="st-emoji">💬</div>
-      <p class="st-quote st-quote-big">„${escHtml(n.inc.note)}“</p><p class="st-text st-small">${escHtml(n.inc.alarmCode || '')} · ${escHtml(fmtDay(n.svc))}</p>` });
+      <p class="st-quote st-quote-big">„${escHtml(shortNote(n.inc.note, 160))}“</p><p class="st-text st-small">${escHtml(n.inc.alarmCode || '')} · ${escHtml(fmtDay(n.svc))}</p>` });
   }
 
   // Längster Dienstblock
@@ -6005,7 +6014,7 @@ function openStoryIncCard(svcId, incId) {
         <p class="st-text st-small">${escHtml(svc.vehicle || 'Dienst')}${svc.location ? ' · ' + escHtml(svc.location) : ''}</p>
         <div class="st-card-chips">${chips}</div>
         ${dx ? `<p class="st-text st-card-dx">🩺 ${escHtml(dx)}</p>` : ''}
-        ${inc.note ? `<p class="st-quote">„${escHtml(inc.note)}“</p>` : ''}
+        ${inc.note ? `<p class="st-quote">„${escHtml(shortNote(inc.note))}“</p>` : ''}
         <div class="st-card-btns">
           <button type="button" class="st-card-b" data-card="inc">📋 Einsatz anzeigen</button>
           <button type="button" class="st-card-b" data-card="svc">🚑 Dienst anzeigen</button>
