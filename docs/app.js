@@ -2970,6 +2970,7 @@ function buildUpcomingList(futureLocal, icsShifts, now) {
 const HOME_LATE_ENTRY_MS = 24 * 3600 * 1000; // so lange nach Dienstende „Nachtragen“ anbieten
 
 async function renderHome() {
+  updateQuickBell();
   const container = document.getElementById('home-container');
   if (!container) return;
   const now = new Date();
@@ -3473,7 +3474,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 79;
+const APP_VERSION = 80;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7337,7 +7338,13 @@ async function setQuickPushSilent(silent) {
 }
 function updateQuickBell() {
   const b = document.getElementById('btn-quick-bell');
-  if (b) b.classList.toggle('is-off', !quickPushEnabled());
+  if (!b) return;
+  b.classList.toggle('is-off', !quickPushEnabled());
+  // nur während eines laufenden Dienstes zeigen
+  const wrap = b.closest('.dp-head-actions');
+  const show = !!runningService();
+  b.hidden = !show;
+  if (wrap) wrap.hidden = !show;
 }
 /** Glocke neben „Start“: Schnell-Nachrichten steuern und für den laufenden Dienst auslösen. */
 function openQuickBellSheet() {
@@ -7362,7 +7369,7 @@ async function quickPushManual() {
     if (r !== 'granted') { toast('Mitteilungen sind nicht erlaubt (iOS-Einstellungen → Mitteilungen).', 'error', 5000); return; }
   }
   const ok = await quickPushArm(true);
-  toast(ok ? '🔔 „Neuer Einsatz?“ liegt im Sperrbildschirm bereit.' : 'Gerade läuft kein Dienst.', ok ? 'success' : 'info', 3000);
+  if (!ok) toast('Gerade läuft kein Dienst.', 'info', 3000); // bei Erfolg sieht man die Mitteilung ohnehin
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('#btn-quick-bell');
@@ -8420,6 +8427,7 @@ function isTypingSomewhere() {
 function refreshActiveView(reason) {
   if (document.hidden || navAnimating || isTypingSomewhere() || topVisibleOverlay()) return;
   if (activeTab === 'home') {
+    updateQuickBell();
     if (reason === 'tick' && patchHomeActiveCard()) return;
     renderHome().catch(() => {});
   } else if (activeTab === 'dienste' && reason !== 'tick') { renderServiceList(); renderServiceDetail(); }

@@ -3521,3 +3521,16 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .hm-veh.is-active .hm-veh-sosi { animation: hm-sosi-flash 1.2s linear infinite; will-change: opacity; }
 @keyframes hm-sosi-flash { 0%, 42% { opacity: 1; } 50%, 92% { opacity: 0; } 100% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .hm-veh.is-active .hm-veh-sosi { animation: none; opacity: 1; } }
+
+/* Einheitliche Knöpfe neben den Seitentiteln (Start, Tagebuch, Dienstplan) */
+#service-list-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.dp-titlebar .icon-round, #btn-global-lights, #btn-add-menu {
+  width: 44px !important; height: 44px !important; border-radius: 50% !important; border: none !important; padding: 0 !important;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  background: var(--fill) !important; color: var(--accent) !important; box-shadow: none !important;
+}
+.dp-titlebar .icon-round svg, #btn-add-menu svg { width: 22px !important; height: 22px !important; }
+#btn-global-lights svg { width: 24px !important; height: 24px !important; }
+.dp-titlebar .icon-round:active, #btn-global-lights:active, #btn-add-menu:active { transform: scale(.94); }
+#btn-global-lights.lights-on { background: rgba(10, 132, 255, .22) !important; }
+.dp-head-actions[hidden], #btn-quick-bell[hidden] { display: none !important; }
