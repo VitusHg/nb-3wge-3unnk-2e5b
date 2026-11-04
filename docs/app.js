@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 58;
+const APP_VERSION = 60;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3526,7 +3526,24 @@ function settingsPageUeber(el, title) {
       <div class="set-row"><span class="set-row-text set-row-title">Als App installiert</span><span class="set-row-value">${standalone ? 'Ja' : 'Nein'}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Dauerhafter Speicher</span><span class="set-row-value" id="about-persist">…</span></div>
     </div>
+    <div class="set-group-header">Speicher auf diesem Gerät</div>
+    <div class="set-group" id="about-storage"><div class="set-row"><span class="set-row-text set-row-title">Wird berechnet …</span></div></div>
+    <p class="set-group-footer" id="about-storage-foot"></p>
+    <div class="set-group">
+      <label class="set-row set-row-switch">
+        <span class="set-row-text"><span class="set-row-title">Fahrzeuggrafiken offline speichern</span><span class="set-row-sub">Aus: Grafiken werden jedes Mal aus dem Netz geladen und nicht auf dem Gerät abgelegt.</span></span>
+        <input type="checkbox" class="set-switch" id="about-icons-offline" ${iconsOfflineEnabled() ? 'checked' : ''}>
+      </label>
+    </div>
     <p class="set-group-footer">${standalone ? '' : 'Tipp: In Safari „Teilen → Zum Home-Bildschirm“ wählen, dann startet das Tagebuch wie eine App. '}Privates Eigenprojekt – kein Angebot des ÖRK.</p>`;
+  renderStorageOverview(el);
+  el.querySelector('#about-icons-offline').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    if (!on && !confirm('Fahrzeuggrafiken nicht mehr auf dem Gerät speichern?\n\nDie gespeicherten Grafiken werden gelöscht. Ohne Netz werden dann keine Fahrzeugbilder angezeigt.')) { e.target.checked = true; return; }
+    await setIconsOffline(on);
+    toast(on ? 'Grafiken werden wieder offline gespeichert.' : 'Fahrzeuggrafiken ausgelagert.', 'success', 2200);
+    renderStorageOverview(el);
+  });
   // Welche Version liegt offline auf dem Gerät (Service-Worker-Cache)?
   const swEl = el.querySelector('#about-sw');
   if ('caches' in window) {
@@ -3539,6 +3556,90 @@ function settingsPageUeber(el, title) {
   if (navigator.storage && navigator.storage.persisted) {
     navigator.storage.persisted().then((p) => { persistEl.textContent = p ? 'Ja' : 'Nein'; }).catch(() => { persistEl.textContent = '—'; });
   } else persistEl.textContent = '—';
+}
+
+/** Bytes hübsch: 1,2 MB / 340 KB / 12 B */
+function fmtBytes(n) {
+  if (n == null) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return fmtNum(Math.round(n / 102.4) / 10) + ' KB';
+  return fmtNum(Math.round(n / 104857.6) / 10) + ' MB';
+}
+
+/** Größe der Einträge eines Caches (undurchsichtige Antworten zählen als unbekannt). */
+async function cacheSize(name) {
+  const c = await caches.open(name);
+  let bytes = 0, unknown = 0, count = 0;
+  for (const req of await c.keys()) {
+    const res = await c.match(req);
+    count++;
+    if (!res || res.type === 'opaque') { unknown++; continue; }
+    const len = +res.headers.get('content-length');
+    if (len) bytes += len;
+    else { try { bytes += (await res.clone().blob()).size; } catch (_) { unknown++; } }
+  }
+  return { bytes, unknown, count };
+}
+
+/** Übersicht: was belegt wie viel Platz (localStorage + Caches). */
+async function renderStorageOverview(root) {
+  const box = root.querySelector('#about-storage'), foot = root.querySelector('#about-storage-foot');
+  if (!box) return;
+  // localStorage: Zeichen × 2 Byte (Safari zählt UTF-16)
+  const ls = (k) => { try { const v = localStorage.getItem(k); return v ? (k.length + v.length) * 2 : 0; } catch (_) { return 0; } };
+  const size = (x) => (x === undefined ? 0 : JSON.stringify(x).length * 2);
+  const listKeys = ['alarmCodes', 'pzcCodes', 'alarmBlaulicht', 'abteilungen'];
+  const diary = size(state.services);
+  const lists = listKeys.reduce((n, k) => n + size(state[k]), 0);
+  const stateTotal = ls(STORAGE_KEY);
+  let dp = 0, own = 0, foreign = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k === STORAGE_KEY) continue;
+      if (/^etb_(ics|dp)/.test(k)) dp += ls(k);
+      else if (/^etb_/.test(k)) own += ls(k);
+      else foreign += ls(k);
+    }
+  } catch (_) {}
+  const other = Math.max(0, stateTotal - diary - lists) + own;
+  let app = null, icons = null;
+  if ('caches' in window) {
+    try {
+      const keys = await caches.keys();
+      app = { bytes: 0, unknown: 0, count: 0 };
+      for (const k of keys.filter((x) => x.startsWith('etb-cache-'))) { const r = await cacheSize(k); app.bytes += r.bytes; app.unknown += r.unknown; app.count += r.count; }
+      icons = await cacheSize(ICON_CACHE);
+    } catch (_) {}
+  }
+  const rows = [
+    { t: 'Tagebuch', sub: `${state.services.length} Dienste · ${state.services.reduce((n, x) => n + (x.incidents || []).length, 0)} Einsätze`, b: diary, c: '#ff453a' },
+    { t: 'Stichwörter & Listen', sub: `${(state.alarmCodes || []).length} Stichwörter · ${(state.pzcCodes || []).length} PZC`, b: lists, c: '#ff9f0a' },
+    { t: 'Dienstplan-Zwischenspeicher', sub: 'Kalender, Änderungen, Verlauf', b: dp, c: '#30d158' },
+    { t: 'Einstellungen & Sonstiges', sub: 'Fahrzeuge, Profil, Merker', b: other, c: '#8e8e93' },
+  ];
+  if (icons) rows.push({ t: 'Fahrzeuggrafiken', sub: icons.count ? `${icons.count} ${icons.count === 1 ? 'Grafik' : 'Grafiken'}${icons.unknown ? ` · ${icons.unknown}× Größe vom Server nicht lesbar` : ''}` : iconsOfflineEnabled() ? 'noch keine gespeichert' : 'ausgelagert – nicht auf dem Gerät', b: icons.bytes, c: '#0a84ff', unknown: icons.unknown, icons: true });
+  if (app) rows.push({ t: 'App-Dateien (offline)', sub: `Version ${APP_VERSION}`, b: app.bytes, c: '#bf5af2' });
+  if (foreign) rows.push({ t: 'Andere Apps dieser Adresse', sub: 'z. B. RKTel – wird hier nicht angefasst', b: foreign, c: '#48484a' });
+  const total = rows.reduce((n, r) => n + r.b, 0) || 1;
+  const lsUsed = stateTotal + dp + own + foreign;
+  box.innerHTML = `<div class="set-row st-mem-bar-row"><div class="st-mem-bar">${rows.filter((r) => r.b).map((r) => `<span style="flex:${r.b};background:${r.c}"></span>`).join('')}</div></div>` +
+    rows.map((r) => `<div class="set-row st-mem-row"><span class="st-mem-dot" style="background:${r.c}"></span>
+      <span class="set-row-text"><span class="set-row-title">${r.t}</span><span class="set-row-sub">${escHtml(r.sub)}</span></span>
+      <span class="set-row-value">${r.unknown && !r.b ? '?' : fmtBytes(r.b) + (r.unknown ? ' +' : '')}</span>
+      ${r.icons && icons.count ? '<button type="button" class="btn-ghost st-mem-act" id="about-icons-drop">Auslagern</button>' : ''}</div>`).join('');
+  let est = '';
+  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); if (e && e.usage != null) est = ` Laut System belegt diese Adresse insgesamt ${fmtBytes(e.usage)}${e.quota ? ` von erlaubten ${fmtBytes(e.quota)}` : ''}.`; } } catch (_) {}
+  const pct = Math.round((lsUsed / (5 * 1024 * 1024)) * 100);
+  foot.innerHTML = `Tagebuch, Listen und Einstellungen liegen im Browser-Speicher (localStorage). Safari erlaubt dort etwa 5 MB pro Adresse – davon sind <strong>${fmtBytes(lsUsed)} (${pct} %)</strong> belegt${foreign ? ', inklusive anderer Apps auf dieser Adresse' : ''}.${est} Regelmäßig sichern lohnt sich: iOS kann Daten von Web-Apps löschen, die länger nicht geöffnet wurden.`;
+  const drop = box.querySelector('#about-icons-drop');
+  if (drop) drop.addEventListener('click', async () => {
+    if (!confirm('Gespeicherte Fahrzeuggrafiken vom Gerät löschen?\n\nSie werden ab jetzt nicht mehr offline gespeichert, sondern bei Bedarf aus dem Netz geladen.')) return;
+    await setIconsOffline(false);
+    const sw = root.querySelector('#about-icons-offline'); if (sw) sw.checked = false;
+    toast('Fahrzeuggrafiken ausgelagert.', 'success', 2200);
+    renderStorageOverview(root);
+  });
 }
 
 function updateUserLabel() {
@@ -3597,6 +3698,7 @@ function renderVehiclesPopupContent() {
 async function renderIconCacheRow() {
   const el = document.getElementById('icon-cache-row');
   if (!el) return;
+  if (!iconsOfflineEnabled()) { el.innerHTML = '<span>☁️ Grafiken werden nicht lokal gespeichert (Einstellungen → Über)</span>'; return; }
   const st = await vehicleIconCacheStatus().catch(() => null);
   if (!st || !st.total) { el.innerHTML = ''; return; }
   el.innerHTML = `<span>📥 Grafiken auf dem Gerät: <strong>${st.cached} von ${st.total}</strong></span>
@@ -4483,8 +4585,23 @@ async function fetchIconForCache(url) {
 
 let iconSyncRunning = null;
 /** Fehlende Grafiken holen, unbenutzte löschen. force = alle neu laden. */
+function iconsOfflineEnabled() { return lsGet('etb_icons_offline') !== '0'; }
+
+/** Grafiken lokal speichern ein/aus – der Service Worker liest die Einstellung aus etb-meta. */
+async function setIconsOffline(on) {
+  lsSet('etb_icons_offline', on ? '1' : '0');
+  if (!('caches' in window)) return;
+  try {
+    const meta = await caches.open(BADGE_CACHE);
+    await meta.put('./__prefs', new Response(JSON.stringify({ iconsOffline: on }), { headers: { 'Content-Type': 'application/json' } }));
+    if (on) await syncVehicleIcons({ force: true });
+    else await caches.delete(ICON_CACHE);
+  } catch (_) {}
+}
+
 function syncVehicleIcons({ force = false } = {}) {
   if (!('caches' in window)) return Promise.resolve({ total: 0, cached: 0, failed: 0 });
+  if (!iconsOfflineEnabled()) return caches.delete(ICON_CACHE).then(() => ({ total: 0, cached: 0, failed: 0, off: true }));
   if (iconSyncRunning && !force) return iconSyncRunning;
   iconSyncRunning = (async () => {
     const cache = await caches.open(ICON_CACHE);
@@ -5452,6 +5569,82 @@ function initStoryGame(stage, sl) {
   }
 }
 
+/** Einsatz aus der Story als verspielte Karte über der Story – die Story bleibt offen. */
+function openStoryIncCard(svcId, incId) {
+  if (!story) return;
+  const { svc, inc } = findIncident(svcId, incId);
+  if (!svc || !inc) { toast('Einsatz nicht gefunden.', 'error'); return; }
+  story.el.querySelectorAll('.st-card-ov').forEach((x) => x.remove());
+  const d = parseLocalDt(svc.startAt);
+  const ea = inc.einsatzart && EINSATZART_MAP.has(String(inc.einsatzart)) ? EINSATZART_MAP.get(String(inc.einsatzart)) : '';
+  const kz = inc.statKz && STATKZ_MAP.has(String(inc.statKz)) ? STATKZ_MAP.get(String(inc.statKz)) : '';
+  const p = inc.pzc || {};
+  const dx = p.diag ? `${p.diag}${pzcDiagnosis(p.diag) ? ' – ' + pzcDiagnosis(p.diag) : ''}` : '';
+  const hasNaca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '';
+  const icN = vehicleIconSrc(svc.vehicle), icS = vehicleIconSrc(svc.vehicle, true);
+  const veh = icN ? `<div class="st-card-veh${inc.lights ? ' is-l' : ''}"><img class="st-vimg is-n" src="${escHtml(icN)}" alt="">${inc.lights && icS ? `<img class="st-vimg is-s" src="${escHtml(icS)}" alt="">` : ''}</div>` : `<div class="st-emoji">${inc.lights ? '🚨' : '🚑'}</div>`;
+  const chips = [
+    inc.lights ? '<span class="st-card-chip is-blue">🔵 Blaulicht</span>' : '<span class="st-card-chip">⚪ ohne Blaulicht</span>',
+    hasNaca ? `<span class="st-card-chip"><span class="naca-badge naca-${escHtml(String(inc.naca))}">${escHtml(String(inc.naca))}</span> NACA</span>` : '',
+    ea ? `<span class="st-card-chip">${escHtml(ea)}</span>` : '',
+    kz ? `<span class="st-card-chip">${escHtml(kz)}</span>` : '',
+    p.age ? `<span class="st-card-chip">👤 ${escHtml(String(p.age))} J.</span>` : '',
+    inc.favorite ? '<span class="st-card-chip is-gold">★ Favorit</span>' : '',
+  ].filter(Boolean).join('');
+  const ov = document.createElement('div');
+  ov.className = 'st-card-ov';
+  ov.innerHTML = `<div class="st-card${inc.lights ? ' is-l' : ''}" role="dialog" aria-label="Einsatz">
+      ${inc.lights ? storyFxHtml({ fx: 'sosi' }) : ''}
+      <button type="button" class="st-card-x" aria-label="Zurück zur Story">✕</button>
+      <div class="st-card-in">
+        <div class="st-kicker">${d ? escHtml(d.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })) : 'Einsatz'}</div>
+        ${veh}
+        <h2 class="st-title st-card-t">${escHtml(inc.alarmCode || 'Einsatz')}</h2>
+        <p class="st-text st-small">${escHtml(svc.vehicle || 'Dienst')}${svc.location ? ' · ' + escHtml(svc.location) : ''}</p>
+        <div class="st-card-chips">${chips}</div>
+        ${dx ? `<p class="st-text st-card-dx">🩺 ${escHtml(dx)}</p>` : ''}
+        ${inc.note ? `<p class="st-quote">„${escHtml(inc.note)}“</p>` : ''}
+        <div class="st-card-btns">
+          <button type="button" class="st-card-b" data-card="inc">📋 Einsatz anzeigen</button>
+          <button type="button" class="st-card-b" data-card="svc">🚑 Dienst anzeigen</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 220); };
+  ov.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (e.target === ov || e.target.closest('.st-card-x')) { close(); return; }
+    const b = e.target.closest('[data-card]');
+    if (!b) return;
+    if (b.dataset.card === 'inc') openIncidentView(svcId, incId);
+    else openStoryServicePeek(svcId);
+  });
+  story.el.appendChild(ov);
+}
+
+/** Dienst als Popup über der Story. */
+function openStoryServicePeek(svcId) {
+  const svc = state.services.find((x) => x.id === svcId);
+  const box = document.getElementById('svc-peek-body');
+  if (!svc || !box) return;
+  const icon = vehicleIconSrc(svc.vehicle);
+  const incs = incidentsNewestFirst(svc.incidents || []);
+  const crew = (svc.colleagues || []).filter(Boolean);
+  document.getElementById('svc-peek-title').textContent = svc.vehicle || 'Dienst';
+  box.innerHTML = `<div class="peek-head">
+      ${icon ? `<img class="peek-veh" src="${escHtml(icon)}" alt="">` : ''}
+      <div class="peek-head-t">${shiftCodeHtml(svc.startAt, 'is-small')}<strong>${escHtml(svcWhenText(svc))}</strong>${svc.location ? `<span>${escHtml(svc.location)}</span>` : ''}</div>
+    </div>
+    ${crew.length ? `<p class="peek-line">👥 ${escHtml(crew.join(' · '))}</p>` : ''}
+    ${svc.note ? `<p class="peek-line peek-note">📝 ${escHtml(svc.note)}</p>` : ''}
+    <div class="peek-sub">${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${incs.filter((i) => i.lights).length ? ` · ${incs.filter((i) => i.lights).length} mit Blaulicht` : ''}</div>
+    <div class="hm-list">${incs.map((i) => homeIncRowHtml(i, svc, false).replace('class="hm-row hm-inc"', 'class="hm-row hm-inc peek-inc"')).join('') || '<p class="peek-line">Keine Einsätze in diesem Dienst.</p>'}</div>
+    <button type="button" class="btn-ghost peek-open">Im Tagebuch öffnen ›</button>`;
+  box.querySelectorAll('.peek-inc').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openIncidentView(b.dataset.svcId, b.dataset.incId); }));
+  box.querySelector('.peek-open').addEventListener('click', () => { closeDialog('dialog-svc-peek'); closeStory(); setTimeout(() => openServiceDetail(svcId), 260); });
+  openDialog('dialog-svc-peek');
+}
+
 function showStorySlide(i) {
   if (!story) return;
   if (i < 0) i = 0;
@@ -5528,9 +5721,7 @@ function showStorySlide(i) {
   }
   stage.querySelectorAll('[data-st-inc]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
-    const svcId = b.dataset.stSvc, incId = b.dataset.stInc;
-    closeStory();
-    setTimeout(() => openIncidentView(svcId, incId), 260);
+    openStoryIncCard(b.dataset.stSvc, b.dataset.stInc);
   }));
   story.elapsed = 0;
   scheduleStoryNext();

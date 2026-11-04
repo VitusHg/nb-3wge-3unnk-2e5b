@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v58'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v60'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -47,6 +47,16 @@ function fetchWithTimeout(request, ms) {
   });
 }
 
+// Einstellung „Fahrzeuggrafiken offline speichern“ (von der App in etb-meta abgelegt)
+async function iconsOffline() {
+  try {
+    const hit = await (await caches.open('etb-meta')).match('./__prefs');
+    if (!hit) return true;
+    const p = await hit.json();
+    return p.iconsOffline !== false;
+  } catch (_) { return true; }
+}
+
 // Liegt die Anfrage im Bereich dieser App (Scope)? Andere Apps derselben
 // Domain (z. B. /rktel/) werden nicht angefasst.
 function inScope(url) {
@@ -58,7 +68,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   // Fahrzeuggrafiken: zuerst vom Gerät, nur beim ersten Mal aus dem Netz
   if (event.request.destination === 'image' && !inScope(url) && /^https?:$/.test(url.protocol)) {
-    event.respondWith(caches.open(ICON_CACHE).then(async (cache) => {
+    event.respondWith(iconsOffline().then(async (keep) => {
+      if (!keep) return fetch(event.request); // ausgelagert: nichts auf dem Gerät ablegen
+      const cache = await caches.open(ICON_CACHE);
       const hit = await cache.match(event.request.url);
       if (hit) return hit;
       const res = await fetch(event.request);
