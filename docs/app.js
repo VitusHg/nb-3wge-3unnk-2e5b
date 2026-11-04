@@ -3459,7 +3459,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 73;
+const APP_VERSION = 74;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7199,20 +7199,35 @@ async function workerApi(path, { method = 'GET', body, keepalive = false } = {})
 // „Neuer Einsatz“; beim Verlassen der App wird sie neu verschickt. Dienstplan-
 // Dienste meldet zusätzlich der Worker kurz nach Dienstbeginn.
 const QUICK_PUSH_KEY = 'etb_quick_push';
-const QUICK_ARMED_KEY = 'etb_quick_armed';
+const QUICK_SOUND_KEY = 'etb_quick_sound';
 function quickPushEnabled() { return lsGet(QUICK_PUSH_KEY) !== '0'; }
-function quickPushArm() {
-  if (!quickPushEnabled() || !dpConfigured()) return;
-  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
-  if (!endpoint || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+function quickPushSilent() { return lsGet(QUICK_SOUND_KEY) !== '1'; }
+async function quickNotifications() {
+  try { const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.getNotifications ? await reg.getNotifications({ tag: 'etb-quick' }) : []; } catch (_) { return []; }
+}
+/** Liegt keine „Neuer Einsatz?“-Mitteilung bereit, eine anzeigen (lokal, ohne Server). */
+async function quickPushArm() {
+  if (!quickPushEnabled() || typeof Notification === 'undefined' || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
   const svc = runningService();
-  if (!svc) return;
-  const id = svc.id + '|' + svc.endAt;
-  if (lsGet(QUICK_ARMED_KEY) === id) return;
+  const shown = await quickNotifications();
+  if (!svc) { shown.forEach((n) => n.close()); return; } // Dienst vorbei → aufräumen
+  if (shown.length) return;
   const end = parseLocalDt(svc.endAt);
-  lsSet(QUICK_ARMED_KEY, id);
-  workerApi('/push/quick', { method: 'POST', keepalive: true, body: { endpoint, send: { title: svc.vehicle || 'Dienst', until: end ? end.getTime() : Date.now() + 3600e3 } } })
-    .catch(() => lsSet(QUICK_ARMED_KEY, null));
+  const until = end ? end.getTime() : Date.now() + 3600e3;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg) {
+      await reg.showNotification('🚑 Neuer Einsatz?', {
+        body: `${svc.vehicle ? svc.vehicle + ' · ' : ''}Tippen, um einen Einsatz einzutragen.`,
+        tag: 'etb-quick', icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+        silent: quickPushSilent(), data: { url: './#neu-einsatz-push', until, silent: quickPushSilent() },
+      });
+      return;
+    }
+  } catch (_) {}
+  // Rückfall: über den Worker schicken
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', keepalive: true, body: { endpoint, send: { title: svc.vehicle || 'Dienst', until } } }).catch(() => {});
 }
 
 function pushSupport() {
@@ -7279,6 +7294,10 @@ async function renderPushSettings(host) {
              <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz im Dienst</span><span class="set-row-sub">Während eines laufenden Dienstes liegt „🚑 Neuer Einsatz?“ als Mitteilung bereit – antippen öffnet sofort die Einsatzerfassung.</span></span>
              <input type="checkbox" class="set-switch" id="push-quick" ${quickPushEnabled() ? 'checked' : ''}>
            </label>
+           <label class="set-row set-row-switch">
+             <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz lautlos</span><span class="set-row-sub">Ohne Ton und Vibration – soweit iOS das zulässt.</span></span>
+             <input type="checkbox" class="set-switch" id="push-quick-silent" ${quickPushSilent() ? 'checked' : ''}>
+           </label>
            <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text set-row-title">Testmitteilung senden</span></button>
            <button type="button" class="set-row set-destructive" id="btn-push-off"><span class="set-row-text set-row-title">Benachrichtigungen ausschalten</span></button>`
         : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
@@ -7304,9 +7323,15 @@ async function renderPushSettings(host) {
   if (quick) quick.addEventListener('change', async () => {
     const on = quick.checked;
     lsSet(QUICK_PUSH_KEY, on ? '1' : '0');
-    lsSet(QUICK_ARMED_KEY, null);
+    if (!on) (await quickNotifications()).forEach((n) => n.close());
     try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: on } }); toast(on ? 'Schnell-Einsatz aktiv.' : 'Schnell-Einsatz aus.', 'success', 1500); }
     catch (err) { toast(err.code === 'not_found' ? 'Bitte den Worker aktualisieren, damit das auch für Dienstplan-Dienste gilt.' : err.message, 'info', 5000); }
+  });
+  const qs = host.querySelector('#push-quick-silent');
+  if (qs) qs.addEventListener('change', async () => {
+    lsSet(QUICK_SOUND_KEY, qs.checked ? '0' : '1');
+    (await quickNotifications()).forEach((n) => n.close()); // mit neuer Einstellung neu anlegen
+    try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, sound: !qs.checked } }); } catch (_) {}
   });
   const test = host.querySelector('#btn-push-test');
   if (test) test.addEventListener('click', async () => {
@@ -7692,7 +7717,6 @@ window.addEventListener('hashchange', () => { if (location.hash === '#neu-einsat
 function handleLaunchTarget(hash = location.hash) {
   if (hash === '#neu-einsatz-push') {
     if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
-    lsSet(QUICK_ARMED_KEY, null); // beim nächsten Verlassen eine neue Mitteilung schicken
     return runShortcut('#neu-einsatz');
   }
   if (SHORTCUTS.some((x) => x.hash === hash)) {
@@ -8257,6 +8281,7 @@ function initAppLifecycle() {
   // Rückkehr aus dem Hintergrund: Uhr, Countdown & Daten sofort aktuell
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenSince = Date.now(); quickPushArm(); return; }
+    if (!runningService()) quickNotifications().then((l) => l.forEach((n) => n.close()));
     const away = hiddenSince ? Date.now() - hiddenSince : 0;
     hiddenSince = 0;
     if (away > UI_RESET_AFTER && activeTab !== 'home' && Date.now() - launchTabAt > 5000 && resetToHome()) return;

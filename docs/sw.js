@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v73'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v74'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -127,7 +127,8 @@ self.addEventListener('push', (event) => {
     tag: msg.tag || undefined,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
-    data: { url: msg.url || './#dienstplan' },
+    silent: !!msg.silent, // ohne Ton/Vibration (wenn das System es unterstützt)
+    data: { url: msg.url || './#dienstplan', until: msg.until || 0, silent: !!msg.silent },
   })]));
 });
 
@@ -152,7 +153,15 @@ async function bumpBadge(msg) {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL((event.notification.data && event.notification.data.url) || './#dienstplan', self.registration.scope).href;
+  const data = event.notification.data || {};
+  const target = new URL(data.url || './#dienstplan', self.registration.scope).href;
+  // Schnell-Einsatz: sofort die nächste Mitteilung bereitlegen, solange der Dienst läuft
+  if (event.notification.tag === 'etb-quick' && data.until > Date.now()) {
+    event.waitUntil(self.registration.showNotification(event.notification.title, {
+      body: event.notification.body, tag: 'etb-quick', icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+      silent: data.silent !== false, data,
+    }).catch(() => {}));
+  }
   event.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const win = wins.find((w) => w.url.startsWith(self.registration.scope));
