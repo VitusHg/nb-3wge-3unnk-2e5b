@@ -1271,6 +1271,55 @@ function searchIncidentRowHtml({ svc, inc }, q) {
   </div>`;
 }
 
+// ── Dienstblöcke („Runs“): direkt aufeinanderfolgende Schichten ────────────
+// Beginnt ein Dienst weniger als RUN_GAP_H Stunden nach dem Ende des vorigen,
+// zählt beides als ein zusammenhängender Block.
+const RUN_GAP_H = 5;
+function computeRuns(services) {
+  const list = services.filter((x) => !x.isSeg && x.startAt && x.endAt)
+    .map((x) => ({ svc: x, s: parseLocalDt(x.startAt), e: parseLocalDt(x.endAt) }))
+    .filter((x) => x.s && x.e)
+    .sort((a, b) => a.s - b.s);
+  const runs = [];
+  for (const it of list) {
+    const cur = runs[runs.length - 1];
+    if (cur && it.s - cur.end < RUN_GAP_H * 3600000 && it.s >= cur.start) {
+      cur.items.push(it.svc);
+      if (it.e > cur.end) cur.end = it.e;
+    } else runs.push({ items: [it.svc], start: it.s, end: it.e });
+  }
+  runs.forEach((r) => {
+    r.hours = r.items.reduce((n, x) => n + +serviceDurationHours(x), 0);
+    r.span = (r.end - r.start) / 3600000;
+    r.incidents = r.items.reduce((n, x) => n + (x.incidents || []).length, 0);
+  });
+  return runs;
+}
+
+function runLabel(r) {
+  const a = r.start, b = r.end;
+  const d = (x) => x.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  return `${d(a)} ${formatTimeHM(a)} – ${a.toDateString() === b.toDateString() ? '' : d(b) + ' '}${formatTimeHM(b)}`;
+}
+
+/** Statistik-Karte „Dienstblöcke“. */
+function runsPanelHtml(services) {
+  const runs = computeRuns(services);
+  const multi = runs.filter((r) => r.items.length > 1);
+  if (!multi.length) return '';
+  const longest = runs.slice().sort((a, b) => b.hours - a.hours || b.items.length - a.items.length)[0];
+  const avgInc = runs.length ? runs.reduce((n, r) => n + r.incidents, 0) / runs.length : 0;
+  return `<div class="stats-runs">
+    <div class="stats-runs-hd"><span>Dienstblöcke</span><small>Schichten mit &lt; ${RUN_GAP_H} h Pause gelten als ein Block</small></div>
+    <div class="stats-runs-grid">
+      <div><strong>${runs.length}</strong><span>Blöcke</span></div>
+      <div><strong>${multi.length}</strong><span>mit mehreren Schichten</span></div>
+      <div><strong>${String(Math.round(avgInc * 10) / 10).replace('.', ',')}</strong><span>Ø Einsätze pro Block</span></div>
+    </div>
+    <div class="stats-runs-best">🏃 Längster Block: <strong>${longest.items.length} ${longest.items.length === 1 ? 'Schicht' : 'Schichten'} · ${String(Math.round(longest.hours * 10) / 10).replace('.', ',')} h</strong><br><span>${escHtml(runLabel(longest))} · ${longest.incidents} Einsätze</span></div>
+  </div>`;
+}
+
 /** Zuletzt angelegter Einsatz zuerst (Anlagezeit, sonst Reihenfolge der Erfassung). */
 function incidentsNewestFirst(list) {
   return (list || []).map((inc, i) => ({ inc, i }))
@@ -2197,6 +2246,7 @@ function renderStats() {
       <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
     </div>
+    ${runsPanelHtml(nonSegSvcs)}
     <div class="stats-grid">
       ${statsCard('Top Einsätze', allAlarm, true)}
       ${statsCard('Top Kolleg:innen', allColleagues, true)}
@@ -2776,6 +2826,12 @@ function homeActiveCardHtml(svc, now) {
         <span class="hm-progress-track"><span class="hm-progress-fill" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="hm-progress-time">${end ? formatTimeHM(end) : '?'}</span>
       </div>
+      ${start && end && end > start ? (() => {
+        const h1 = (x) => String(Math.round(x * 10) / 10).replace('.', ',');
+        const tot = (end - start) / 3600000;
+        const done = Math.max(0, Math.min(tot, (now - start) / 3600000));
+        return `<div class="hm-progress-meta"><span class="hm-progress-pct">${Math.floor(pct)} %</span><span>${h1(done)} h von ${h1(tot)} h</span><span>noch ${h1(tot - done)} h</span></div>`;
+      })() : ''}
       ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}
     </button>
     <div class="hm-hero-incs-hd">
@@ -3132,7 +3188,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 48;
+const APP_VERSION = 49;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4542,6 +4598,10 @@ function computeReview(period) {
   duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) weekdays[d.getDay()]++; });
   const perMonth = Array.from({ length: 12 }, () => 0);
   incs.forEach((x) => { const d = parseLocalDt(x.svc.startAt); if (d) perMonth[d.getMonth()]++; });
+  const runs = computeRuns(duty);
+  // Einsätze nach Wochentag (Mo … So)
+  const perWeekday = Array.from({ length: 7 }, () => 0);
+  incs.forEach((x) => { const d = parseLocalDt(x.svc.startAt); if (d) perWeekday[(d.getDay() + 6) % 7]++; });
   const svcPerMonth = Array.from({ length: 12 }, () => 0);
   duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) svcPerMonth[d.getMonth()]++; });
   // Vergleich mit dem Zeitraum davor
@@ -4558,6 +4618,18 @@ function computeReview(period) {
     topVehicle: countTop(duty.map((x) => x.vehicle), 1)[0] || null,
     topCrew: countTop(duty.flatMap((x) => x.colleagues || []), 3),
     favorites: incs.filter((x) => x.inc.favorite).length,
+    favList: incs.filter((x) => x.inc.favorite),
+    notes: incs.filter((x) => x.inc.note && x.inc.note.trim().length >= 4 && x.inc.note.length <= 160),
+    minAge: ages.length ? Math.min(...ages) : null,
+    maxAge: ages.length ? Math.max(...ages) : null,
+    topPzc: countTop(incs.map((x) => x.inc.pzc && x.inc.pzc.diag), 1).filter(([, n]) => n >= 2)[0] || null,
+    statKzList: countTop(incs.map((x) => x.inc.statKz && STATKZ_MAP.get(String(x.inc.statKz))), 10).filter(([, n]) => n >= 2),
+    einsatzartList: countTop(incs.map((x) => x.inc.einsatzart && EINSATZART_MAP.get(String(x.inc.einsatzart))), 10),
+    topVehicles: countTop(duty.map((x) => x.vehicle), 3),
+    vehicleCount: new Set(duty.map((x) => x.vehicle).filter(Boolean)).size,
+    runs, longestRun: runs.slice().sort((a, b) => b.hours - a.hours)[0] || null,
+    lightsRecord: duty.map((x) => ({ svc: x, n: (x.incidents || []).filter((i) => i.lights).length })).sort((a, b) => b.n - a.n)[0] || null,
+    perWeekday,
     prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0 },
   };
 }
@@ -4578,8 +4650,10 @@ function fmtNum(n) { return Number(n).toLocaleString('de-AT', { maximumFractionD
 function buildStorySlides(r) {
   const p = r.period;
   const isYear = p.kind === 'year';
-  const slides = [];
+  const zr = isYear ? 'dieses Jahr' : 'diesen Monat';
   const big = (n, cls = '') => `<div class="st-big ${cls}" data-count="${n}">0</div>`;
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const diff = (a, b, what) => {
     if (!r.prev.has) return '';
     const d = a - b;
@@ -4587,89 +4661,210 @@ function buildStorySlides(r) {
     return `<div class="st-chip">${d > 0 ? '▲ ' + d + ' mehr' : '▼ ' + Math.abs(d) + ' weniger'} als ${escHtml(r.prev.label)}</div>`;
   };
   const fmtDay = (svc) => { const d = parseLocalDt(svc.startAt); return d ? d.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' }) : ''; };
+  const rank = (rows) => `<ol class="st-rank">${rows.map(([k, n, extra], i) => `<li style="--i:${i}"><span class="st-rank-n">${i + 1}</span>${extra || ''}<span class="st-rank-t">${escHtml(k)}</span><span class="st-rank-c">${n}×</span></li>`).join('')}</ol>`;
 
-  slides.push({ bg: 'st-bg-1', html: `<div class="st-emoji">🚑</div><div class="st-kicker">${isYear ? 'Rückblick' : 'Monatsrückblick'}</div><h2 class="st-title">${escHtml(p.title)}</h2><p class="st-text">${isYear ? 'Ein Jahr voller Dienste, Einsätze und Kaffee. Bereit?' : 'Schauen wir, was in diesem Monat los war.'}</p><div class="st-hint">Tippen zum Weiterblättern</div>` });
+  // ── fester Anfang ────────────────────────────────────────────────────────
+  const head = [];
+  head.push({ bg: 'st-bg-1', html: `<div class="st-emoji">🚑</div><div class="st-kicker">${isYear ? 'Rückblick' : 'Monatsrückblick'}</div><h2 class="st-title">${escHtml(p.title)}</h2><p class="st-text">${pick(isYear ? ['Ein Jahr voller Dienste, Einsätze und Kaffee. Bereit?', 'Schnall dich an – es wird ein wilder Ritt.', 'Blaulicht an, wir fahren zurück durchs Jahr.'] : ['Schauen wir, was in diesem Monat los war.', 'Kurzer Funkspruch: dein Monat in Zahlen.', 'Einsatzbereit für deinen Monatsrückblick?'])}</p><div class="st-hint">Tippen zum Weiterblättern</div>` });
 
   const days = r.hours / 24;
-  slides.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Im Dienst</div>${big(r.duty.length)}<p class="st-lead">${r.duty.length === 1 ? 'Dienst' : 'Dienste'}</p>
+  head.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Im Dienst</div>${big(r.duty.length)}<p class="st-lead">${r.duty.length === 1 ? 'Schicht' : 'Schichten'}</p>
     <p class="st-text"><strong>${fmtNum(Math.round(r.hours))} Stunden</strong> – das sind ${days >= 1 ? `<strong>${fmtNum(Math.round(days * 10) / 10)} Tage</strong> am Stück` : 'einige Stunden'}.</p>
-    ${r.nights ? `<p class="st-text">Davon <strong>${r.nights} ${r.nights === 1 ? 'Nacht' : 'Nächte'}</strong> 🌙</p>` : ''}
+    ${r.runs.length && r.runs.length < r.duty.length ? `<p class="st-text">Zusammengezählt <strong>${r.runs.length} ${r.runs.length === 1 ? 'Dienstblock' : 'Dienstblöcke'}</strong> – manche Schichten gingen direkt ineinander über.</p>` : ''}
     ${r.segs.length ? `<p class="st-text">Dazu <strong>${r.segs.length} SEG-${r.segs.length === 1 ? 'Einsatz' : 'Einsätze'}</strong> ⚡</p>` : ''}
-    ${diff(r.duty.length, r.prev.services, 'Dienste')}` });
+    ${diff(r.duty.length, r.prev.services, 'Schichten')}` });
 
   if (r.incs.length) {
     const avg = r.duty.length ? Math.round((r.incs.length / r.duty.length) * 10) / 10 : 0;
-    slides.push({ bg: 'st-bg-3', html: `<div class="st-kicker">Einsätze</div>${big(r.incs.length)}<p class="st-lead">${r.incs.length === 1 ? 'Einsatz' : 'Einsätze'}</p>
-      ${avg ? `<p class="st-text">Im Schnitt <strong>${fmtNum(avg)}</strong> pro Dienst.</p>` : ''}
+    head.push({ bg: 'st-bg-3', html: `<div class="st-kicker">Einsätze</div>${big(r.incs.length)}<p class="st-lead">${r.incs.length === 1 ? 'Einsatz' : 'Einsätze'}</p>
+      ${avg ? `<p class="st-text">Im Schnitt <strong>${fmtNum(avg)}</strong> pro Schicht.</p>` : ''}
       ${diff(r.incs.length, r.prev.incidents, 'Einsätze')}` });
+  }
 
+  // ── Pool: wird jedes Mal neu gemischt ─────────────────────────────────────
+  const pool = [];
+
+  if (r.incs.length) {
     const pct = Math.round((r.lights / r.incs.length) * 100);
-    slides.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Sonderrechte</div><div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">mit Blaulicht 🔵</p>
+    const verdict = pct >= 60 ? 'Du lebst auf der linken Spur. 🏎️' : pct >= 30 ? 'Gesunde Mischung aus Tatütata und Gemütlichkeit.' : pct > 0 ? 'Meistens ganz entspannt unterwegs. 🐢' : 'Kein einziges Mal Blaulicht – Zen-Meister:in. 🧘';
+    pool.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Sonderrechte</div><div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">mit Blaulicht 🔵</p>
       <div class="st-bar"><span style="width:${pct}%"></span></div>
-      <p class="st-text">${r.lights} mit, ${r.incs.length - r.lights} ohne Sonderrechte.</p>` });
+      <p class="st-text">${r.lights} mit, ${r.incs.length - r.lights} ohne Sonderrechte.</p><p class="st-text">${verdict}</p>` });
   }
 
   if (r.topKeywords.length) {
-    slides.push({ bg: 'st-bg-5', html: `<div class="st-kicker">Deine Top-Stichwörter</div>
-      <ol class="st-rank">${r.topKeywords.map(([k, n], i) => `<li style="--i:${i}"><span class="st-rank-n">${i + 1}</span><span class="st-rank-t">${escHtml(k)}</span><span class="st-rank-c">${n}×</span></li>`).join('')}</ol>
-      ${r.topEinsatzart ? `<p class="st-text">Häufigste Einsatzart: <strong>${escHtml(r.topEinsatzart[0])}</strong></p>` : ''}
-      ${r.topStatKz ? `<p class="st-text">Häufigste Statistikkennzahl: <strong>${escHtml(r.topStatKz[0])}</strong></p>` : ''}` });
+    pool.push({ bg: 'st-bg-5', html: `<div class="st-kicker">Deine Top-Stichwörter</div>${rank(r.topKeywords)}
+      ${r.topEinsatzart ? `<p class="st-text">Häufigste Einsatzart: <strong>${escHtml(r.topEinsatzart[0])}</strong></p>` : ''}` });
   }
 
+  // Wildester Dienst mit Einsatzliste (antippbar)
   if (r.busiest && (r.busiest.incidents || []).length > 1) {
-    slides.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Dein wildester Dienst</div><div class="st-emoji">🔥</div>
-      <div class="st-big" data-count="${r.busiest.incidents.length}">0</div><p class="st-lead">Einsätze in einem Dienst</p>
-      <p class="st-text"><strong>${escHtml(fmtDay(r.busiest))}</strong><br>${escHtml(r.busiest.vehicle || 'Dienst')}${r.busiest.location ? ' · ' + escHtml(r.busiest.location) : ''}</p>` });
+    const incs = incidentsNewestFirst(r.busiest.incidents).reverse().slice(0, 7);
+    pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Dein wildester Dienst</div>
+      <div class="st-big st-big-sm" data-count="${r.busiest.incidents.length}">0</div><p class="st-lead">Einsätze in einer Schicht 🔥</p>
+      <p class="st-text"><strong>${escHtml(fmtDay(r.busiest))}</strong> · ${escHtml(r.busiest.vehicle || 'Dienst')}</p>
+      <div class="st-list">${incs.map((inc, i) => `<button type="button" class="st-list-row" style="--i:${i}" data-st-inc="${escHtml(inc.id)}" data-st-svc="${escHtml(r.busiest.id)}">
+        <span class="st-dot${inc.lights ? ' on' : ''}"></span><span class="st-list-t">${escHtml(inc.alarmCode || 'Einsatz')}</span><span class="st-list-c">›</span></button>`).join('')}
+        ${r.busiest.incidents.length > incs.length ? `<div class="st-list-more">… und ${r.busiest.incidents.length - incs.length} weitere</div>` : ''}</div>` });
   }
 
-  if (r.topVehicle) {
-    const icon = vehicleIconSrc(r.topVehicle[0], true);
-    slides.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Dein Lieblingsfahrzeug</div>
+  // Fahrzeuge: Top 3 (bzw. Lieblingsfahrzeug)
+  if (r.topVehicles.length >= 2) {
+    pool.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Deine Fahrzeuge</div>
+      ${rank(r.topVehicles.map(([k, n]) => { const ic = vehicleIconSrc(k); return [k, n, ic ? `<img class="st-rank-veh" src="${escHtml(ic)}" alt="">` : '']; }))}
+      <p class="st-text">${r.vehicleCount} verschiedene Fahrzeuge ${zr}.</p>` });
+  } else if (r.topVehicles.length === 1) {
+    const [name, n] = r.topVehicles[0];
+    const icon = vehicleIconSrc(name, true);
+    pool.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Dein Lieblingsfahrzeug</div>
       ${icon ? `<img class="st-veh" src="${escHtml(icon)}" alt="">` : '<div class="st-emoji">🚐</div>'}
-      <h2 class="st-title">${escHtml(r.topVehicle[0])}</h2><p class="st-text"><strong>${r.topVehicle[1]}</strong> ${r.topVehicle[1] === 1 ? 'Dienst' : 'Dienste'} gemeinsam</p>` });
+      <h2 class="st-title">${escHtml(name)}</h2><p class="st-text"><strong>${n}</strong> ${n === 1 ? 'Schicht' : 'Schichten'} gemeinsam – treue Seele.</p>` });
   }
 
   if (r.topCrew.length) {
-    slides.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Am öftesten mit dir unterwegs</div><div class="st-emoji">🤝</div>
-      <ol class="st-rank">${r.topCrew.map(([k, n], i) => `<li style="--i:${i}"><span class="st-rank-n">${i + 1}</span><span class="st-rank-t">${escHtml(k)}</span><span class="st-rank-c">${n}×</span></li>`).join('')}</ol>` });
+    pool.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Am öftesten mit dir unterwegs</div><div class="st-emoji">🤝</div>${rank(r.topCrew)}
+      <p class="st-text">${pick(['Danke fürs Mitfahren!', 'Das Dreamteam auf vier Rädern.', 'Ohne euch wär’s nur halb so lustig.'])}</p>` });
   }
 
+  // NACA mit Beschriftung
   const nacaTotal = r.naca.reduce((a, b) => a + b, 0);
-  if (nacaTotal || r.avgAge !== null) {
+  if (nacaTotal) {
     const max = Math.max(1, ...r.naca);
-    slides.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Deine Patient:innen</div>
-      ${r.avgAge !== null ? `<div class="st-big" data-count="${r.avgAge}">0</div><p class="st-lead">Jahre im Schnitt</p>` : ''}
-      ${nacaTotal ? `<div class="st-naca">${r.naca.map((n, i) => `<div class="st-naca-col"><span class="st-naca-bar naca-${i}" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-naca-l">${i}</span></div>`).join('')}</div><p class="st-text st-small">NACA-Verteilung</p>` : ''}` });
+    const avgNaca = r.naca.reduce((a, n, i) => a + n * i, 0) / nacaTotal;
+    const comment = avgNaca < 1.5 ? 'Überwiegend Leichtgewichte – gut so. 🍃' : avgNaca < 3 ? 'Solide Mitte: ambulant bis stationär.' : avgNaca < 4.5 ? 'Ordentlich was los – Respekt. 💪' : 'Schwere Kost. Pass auf dich auf. ❤️';
+    pool.push({ bg: 'st-bg-9', html: `<div class="st-kicker">NACA-Score</div>
+      <div class="st-big st-big-sm">Ø ${fmtNum(Math.round(avgNaca * 10) / 10)}</div><p class="st-text">${nacaTotal} Einsätze mit NACA</p>
+      <div class="st-naca-list">${r.naca.map((n, i) => n ? `<div class="st-naca-row" style="--i:${i}"><span class="naca-badge naca-${i}">${i}</span><span class="st-naca-track"><span style="width:${Math.round((n / max) * 100)}%"></span></span><span class="st-naca-n">${n}×</span></div>` : '').join('')}</div>
+      <p class="st-text st-small">${comment}</p>` });
   }
 
-  const wd = r.weekdays.indexOf(Math.max(...r.weekdays));
-  const dayShifts = r.duty.length - r.nights;
+  if (r.avgAge !== null) {
+    pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">Deine Patient:innen</div>${big(r.avgAge)}<p class="st-lead">Jahre im Schnitt</p>
+      ${r.minAge !== null && r.maxAge !== null && r.maxAge !== r.minAge ? `<p class="st-text">Von <strong>${r.minAge}</strong> bis <strong>${r.maxAge}</strong> Jahren war alles dabei.</p>` : ''}
+      <p class="st-text">${r.avgAge >= 70 ? 'Dein Publikum hat Lebenserfahrung. 👵👴' : r.avgAge >= 45 ? 'Bunt gemischt quer durch die Generationen.' : 'Erstaunlich junges Publikum! 🧒'}</p>` });
+  }
+
+  // PZC-Analyse mit Augenzwinkern
+  if (r.topPzc) {
+    const [code, n] = r.topPzc;
+    const dx = pzcDiagnosis(code);
+    const t = `${code} ${dx}`.toLowerCase();
+    const quip = /katheter/.test(t) ? `Du bist offiziell das <strong>Katheter-Taxi</strong> 🚕💧`
+      : code === '320' || /sonst/.test(t) ? `Diagnosen stellen? Machen andere – du fährst unter „sonst“. Bist ja kein Doktor. 🩺😉`
+      : /psych/.test(t) ? 'Seelentröster:in im Einsatz. 🫂'
+      : /alkohol|intox|vergift/.test(t) ? 'Prost Mahlzeit. 🍻'
+      : /sturz|fall/.test(t) ? 'Die Schwerkraft hat dir viel Arbeit gemacht. 🍂'
+      : /atem|dyspn/.test(t) ? 'Durchatmen – für dich und andere. 🌬️'
+      : /brust|herz|kardi/.test(t) ? 'Herzensangelegenheiten. ❤️‍🩹'
+      : /geburt|schwanger/.test(t) ? 'Storch-Assistenz. 🍼'
+      : `Dein PZC-Liebling – ${n}× gewählt.`;
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">PZC-Analyse</div>
+      <div class="st-big st-big-sm">${escHtml(code)}</div><p class="st-lead">${escHtml(dx || 'PZC ' + code)}</p>
+      <p class="st-text"><strong>${n}×</strong> ${zr}.</p><p class="st-text">${quip}</p>` });
+  }
+
+  // Zufällige Statistikkennzahl
+  if (r.statKzList.length) {
+    const [label, n] = pick(r.statKzList.slice(0, 4));
+    const t = label.toLowerCase();
+    const quip = /alkohol|rausch|intox/.test(t) ? `${isYear ? 'Ein rauschiges Jahr' : 'Ein rauschiger Monat'} 🍻`
+      : /psych/.test(t) ? 'Viel Seelenarbeit. 🫂'
+      : /verkehr|unfall/.test(t) ? 'Asphalt-Cowboy. 🛣️'
+      : /sturz/.test(t) ? 'Hoppala! 🍂'
+      : /chirurg/.test(t) ? 'Schnipp, schnapp – chirurgisch unterwegs. ✂️'
+      : /intern/.test(t) ? 'Internistisch durch und durch. 🩺'
+      : /neuro/.test(t) ? 'Nervenstark. 🧠'
+      : /kind|pädiat/.test(t) ? 'Kleine Patient:innen, große Herzen. 🧸'
+      : /geburt|gyn/.test(t) ? 'Storch-Express. 🍼'
+      : 'Spannend, was alles dabei war.';
+    pool.push({ bg: 'st-bg-5', html: `<div class="st-kicker">Statistikkennzahl im Fokus</div><div class="st-emoji">🔎</div>
+      ${big(n)}<p class="st-lead">× ${escHtml(label)}</p><p class="st-text">${quip}</p>` });
+  }
+
+  // Zufällige Einsatzart
+  if (r.einsatzartList.length > 1) {
+    const [label, n] = pick(r.einsatzartList.slice(0, 3));
+    const t = label.toLowerCase();
+    const quip = /heim/.test(t) ? 'Heimbringer-Service – alle wieder gut nach Hause. 🏠' : /hin/.test(t) ? 'Hin und weg. 🏥' : /ambul/.test(t) ? 'Ambulant-Abo. 🎟️' : 'So viel dazu.';
+    pool.push({ bg: 'st-bg-3', html: `<div class="st-kicker">Einsatzart</div>${big(n)}<p class="st-lead">× ${escHtml(label)}</p><p class="st-text">${quip}</p>` });
+  }
+
+  // Ein Favorit aus dem Zeitraum
+  if (r.favList.length) {
+    const f = pick(r.favList);
+    const ea = f.inc.einsatzart ? EINSATZART_MAP.get(String(f.inc.einsatzart)) : '';
+    pool.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Aus deinen Favoriten</div><div class="st-emoji">⭐</div>
+      <h2 class="st-title">${escHtml(f.inc.alarmCode || 'Einsatz')}</h2>
+      <p class="st-text">${escHtml(fmtDay(f.svc))}${f.svc.vehicle ? ' · ' + escHtml(f.svc.vehicle) : ''}</p>
+      ${ea ? `<p class="st-text">${escHtml(ea)}</p>` : ''}
+      ${f.inc.note ? `<p class="st-quote">„${escHtml(f.inc.note)}“</p>` : ''}
+      <button type="button" class="st-link" data-st-inc="${escHtml(f.inc.id)}" data-st-svc="${escHtml(f.svc.id)}">Einsatz ansehen ›</button>` });
+  }
+
+  // Zufälliges Zitat aus den Notizen
+  if (r.notes.length >= 2) {
+    const n = pick(r.notes);
+    pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Zitat ${isYear ? 'des Jahres' : 'des Monats'}</div><div class="st-emoji">💬</div>
+      <p class="st-quote st-quote-big">„${escHtml(n.inc.note)}“</p><p class="st-text st-small">${escHtml(n.inc.alarmCode || '')} · ${escHtml(fmtDay(n.svc))}</p>` });
+  }
+
+  // Längster Dienstblock
+  if (r.longestRun && r.longestRun.items.length > 1) {
+    const lr = r.longestRun;
+    pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Marathon-Block</div><div class="st-emoji">🏃</div>
+      ${big(Math.round(lr.hours))}<p class="st-lead">Stunden am Stück</p>
+      <p class="st-text"><strong>${lr.items.length} Schichten</strong> hintereinander · ${lr.incidents} Einsätze</p>
+      <p class="st-text st-small">${escHtml(runLabel(lr))}</p>
+      <p class="st-text">${pick(['Wer braucht schon Schlaf? ☕', 'Durchhaltevermögen: legendär.', 'Kaffee-Verbrauch: geschätzt hoch.'])}</p>` });
+  }
+
+  // Blaulicht-Rekord in einer Schicht
+  if (r.lightsRecord && r.lightsRecord.n >= 2) {
+    pool.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Blaulicht-Rekord</div><div class="st-emoji">🚨</div>
+      ${big(r.lightsRecord.n)}<p class="st-lead">Blaulichtfahrten in einer Schicht</p>
+      <p class="st-text">${escHtml(fmtDay(r.lightsRecord.svc))} · ${escHtml(r.lightsRecord.svc.vehicle || 'Dienst')}</p>` });
+  }
+
+  // Rhythmus
   if (r.duty.length >= 2) {
-    slides.push({ bg: 'st-bg-10', html: `<div class="st-kicker">Dein Rhythmus</div><div class="st-emoji">${r.nights > dayShifts ? '🌙' : '☀️'}</div>
+    const wd = r.weekdays.indexOf(Math.max(...r.weekdays));
+    const dayShifts = r.duty.length - r.nights;
+    pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">Dein Rhythmus</div><div class="st-emoji">${r.nights > dayShifts ? '🌙' : '☀️'}</div>
       <h2 class="st-title">${r.nights > dayShifts ? 'Nachteule' : r.nights === dayShifts ? 'Tag & Nacht' : 'Frühaufsteher:in'}</h2>
-      <p class="st-text">${dayShifts} Tag- und ${r.nights} Nachtdienste.</p>
-      <p class="st-text">Am liebsten im Dienst: <strong>${WEEKDAY_LONG[wd]}</strong></p>
-      ${r.longest ? `<p class="st-text">Längster Dienst: <strong>${fmtNum(+serviceDurationHours(r.longest))} h</strong></p>` : ''}` });
+      <p class="st-text">${dayShifts} Tag- und ${r.nights} Nachtschichten.</p>
+      <p class="st-text">Am liebsten im Dienst: <strong>${WEEKDAY_LONG[wd]}</strong></p>` });
   }
 
+  // Jahr: Monatsverlauf
   if (isYear) {
     const max = Math.max(1, ...r.perMonth);
     const best = r.perMonth.indexOf(Math.max(...r.perMonth));
-    slides.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Dein Jahr in Monaten</div>
-      <div class="st-months">${r.perMonth.map((n, i) => `<div class="st-month${i === best && n ? ' is-best' : ''}"><span class="st-month-bar" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-month-l">${MONTHS_DE[i].slice(0, 1)}</span></div>`).join('')}</div>
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Dein Jahr in Monaten</div>
+      <div class="st-months">${r.perMonth.map((n, i) => `<div class="st-month${i === best && n ? ' is-best' : ''}"><span class="st-month-n">${n || ''}</span><span class="st-month-bar" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-month-l">${MONTHS_DE[i].slice(0, 1)}</span></div>`).join('')}</div>
       ${r.perMonth[best] ? `<p class="st-text">Stärkster Monat: <strong>${MONTHS_DE[best]}</strong> mit ${r.perMonth[best]} Einsätzen</p>` : ''}` });
   }
 
-  slides.push({ bg: 'st-bg-1', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
+  // Monat: Wochen-Verlauf
+  if (!isYear && r.incs.length >= 3) {
+    const max = Math.max(1, ...r.perWeekday);
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Einsätze nach Wochentag</div>
+      <div class="st-months">${r.perWeekday.map((n, i) => `<div class="st-month${n === max ? ' is-best' : ''}"><span class="st-month-n">${n || ''}</span><span class="st-month-bar" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-month-l">${WEEKDAY_2[(i + 1) % 7]}</span></div>`).join('')}</div>
+      <p class="st-text">Am meisten los: <strong>${WEEKDAY_LONG[(r.perWeekday.indexOf(max) + 1) % 7]}</strong></p>` });
+  }
+
+  // Auswahl: bis zu 9 Folien aus dem Pool, jedes Mal anders gemischt
+  const body = shuffle(pool).slice(0, isYear ? 10 : 8);
+
+  const tail = { bg: 'st-bg-1', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
     <div class="st-sum">
-      <div><span>${r.duty.length}</span>Dienste</div>
+      <div><span>${r.duty.length}</span>Schichten</div>
       <div><span>${fmtNum(Math.round(r.hours))}</span>Stunden</div>
       <div><span>${r.incs.length}</span>Einsätze</div>
       <div><span>${r.lights}</span>Blaulicht</div>
     </div>
     <p class="st-text">Danke für deinen Einsatz ❤️</p>
-    <button type="button" class="st-done">Fertig</button>` });
-  return slides;
+    <div class="st-end-btns"><button type="button" class="st-again">Nochmal mischen 🔀</button><button type="button" class="st-done">Fertig</button></div>` };
+  return [...head, ...body, tail];
 }
 
 let story = null;
@@ -4687,7 +4882,7 @@ function openStory(kind, year, month) {
     <button type="button" class="st-close" aria-label="Schließen">✕</button>
     <div class="st-stage"></div>`;
   document.body.appendChild(el);
-  story = { el, slides, i: 0, timer: 0, started: 0, elapsed: 0, paused: false };
+  story = { el, slides, i: 0, timer: 0, started: 0, elapsed: 0, paused: false, period };
   showStorySlide(0);
   bindStoryGestures(el);
   // Monatsrückblick gesehen → Hinweis auf Start ausblenden
@@ -4732,6 +4927,18 @@ function showStorySlide(i) {
   });
   const done = stage.querySelector('.st-done');
   if (done) done.addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
+  const again = stage.querySelector('.st-again');
+  if (again) again.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const per = story.period;
+    openStory(per.kind, per.year, per.month);
+  });
+  stage.querySelectorAll('[data-st-inc]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const svcId = b.dataset.stSvc, incId = b.dataset.stInc;
+    closeStory();
+    setTimeout(() => openIncidentView(svcId, incId), 260);
+  }));
   story.elapsed = 0;
   scheduleStoryNext();
 }
@@ -4763,12 +4970,12 @@ function bindStoryGestures(el) {
   let x0 = 0, y0 = 0, t0 = 0, holdTimer = 0, held = false;
   el.querySelector('.st-close').addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.st-close, .st-done')) return;
+    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc]')) return;
     x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); held = false;
     holdTimer = setTimeout(() => { held = true; pauseStory(); }, 250);
   });
   el.addEventListener('pointerup', (e) => {
-    if (e.target.closest('.st-close, .st-done')) return;
+    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc]')) return;
     clearTimeout(holdTimer);
     const dy = e.clientY - y0, dx = e.clientX - x0;
     if (held) { resumeStory(); return; }

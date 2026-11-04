@@ -2932,3 +2932,43 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .move-row { width: 100%; border: none; background: none; text-align: left; font: inherit; }
 .move-list { max-height: 55vh; }
 .fact-tile-sub { display: block; font-size: 11px; }
+
+/* Start: Fortschritt aktueller Dienst */
+.hm-progress-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: -6px; padding: 0 2px; font-size: 12px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.hm-progress-pct { font-weight: 700; color: var(--accent); }
+
+/* Statistik: Dienstblöcke */
+.stats-runs { padding: 14px 16px; margin-bottom: 12px; border-radius: 16px; background: var(--card, var(--surface)); }
+.stats-runs-hd { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.stats-runs-hd span { font-size: 15px; font-weight: 700; }
+.stats-runs-hd small { font-size: 12px; color: var(--text2); }
+.stats-runs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.stats-runs-grid > div { padding: 10px 6px; border-radius: 12px; background: var(--fill); text-align: center; font-size: 12px; color: var(--text2); min-width: 0; }
+.stats-runs-grid strong { display: block; font-size: 20px; color: var(--text); font-variant-numeric: tabular-nums; }
+.stats-runs-best { font-size: 14px; line-height: 1.4; }
+.stats-runs-best span { font-size: 12px; color: var(--text2); }
+
+/* Story: neue Elemente */
+.st-big.st-big-sm { font-size: 64px; letter-spacing: -2px; }
+.st-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; text-align: left; max-height: 38vh; overflow-y: auto; }
+.st-list-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: none; border-radius: 12px; background: rgba(255, 255, 255, .16); color: inherit; font: inherit; font-size: 15px; font-weight: 600; text-align: left; animation: st-slide .45s var(--ease-ios) both; animation-delay: calc(var(--i) * .08s + .2s); }
+.st-list-row:active { background: rgba(255, 255, 255, .28); }
+.st-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: rgba(255, 255, 255, .45); }
+.st-dot.on { background: #64d2ff; box-shadow: 0 0 8px #64d2ff; }
+.st-list-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-list-c { opacity: .7; font-size: 18px; }
+.st-list-more { font-size: 13px; opacity: .75; text-align: center; padding-top: 2px; }
+.st-rank-veh { width: 54px; height: 32px; object-fit: contain; flex: none; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .3)); }
+.st-naca-list { display: flex; flex-direction: column; gap: 7px; margin: 14px 0 8px; text-align: left; }
+.st-naca-row { display: flex; align-items: center; gap: 10px; animation: st-slide .45s var(--ease-ios) both; animation-delay: calc(var(--i) * .07s + .15s); }
+.st-naca-row .naca-badge { flex: none; }
+.st-naca-track { flex: 1; height: 12px; border-radius: 6px; background: rgba(255, 255, 255, .2); overflow: hidden; }
+.st-naca-track span { display: block; height: 100%; min-width: 4px; border-radius: 6px; background: #fff; animation: st-grow 1s var(--ease-ios); }
+.st-naca-n { width: 42px; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+.st-quote { font-size: 17px; font-style: italic; line-height: 1.4; margin: 12px 0; opacity: .95; overflow-wrap: anywhere; }
+.st-quote.st-quote-big { font-size: 24px; font-weight: 700; }
+.st-link { margin-top: 10px; padding: 10px 22px; border-radius: 999px; border: 1.5px solid rgba(255, 255, 255, .7); background: rgba(255, 255, 255, .12); color: inherit; font: inherit; font-size: 15px; font-weight: 700; }
+.st-end-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+.st-end-btns .st-done { margin-top: 0; }
+.st-again { padding: 12px 22px; border-radius: 999px; border: 1.5px solid rgba(255, 255, 255, .8); background: transparent; color: #fff; font-size: 17px; font-weight: 700; }
+.st-month-n { font-size: 11px; font-weight: 800; min-height: 13px; font-variant-numeric: tabular-nums; }
