@@ -3372,7 +3372,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 65;
+const APP_VERSION = 66;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5696,10 +5696,13 @@ function storyFxHtml(sl) {
 /** Mini-Spiele in der Story. */
 function initStoryGame(stage, sl) {
   const hint = stage.querySelector('.st-g-hint');
-  const win = () => stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' }));
+  // Läuft die Folie noch? (Spiele mit Zeitverzögerung dürfen nach dem Weiterblättern nichts mehr anfassen)
+  const live = () => !!story && story.slides[story.i] === sl && stage.isConnected;
+  const win = () => { if (live()) stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' })); };
   const finish = () => {
     sl.played = true;
-    const bar = story && story.el.querySelectorAll('.st-progress span')[story.i];
+    const k = story ? story.slides.indexOf(sl) : -1;
+    const bar = k >= 0 && story.el.querySelectorAll('.st-progress span')[k];
     if (bar) bar.classList.add('done');
   };
 
@@ -5784,7 +5787,7 @@ function initStoryGame(stage, sl) {
         spinning = false;
         sl.spins++;
         const box = stage.querySelector('.st-slot');
-        box.classList.remove('is-win'); void box.offsetWidth; box.classList.add('is-win');
+        if (box) { box.classList.remove('is-win'); void box.offsetWidth; box.classList.add('is-win'); }
         if (prize.rank === 1) win();
         hint.innerHTML = prize.text;
         finish();
