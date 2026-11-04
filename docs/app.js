@@ -2165,47 +2165,121 @@ function renderStats() {
     ? `<div class="naca-avg stats-age">Ø Patientenalter: <strong>${avgAge} Jahre</strong><span class="stats-age-range">${Math.min(...ages)}–${Math.max(...ages)} J. · ${ages.length} ${ages.length === 1 ? 'Einsatz' : 'Einsätze'}</span></div>`
     : '<div class="naca-avg stats-age">Ø Patientenalter: <strong>—</strong><span class="stats-age-range">kein Alter im PZC erfasst</span></div>';
 
-  function statsCard(title, allItems, withPie, meta, footerHtml = '') {
-    const total = allItems.length;
-    const moreBtn = total > 5 ? `<button class="btn-show-all" data-title="${escHtml(title)}">Alle (${total})</button>` : '';
-    const pie = withPie && allItems.length > 0 ? renderPieSvg(allItems.slice(0, 8)) : '';
-    const metaHtml = meta ? `<span class="stats-coverage">${escHtml(meta)}</span>` : '';
-    return `<div class="stats-rank-section">
-      <div class="stats-section-head"><h4>${escHtml(title)}</h4><div class="stats-head-right">${metaHtml}${moreBtn}</div></div>
-      <ul class="rank-list">${renderRankList(allItems, 5)}</ul>
-      ${pie}
-      ${footerHtml}
-    </div>`;
+  // ── Bausteine für die Module ──────────────────────────────────────────
+  const pctOf = (n, t) => (t ? Math.round((n / t) * 100) : 0);
+  const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const initials = (name) => String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+  const avatarHue = (name) => [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const ring = (pct, color) => {
+    const r = 34, c = 2 * Math.PI * r;
+    return `<svg class="sx-ring" viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="${r}" class="sx-ring-bg"/><circle cx="42" cy="42" r="${r}" class="sx-ring-fg" stroke="${color}" stroke-dasharray="${(c * pct) / 100} ${c}" transform="rotate(-90 42 42)"/></svg>`;
+  };
+  const head = (icon, title, meta, key, total) => `<div class="sx-head"><span class="sx-ic">${icon}</span><h4>${escHtml(title)}</h4>
+    ${meta ? `<span class="sx-meta">${escHtml(meta)}</span>` : ''}${key && total > 5 ? `<button class="btn-show-all sx-all" data-title="${escHtml(key)}">Alle ${total} ›</button>` : ''}</div>`;
+  const empty = '<p class="sx-empty">Noch keine Daten</p>';
+
+  // Ranking mit Siegerpodest für Platz 1–3 und Balken für Platz 4–6
+  function podiumCard({ key, title, icon, color, items, meta, lead }) {
+    const top = items.slice(0, 3), rest = items.slice(3, 6);
+    const max = items.length ? items[0][1] : 1;
+    const ld = (label) => (lead ? lead(label) : '');
+    const order = top.length === 3 ? [1, 0, 2] : top.map((_, i) => i);
+    return `<section class="sx-card" style="--mc:${color}">${head(icon, title, meta, key, items.length)}
+      ${!items.length ? empty : `<div class="sx-podium${top.length < 3 ? ' is-short' : ''}">${order.map((i) => { const [l, n] = top[i]; return `
+        <div class="sx-pod sx-pod-${i + 1}" title="${escHtml(String(l))}">
+          ${ld(l) || `<span class="sx-medal">${['🥇', '🥈', '🥉'][i]}</span>`}
+          <span class="sx-pod-l">${escHtml(String(l))}</span>
+          <span class="sx-pod-bar"><b>${n}×</b><i>${i + 1}</i></span>
+        </div>`; }).join('')}</div>
+      ${rest.length ? `<ol class="sx-rest" start="4">${rest.map(([l, n], i) => `<li><span class="sx-rest-n">${i + 4}</span>${ld(l)}<span class="sx-rest-l">${escHtml(String(l))}</span>
+        <span class="sx-rest-bar"><span style="width:${Math.max(6, Math.round((n / max) * 100))}%"></span></span><span class="sx-rest-c">${n}</span></li>`).join('')}</ol>` : ''}`}
+    </section>`;
   }
 
-  function nacaSection() {
-    const filled = allInc.filter((i) => i.naca !== null && i.naca !== undefined && i.naca !== '').length;
-    const counts = Array(8).fill(0);
-    let sum = 0;
-    allInc.forEach((i) => {
-      const n = parseInt(i.naca, 10);
-      if (!isNaN(n) && n >= 0 && n <= 7) { counts[n]++; sum += n; }
-    });
-    const maxCount = Math.max(...counts, 1);
-    const avg = filled ? Math.round(sum / filled) : null;
-    const items = counts.map((count, n) => {
-      const pct = Math.round(count / maxCount * 100);
-      return `<li class="rank-item">
-        <span class="rank-num">${n}</span>
-        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%"></div></div>
-        <span class="rank-label">${escHtml(NACA_LABELS[n])}</span>
-        <span class="rank-count">${count || ''}</span>
-      </li>`;
-    }).join('');
-    return `<div class="stats-rank-section">
-      <div class="stats-section-head">
-        <h4>NACA-Skala</h4>
-        <span class="stats-coverage">${filled}/${totalInc} Einsätze</span>
-      </div>
-      <ul class="rank-list">${items}</ul>
-      ${avg !== null ? `<div class="naca-avg">Ø NACA: <strong>${avg}</strong></div>` : ''}
-    </div>`;
+  // Anteile als segmentierter Balken + Legende
+  const SHARE_COLS = ['#0a84ff', '#30d158', '#ff9f0a', '#bf5af2', '#ff453a', '#64d2ff', '#ffd60a', '#8e8e93'];
+  function shareCard({ key, title, icon, color, items, meta }) {
+    const tot = items.reduce((n, [, c]) => n + c, 0);
+    const shown = items.slice(0, 6);
+    const other = tot - shown.reduce((n, [, c]) => n + c, 0);
+    const parts = other > 0 ? [...shown, ['Sonstige', other]] : shown;
+    return `<section class="sx-card" style="--mc:${color}">${head(icon, title, meta, key, items.length)}
+      ${!tot ? empty : `<div class="sx-share">${parts.map(([, c], i) => `<span style="flex:${c};background:${SHARE_COLS[i % SHARE_COLS.length]}"></span>`).join('')}</div>
+      <ul class="sx-legend">${parts.map(([l, c], i) => `<li><span class="sx-dot" style="background:${SHARE_COLS[i % SHARE_COLS.length]}"></span><span class="sx-legend-l">${escHtml(String(l))}</span><span class="sx-legend-p">${pctOf(c, tot)} %</span><span class="sx-legend-c">${c}</span></li>`).join('')}</ul>`}
+    </section>`;
   }
+
+  // NACA als farbige Säulen
+  function nacaCard() {
+    const counts = Array(8).fill(0); let sum = 0, filled = 0;
+    allInc.forEach((i) => { const n = parseInt(i.naca, 10); if (!isNaN(n) && n >= 0 && n <= 7) { counts[n]++; sum += n; filled++; } });
+    const max = Math.max(1, ...counts);
+    const avg = filled ? sum / filled : null;
+    return `<section class="sx-card" style="--mc:#ff9f0a">${head('🩺', 'NACA-Skala', `${filled}/${totalInc} Einsätze`)}
+      ${!filled ? empty : `<div class="sx-naca">${counts.map((n, i) => `<div class="sx-naca-col" title="${escHtml(NACA_LABELS[i])}"><span class="sx-naca-n">${n || ''}</span><span class="sx-naca-bar naca-${i}" style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 0}%"></span><span class="naca-badge naca-${i}">${i}</span></div>`).join('')}</div>
+      <div class="sx-naca-avg"><span class="naca-badge naca-${Math.round(avg)}">${fmt1(avg)}</span><span><strong>Ø NACA ${fmt1(avg)}</strong><small>${escHtml(NACA_LABELS[Math.round(avg)])}</small></span></div>`}
+    </section>`;
+  }
+
+  // Patientenalter in Altersgruppen
+  function ageCard() {
+    const groups = [['0–17', 0, 17, '🧒'], ['18–39', 18, 39, '🧑'], ['40–64', 40, 64, '🧔'], ['65–79', 65, 79, '🧓'], ['80+', 80, 200, '👵']];
+    const cnt = groups.map(([, lo, hi]) => ages.filter((a) => a >= lo && a <= hi).length);
+    const max = Math.max(1, ...cnt);
+    return `<section class="sx-card" style="--mc:#bf5af2">${head('👤', 'Patient:innen', ages.length ? `${ages.length} mit Alter` : '')}
+      ${!ages.length ? '<p class="sx-empty">Kein Alter im PZC erfasst</p>' : `<div class="sx-age-top"><div><strong>${avgAge}</strong><small>Ø Jahre</small></div><div><strong>${Math.min(...ages)}</strong><small>jüngste:r</small></div><div><strong>${Math.max(...ages)}</strong><small>älteste:r</small></div></div>
+      <div class="sx-age">${groups.map(([l, , , e], i) => `<div class="sx-age-col"><span class="sx-age-n">${cnt[i] || ''}</span><span class="sx-age-bar" style="height:${cnt[i] ? Math.max(6, Math.round((cnt[i] / max) * 100)) : 0}%"></span><span class="sx-age-e">${e}</span><span class="sx-age-l">${l}</span></div>`).join('')}</div>`}
+    </section>`;
+  }
+
+  // Wann ist was los? Wochentag × Tageszeit (nur Einsätze mit plausibler Uhrzeit)
+  const incX = filteredSvcs.flatMap((sv) => (sv.incidents || []).filter(incFilter).map((inc) => ({ inc, svc: sv })));
+  function timeCard() {
+    const grid = Array.from({ length: 7 }, () => Array(8).fill(0));
+    let n = 0;
+    incX.forEach(({ inc, svc }) => {
+      const c = inc.createdAt ? new Date(inc.createdAt) : null, a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
+      if (!c || !a || !e || c < a || c > new Date(e.getTime() + 2 * 3600e3)) return;
+      grid[(c.getDay() + 6) % 7][Math.floor(c.getHours() / 3)]++; n++;
+    });
+    const wd = Array(7).fill(0);
+    incX.forEach(({ svc }) => { const d = parseLocalDt(svc.startAt); if (d) wd[(d.getDay() + 6) % 7]++; });
+    const wmax = Math.max(1, ...wd), best = wd.indexOf(Math.max(...wd));
+    const gmax = Math.max(1, ...grid.flat());
+    const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+    let peak = null;
+    grid.forEach((row, d) => row.forEach((v, h) => { if (v && (!peak || v > peak.v)) peak = { v, d, h }; }));
+    return `<section class="sx-card sx-wide" style="--mc:#0a84ff">${head('🕒', 'Wann ist was los?', incX.length ? `${incX.length} Einsätze` : '')}
+      ${!incX.length ? empty : `<div class="sx-wd">${wd.map((v, i) => `<div class="sx-wd-col${i === best ? ' is-best' : ''}"><span class="sx-wd-n">${v || ''}</span><span class="sx-wd-bar" style="height:${v ? Math.max(6, Math.round((v / wmax) * 100)) : 0}%"></span><span class="sx-wd-l">${days[i]}</span></div>`).join('')}</div>
+      <p class="sx-note">Am meisten los: <strong>${WEEKDAY_LONG[(best + 1) % 7]}</strong>${peak ? ` · Spitze ${days[peak.d]} ${String(peak.h * 3).padStart(2, '0')}–${String(peak.h * 3 + 3).padStart(2, '0')} Uhr` : ''}</p>
+      ${n >= 5 ? `<div class="sx-tgrid"><span></span>${['0', '3', '6', '9', '12', '15', '18', '21'].map((h) => `<span class="sx-tgrid-h">${h}</span>`).join('')}
+        ${grid.map((row, d) => `<span class="sx-tgrid-d">${days[d]}</span>${row.map((v) => `<span class="sx-tgrid-c" style="--a:${v ? 0.18 + 0.82 * (v / gmax) : 0}" title="${v} Einsätze">${v || ''}</span>`).join('')}`).join('')}</div>
+        <p class="sx-note sx-small">nach Uhrzeit der Erfassung, ${n} Einsätze</p>` : ''}`}
+    </section>`;
+  }
+
+  // Übersicht oben
+  const nights = nonSegSvcs.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length;
+  const longestH = nonSegSvcs.reduce((m, x) => Math.max(m, +serviceDurationHours(x)), 0);
+  const favCount = allInc.filter((i) => i.favorite).length;
+  const lightPct = totalInc ? Math.round((lightsCount / totalInc) * 100) : 0;
+  const hero = `<section class="sx-hero">
+    <div class="sx-hero-main">
+      <div class="sx-hero-big">${totalInc}</div><div class="sx-hero-lbl">Einsätze</div>
+      <div class="sx-hero-sub">in <strong>${totalSvcs}</strong> Diensten · <strong>${Math.round(totalHours)}</strong> Stunden</div>
+    </div>
+    <div class="sx-hero-ring">${ring(lightPct, '#64d2ff')}<div><strong>${totalInc ? lightPct + '%' : '–'}</strong><small>Blaulicht</small></div></div>
+    <div class="sx-hero-chips">
+      <span>Ø <strong>${String(avgInc).replace('.', ',')}</strong> pro Dienst</span>
+      <span>🌙 <strong>${nights}</strong> Nachtdienste</span>
+      ${longestH ? `<span>⏱ längster <strong>${fmt1(longestH)} h</strong></span>` : ''}
+      ${favCount ? `<span>★ <strong>${favCount}</strong> Favoriten</span>` : ''}
+      ${segInc ? `<span>⚡ <strong>${segInc}</strong> SEG</span>` : ''}
+    </div>
+  </section>`;
+
+  const vehLead = (name) => { const src = vehicleIconSrc(name); return src ? `<img class="sx-veh" src="${escHtml(src)}" alt="">` : ''; };
+  const avLead = (name) => `<span class="sx-av" style="--h:${avatarHue(name)}">${escHtml(initials(name))}</span>`;
 
   const activeFilterCount = (statsFromDate ? 1 : 0) + (statsToDate ? 1 : 0) +
     statsVehicles.length + statsLocations.length + statsColleagues.length +
@@ -2220,24 +2294,19 @@ function renderStats() {
       </button>
       ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
     </div>
-    <div class="stats-facts">
-      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze${segInc ? `<span class="fact-tile-sub">davon ${segInc} SEG</span>` : ''}</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${totalSvcs}</div><div class="fact-tile-label">Dienste</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${Math.round(totalHours)}</div><div class="fact-tile-label">Stunden</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${String(avgInc).replace('.', ',')}</div><div class="fact-tile-label">Ø pro Dienst</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
-      <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
-    </div>
-    <div class="stats-grid">
-      ${statsCard('Top Einsätze', allAlarm, true)}
-      ${statsCard('Top Kolleg:innen', allColleagues, true)}
-      ${statsCard('Top Fahrzeug', allVehicle, true)}
-      ${statsCard('Top Dienststelle', allLocation, true)}
-      <div class="stats-group-title">Kennzahlen &amp; Patient</div>
-      ${statsCard('Einsatzart', allEinsatzart, true, `${eaFilled}/${totalInc} Einsätze`)}
-      ${statsCard('Statistikkennzahl', allStatKz, true, `${kzFilled}/${totalInc} Einsätze`)}
-      ${statsCard('Top PZC', allPzc, false, `${pzcFilled}/${totalInc} Einsätze`, ageInfo)}
-      ${nacaSection()}
+    ${hero}
+    <div class="sx-grid">
+      ${podiumCard({ key: 'Top Einsätze', title: 'Top-Stichwörter', icon: '🚨', color: '#ff453a', items: allAlarm })}
+      ${podiumCard({ key: 'Top Fahrzeug', title: 'Fahrzeuge', icon: '🚑', color: '#0a84ff', items: allVehicle.filter(([k]) => k !== '-'), lead: vehLead })}
+      ${podiumCard({ key: 'Top Kolleg:innen', title: 'Crew', icon: '🤝', color: '#30d158', items: allColleagues, lead: avLead })}
+      ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
+      ${timeCard()}
+      <div class="stats-group-title sx-group">Kennzahlen &amp; Patient</div>
+      ${shareCard({ key: 'Einsatzart', title: 'Einsatzart', icon: '🧭', color: '#0a84ff', items: allEinsatzart, meta: `${eaFilled}/${totalInc} Einsätze` })}
+      ${shareCard({ key: 'Statistikkennzahl', title: 'Statistikkennzahl', icon: '📊', color: '#30d158', items: allStatKz, meta: `${kzFilled}/${totalInc} Einsätze` })}
+      ${nacaCard()}
+      ${ageCard()}
+      ${podiumCard({ key: 'Top PZC', title: 'PZC', icon: '🏥', color: '#bf5af2', items: allPzc, meta: `${pzcFilled}/${totalInc} Einsätze` })}
     </div>
     <div id="heatmap-section">
       <div id="heatmap-header">
@@ -3169,7 +3238,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 61;
+const APP_VERSION = 62;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
