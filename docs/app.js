@@ -278,6 +278,7 @@ let saveErrorShownAt = 0;
 function saveState() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    checkNewBadges();
     return true;
   } catch (err) {
     console.error('Speichern fehlgeschlagen:', err);
@@ -531,6 +532,24 @@ function dpLinkAttrs(url) {
   return `href="${escHtml(url)}" target="_blank" rel="noopener noreferrer"`;
 }
 
+/** Text sicher ausgeben und darin enthaltene Links anklickbar machen (Öffnen wie beim Tagesdienstplan: Safari oder App). */
+function linkifyHtml(text) {
+  const src = String(text || '');
+  const re = /\b((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+  let out = '', last = 0, m;
+  while ((m = re.exec(src))) {
+    let url = m[1].replace(/[),.;:!?]+$/, '');
+    out += escHtml(src.slice(last, m.index));
+    const href = /^www\./i.test(url) ? 'https://' + url : url;
+    let label = url;
+    try { const u = new URL(href); label = u.hostname.replace(/^www\./, '') + (u.pathname.length > 1 ? (u.pathname.length > 22 ? u.pathname.slice(0, 20) + '…' : u.pathname) : ''); } catch (_) {}
+    out += `<a class="note-link" ${dpLinkAttrs(href)}>🔗 ${escHtml(label)}</a>`;
+    last = m.index + url.length;
+    re.lastIndex = last;
+  }
+  return out + escHtml(src.slice(last));
+}
+
 const ICON_CAL = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M14 14.5h3.5v3.5" /></svg>';
 
 function formatDateDisplay(str) {
@@ -674,6 +693,14 @@ function rankByFrequency(arr) {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([v]) => v);
 }
 
+/** Liste stabil nach Häufigkeit sortieren: was am öftesten eingetragen wurde, steht oben. */
+function byUsage(list, usedValues, keyOf = (x) => x) {
+  const n = new Map();
+  usedValues.forEach((v) => { if (v !== null && v !== undefined && v !== '') { const k = String(v).toLowerCase(); n.set(k, (n.get(k) || 0) + 1); } });
+  return list.map((x, i) => ({ x, i, c: n.get(String(keyOf(x)).toLowerCase()) || 0 })).sort((a, b) => b.c - a.c || a.i - b.i).map((o) => o.x);
+}
+function allIncidentsFlat() { return state.services.flatMap((sv) => sv.incidents || []); }
+
 // Idempotent: listeners are attached only once; items list is updated in place.
 function mountSuggestions(inputEl, dropdownEl, items, max, showOnFocus) {
   max = max || 8;
@@ -711,7 +738,8 @@ function mountSuggestions(inputEl, dropdownEl, items, max, showOnFocus) {
       else dropdownEl.classList.remove('open');
       return;
     }
-    render(inputEl._smItems.filter((it) => it.toLowerCase().includes(q)));
+    const hits = inputEl._smItems.filter((it) => it.toLowerCase().includes(q));
+    render([...hits.filter((it) => it.toLowerCase().startsWith(q)), ...hits.filter((it) => !it.toLowerCase().startsWith(q))]);
   });
 
   inputEl.addEventListener('focus', () => {
@@ -977,8 +1005,8 @@ function renderServiceDetailContent() {
     <div class="dv-group">
       ${svc.abteilung ? row('Abteilung', escHtml(svc.abteilung)) : ''}
       ${row('Dienststelle', escHtml(svc.location || '—'))}
-      ${row('Besatzung', crew.length ? crew.map(escHtml).join('<br>') : '<span class="dv-muted">—</span>', 'is-multi')}
-      ${svc.note ? row('Notiz', escHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
+      ${row('Besatzung', crew.length ? crew.map((c) => `<button type="button" class="crew-link" data-colleague="${escHtml(c)}">${escHtml(c)}</button>`).join('<br>') : '<span class="dv-muted">—</span>', 'is-multi')}
+      ${svc.note ? row('Notiz', linkifyHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
     </div>
     ${links ? `<div class="dv-group">${links}</div>` : ''}
     <div class="incidents-header">
@@ -1147,7 +1175,7 @@ function renderIncidentView() {
       p.prio && row('Priorität', escHtml(PRIO_TEXT[p.prio] || p.prio)),
       row('NACA', naca),
     ])
-    + (inc.note ? group('Notiz', [`<div class="iv-note">${escHtml(inc.note)}</div>`]) : '')
+    + (inc.note ? group('Notiz', [`<div class="iv-note">${linkifyHtml(inc.note)}</div>`]) : '')
     + (svc.isSeg
       ? group('SEG', [
         row('Zeitraum', escHtml(svcWhen || '—')),
@@ -1567,8 +1595,8 @@ function openServiceDialog(serviceId, prefill = null) {
 
   // Vorschläge nach Häufigkeit
   const abteilungen = [...new Set([
-    ...(state.abteilungen || []).map((a) => a.name).filter(Boolean),
     ...rankByFrequency(state.services.map((s) => s.abteilung).filter(Boolean)),
+    ...(state.abteilungen || []).map((a) => a.name).filter(Boolean),
   ])];
   const regular = state.services.filter((s) => !s.isSeg);
   mountSuggestions(document.getElementById('svc-abteilung'), document.getElementById('svc-abteilung-suggestions'), abteilungen, 8, true);
@@ -1689,7 +1717,9 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
 
   const kwInput = document.getElementById('inc-keyword');
   kwInput._smDecorate = blaulichtDotHtml;
-  mountSuggestions(kwInput, document.getElementById('inc-keyword-suggestions'), state.alarmCodes, 10);
+  // meistverwendete Stichwörter zuerst; beim Antippen gleich die Top 10 zeigen
+  const usedKw = allIncidentsFlat().map((i) => i.alarmCode);
+  mountSuggestions(kwInput, document.getElementById('inc-keyword-suggestions'), byUsage(state.alarmCodes || [], usedKw), 10, usedKw.length > 0);
   document.getElementById('inc-keyword').onchange = () => {
     const val = document.getElementById('inc-keyword').value.trim();
     const bl = keywordBlaulicht(val);
@@ -1730,7 +1760,8 @@ function setupKennzahlField(key, map, codes, value) {
     const unambiguous = !codes.some(([c]) => c !== code && c.startsWith(code));
     if (map.has(code) && (explicit || code.length === 2 || unambiguous)) focusNextCodeField(idEl);
   };
-  mountSuggestions(searchEl, dropEl, codes.map(([c, l]) => `${c} – ${l}`), 60, true);
+  const field = key === 'statkz' ? 'statKz' : key;
+  mountSuggestions(searchEl, dropEl, byUsage(codes, allIncidentsFlat().map((i) => i[field]), ([c]) => c).map(([c, l]) => `${c} – ${l}`), 60, true);
   const pick = (code) => { idEl.value = code; searchEl.blur(); dropEl.classList.remove('open'); showResolved(); };
   // Beim Antippen leeren, damit sofort gesucht werden kann; Liste zeigt alles
   searchEl.onfocus = () => { if (searchEl.classList.contains('is-resolved')) searchEl.value = ''; };
@@ -1769,7 +1800,7 @@ function setupPzcField() {
   diag.oninput = () => { if (digitsOnly(diag, 3).length === 3) focusField(age); show(); };
   age.oninput = () => { if (digitsOnly(age, 2).length === 2) focusField(prio); show(); };
   prio.oninput = () => { if (digitsOnly(prio, 1, /[1-3]/).length === 1) focusNextCodeField(prio); show(); };
-  const items = (state.pzcCodes || []).map((p) => `${p.code} - ${p.diagnosis}`);
+  const items = byUsage(state.pzcCodes || [], allIncidentsFlat().map((i) => i.pzc && i.pzc.diag), (p) => p.code).map((p) => `${p.code} - ${p.diagnosis}`);
   mountSuggestions(search, drop, items, 40, items.length > 0);
   search.onfocus = () => { if (search.classList.contains('is-resolved')) search.value = ''; };
   search.onblur = () => setTimeout(show, 160);
@@ -1985,6 +2016,23 @@ function activateAddVehicleInput() {
 
   addBtn.replaceWith(input);
   input.focus();
+  // Schnellauswahl: meistgenutzte weitere Einsatzmittel
+  const top = rankByFrequency(allIncidentsFlat().flatMap((i) => i.extraVehicles || []))
+    .filter((v) => !incExtraVehicles.some((x) => x.toLowerCase() === v.toLowerCase())).slice(0, 8);
+  let quick = null;
+  if (top.length) {
+    quick = document.createElement('div');
+    quick.className = 'ev-quick';
+    quick.innerHTML = top.map((v) => { const ic = vehicleIconSrc(v); return `<button type="button" class="ev-quick-b" data-ev="${escHtml(v)}">${ic ? `<img src="${escHtml(ic)}" alt="">` : ''}${escHtml(v)}</button>`; }).join('');
+    quick.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('[data-ev]');
+      if (!b) return;
+      e.preventDefault();
+      input.value = b.dataset.ev;
+      input.blur();
+    });
+    input.after(quick);
+  }
 
   const commit = () => {
     const raw = input.value.trim();
@@ -2011,6 +2059,7 @@ function activateAddVehicleInput() {
     newBtn.textContent = '＋';
     newBtn.addEventListener('click', activateAddVehicleInput);
     input.replaceWith(newBtn);
+    if (quick) quick.remove();
     renderIncExtraVehicles();
   };
 
@@ -2059,7 +2108,7 @@ function showListPopup(title, items, meta = {}) {
   const total = items.reduce((n, [, c]) => n + c, 0);
   const max = items.length ? items[0][1] : 1;
   const medal = ['🥇', '🥈', '🥉'];
-  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}">
+  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}>
       <span class="lp-n">${i < 3 ? medal[i] : i + 1}</span>
       ${meta.lead ? meta.lead(label) : ''}
       <span class="lp-main"><span class="lp-l">${escHtml(String(label))}</span>
@@ -2255,6 +2304,7 @@ function renderStats() {
       ${statsCard('Top PZC', allPzc, false, `${pzcFilled}/${totalInc} Einsätze`, ageInfo)}
       ${nacaSection()}
     </div>
+    ${badgesSectionHtml()}
     <div id="heatmap-section">
       <div id="heatmap-header">
         <span class="section-title">Aktivität</span>
@@ -2290,19 +2340,20 @@ function renderStats() {
   const empty = '<p class="sx-empty">Noch keine Daten</p>';
 
   // Ranking mit Siegerpodest für Platz 1–3 und Balken für Platz 4–6
-  function podiumCard({ key, title, icon, color, items, meta, lead }) {
+  function podiumCard({ key, title, icon, color, items, meta, lead, attr }) {
+    const at = (l) => (attr ? attr(l) : '');
     const top = items.slice(0, 3), rest = items.slice(3, 6);
     const max = items.length ? items[0][1] : 1;
     const ld = (label) => (lead ? lead(label) : '');
     const order = top.length === 3 ? [1, 0, 2] : top.map((_, i) => i);
     return `<section class="sx-card" style="--mc:${color}">${head(icon, title, meta, key, items.length)}
       ${!items.length ? empty : `<div class="sx-podium${top.length < 3 ? ' is-short' : ''}">${order.map((i) => { const [l, n] = top[i]; return `
-        <div class="sx-pod sx-pod-${i + 1}" title="${escHtml(String(l))}">
+        <div class="sx-pod sx-pod-${i + 1}" title="${escHtml(String(l))}" ${at(l)}>
           ${ld(l) || `<span class="sx-medal">${['🥇', '🥈', '🥉'][i]}</span>`}
           <span class="sx-pod-l">${escHtml(String(l))}</span>
           <span class="sx-pod-bar"><b>${n}×</b><i>${i + 1}</i></span>
         </div>`; }).join('')}</div>
-      ${rest.length ? `<ol class="sx-rest" start="4">${rest.map(([l, n], i) => `<li><span class="sx-rest-n">${i + 4}</span>${ld(l)}<span class="sx-rest-l">${escHtml(String(l))}</span>
+      ${rest.length ? `<ol class="sx-rest" start="4">${rest.map(([l, n], i) => `<li ${at(l)}><span class="sx-rest-n">${i + 4}</span>${ld(l)}<span class="sx-rest-l">${escHtml(String(l))}</span>
         <span class="sx-rest-bar"><span style="width:${Math.max(6, Math.round((n / max) * 100))}%"></span></span><span class="sx-rest-c">${n}</span></li>`).join('')}</ol>` : ''}`}
     </section>`;
   }
@@ -2409,8 +2460,9 @@ function renderStats() {
     <div class="sx-grid">
       ${podiumCard({ key: 'Top Einsätze', title: 'Top-Stichwörter', icon: '🚨', color: '#ff453a', items: allAlarm })}
       ${podiumCard({ key: 'Top Fahrzeug', title: 'Fahrzeuge', icon: '🚑', color: '#0a84ff', items: allVehicle.filter(([k]) => k !== '-'), lead: vehLead })}
-      ${podiumCard({ key: 'Top Kolleg:innen', title: 'Crew', icon: '🤝', color: '#30d158', items: allColleagues, lead: avLead })}
+      ${podiumCard({ key: 'Top Kolleg:innen', title: 'Crew', icon: '🤝', color: '#30d158', items: allColleagues, lead: avLead, attr: (l) => `data-colleague="${escHtml(String(l))}"` })}
       ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
+      ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead }) : ''; })()}
       ${timeCard()}
       <div class="stats-group-title sx-group">Kennzahlen &amp; Patient</div>
       ${shareCard({ key: 'Einsatzart', title: 'Einsatzart', icon: '🧭', color: '#0a84ff', items: allEinsatzart, meta: `${eaFilled}/${totalInc} Einsätze` })}
@@ -2419,6 +2471,7 @@ function renderStats() {
       ${ageCard()}
       ${podiumCard({ key: 'Top PZC', title: 'PZC', icon: '🏥', color: '#bf5af2', items: allPzc, meta: `${pzcFilled}/${totalInc} Einsätze` })}
     </div>
+    ${badgesSectionHtml()}
     <div id="heatmap-section">
       <div id="heatmap-header">
         <span class="section-title">Aktivität</span>
@@ -2450,6 +2503,7 @@ function renderStats() {
     'Top Kolleg:innen': allColleagues,
     'Top Fahrzeug': allVehicle,
     'Top Dienststelle': allLocation,
+    'Companions': countTop(allInc.flatMap((i) => i.extraVehicles || []), 999),
   };
   const popupVeh = (name) => { const src = vehicleIconSrc(name); return src ? `<img class="lp-veh" src="${escHtml(src)}" alt="">` : ''; };
   const popupAv = (name) => `<span class="sx-av lp-av" style="--h:${[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)}">${escHtml(String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase())}</span>`;
@@ -2458,9 +2512,10 @@ function renderStats() {
     'Top PZC': { icon: '🏥', color: '#bf5af2', unit: 'Einsätze' },
     'Einsatzart': { icon: '🧭', color: '#0a84ff', unit: 'Einsätze' },
     'Statistikkennzahl': { icon: '📊', color: '#30d158', unit: 'Einsätze' },
-    'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv },
+    'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv, colleague: true },
     'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh },
     'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste' },
+    'Companions': { icon: '🚨', color: '#64d2ff', unit: 'Einsätze', lead: popupVeh },
   };
   container.querySelectorAll('.btn-show-all').forEach((btn) => {
     btn.addEventListener('click', () => showListPopup(btn.dataset.title, popupData[btn.dataset.title] || [], popupMeta[btn.dataset.title]));
@@ -3016,7 +3071,7 @@ function homeActiveCardHtml(svc, now) {
         const done = Math.max(0, Math.min(tot, (now - start) / 3600000));
         return `<div class="hm-progress-meta"><span class="hm-progress-pct">${Math.floor(pct)} %</span><span>${h1(done)} h von ${h1(tot)} h</span><span>noch ${h1(tot - done)} h</span></div>`;
       })() : ''}
-      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}
+      ${crew.length ? `<div class="hm-crew">👥 ${crew.map((c) => `<span class="crew-link" role="button" data-colleague="${escHtml(c)}">${escHtml(c)}</span>`).join(' · ')}</div>` : ''}
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
@@ -3372,7 +3427,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 67;
+const APP_VERSION = 69;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3554,7 +3609,27 @@ function settingsPageDarstellung(el, title) {
         <span class="set-check">${SET_ICONS.check}</span>
       </button>`).join('')}
     </div>
-    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>`;
+    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>
+    <div class="set-group-header">Beim Öffnen</div>
+    <div class="set-group" role="radiogroup" aria-label="Beim Öffnen">
+      ${[['', 'Startseite', ''], ['neu-einsatz', 'Neuer Einsatz', 'Läuft gerade ein Dienst, öffnet sich sofort „Neuer Einsatz“ – sonst die Startseite'], ['tagebuch', 'Tagebuch', ''], ['dienstplan', 'Dienstplan', ''], ['statistik', 'Statistik', '']].map(([v, l, sub]) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${(lsGet('etb_launch_action') || '') === v}" data-launch-choice="${v}">
+        <span class="set-row-text"><span class="set-row-title">${l}</span>${sub ? `<span class="set-row-sub">${sub}</span>` : ''}</span><span class="set-check">${SET_ICONS.check}</span></button>`).join('')}
+    </div>
+    <p class="set-group-footer">Gilt, wenn die App frisch gestartet wird oder länger als 10 Minuten im Hintergrund war.</p>
+    <div class="set-group-header">Kurzbefehle</div>
+    <div class="set-group">
+      ${SHORTCUTS.map((x) => `<div class="set-row sc-row"><span class="sc-ic">${x.icon}</span><span class="set-row-text"><span class="set-row-title">${x.label}</span><span class="set-row-sub sc-url">${escHtml(location.origin + location.pathname + x.hash)}</span></span>
+        <button type="button" class="btn-ghost sc-copy" data-sc="${x.hash}">Kopieren</button></div>`).join('')}
+    </div>
+    <p class="set-group-footer">Diese Adressen öffnen die App direkt an der passenden Stelle – z. B. als Lesezeichen, auf Android/Desktop als App-Verknüpfung (lange auf das App-Symbol drücken). Hinweis iPhone: Kurzbefehle-App und Links öffnen solche Adressen in Safari statt in der installierten App – dort nutzt du am besten „Beim Öffnen → Neuer Einsatz“.</p>`;
+  el.querySelectorAll('[data-launch-choice]').forEach((btn) => btn.addEventListener('click', () => {
+    lsSet('etb_launch_action', btn.dataset.launchChoice || null);
+    el.querySelectorAll('[data-launch-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
+  }));
+  el.querySelectorAll('.sc-copy').forEach((btn) => btn.addEventListener('click', async () => {
+    const url = location.origin + location.pathname + btn.dataset.sc;
+    try { await navigator.clipboard.writeText(url); toast('Adresse kopiert.', 'success', 1500); } catch (_) { prompt('Adresse kopieren:', url); }
+  }));
   el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
       lsSet('etb_stats_style', btn.dataset.statsChoice);
@@ -5085,6 +5160,199 @@ function pzcQuip(t, n) {
   return q ? q[1] : `Dein PZC-Liebling – ${n}× gewählt.`;
 }
 
+// ── Kolleg:innen-Profil ─────────────────────────────────────────────────────
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+function colleagueInitials(name) { return String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?'; }
+function colleagueHue(name) { return [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); }
+
+function openColleagueProfile(name) {
+  const box = document.getElementById('colleague-body');
+  if (!box) return;
+  const shared = state.services.filter((x) => (x.colleagues || []).some((c) => sameName(c, name)))
+    .sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
+  const duty = shared.filter((x) => !x.isSeg);
+  const incs = shared.flatMap((x) => x.incidents || []);
+  const hours = duty.reduce((n, x) => n + +serviceDurationHours(x), 0);
+  const lights = incs.filter((i) => i.lights).length;
+  const nights = duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length;
+  const veh = countTop(duty.map((x) => x.vehicle), 1)[0];
+  const kws = countTop(incs.map((i) => i.alarmCode), 3);
+  const allDuty = state.services.filter((x) => !x.isSeg);
+  const avgAll = allDuty.length ? allDuty.reduce((n, x) => n + (x.incidents || []).length, 0) / allDuty.length : 0;
+  const avgWith = duty.length ? duty.reduce((n, x) => n + (x.incidents || []).length, 0) / duty.length : 0;
+  const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
+  const others = countTop(shared.flatMap((x) => (x.colleagues || []).filter((c) => !sameName(c, name))), 3);
+  const vic = veh ? vehicleIconSrc(veh[0]) : '';
+  const vibe = !duty.length ? '' : avgWith >= avgAll + 0.5 ? `🌪️ Mit ${escHtml(name.split(/\s|,/)[0])} wird’s wild – mehr los als sonst.` : avgWith <= avgAll - 0.5 ? '🍀 Glücksbringer:in – mit euch bleibt’s ruhiger.' : '⚖️ Ganz normales Pensum.';
+  document.getElementById('colleague-title').textContent = 'Kolleg:in';
+  box.innerHTML = `<div class="cp-head">
+      <span class="cp-av" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>
+      <div><h3>${escHtml(name)}</h3><span>${shared.length ? `seit ${escHtml(day(shared[shared.length - 1]))} gemeinsam` : 'noch kein gemeinsamer Dienst'}</span></div>
+    </div>
+    <div class="cp-tiles">
+      <div><strong>${duty.length}</strong><small>Dienste</small></div>
+      <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
+      <div><strong>${incs.length}</strong><small>Einsätze</small></div>
+      <div><strong>${incs.length ? Math.round((lights / incs.length) * 100) + '%' : '–'}</strong><small>Blaulicht</small></div>
+    </div>
+    ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(avgWith)}</strong> Einsätze pro Dienst (dein Schnitt ${fmt1(avgAll)}) · 🌙 ${nights} Nachtdienste</p><p class="cp-line">${vibe}</p>` : ''}
+    ${veh ? `<div class="cp-veh">${vic ? `<img src="${escHtml(vic)}" alt="">` : '🚑'}<span>Meist zusammen auf <strong>${escHtml(veh[0])}</strong> · ${veh[1]}×</span></div>` : ''}
+    ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${kws.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${others.length ? `<div class="cp-sub">Oft auch dabei</div><div class="cp-chips">${others.map(([k, n]) => `<span class="crew-link" role="button" data-colleague="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    <div class="cp-sub">Gemeinsame Dienste</div>
+    <div class="cp-list">${shared.slice(0, 40).map((x) => `<button type="button" class="cp-svc" data-cp-svc="${escHtml(x.id)}">
+      <span class="cp-svc-d">${shiftCodeHtml(x.startAt, 'is-small')}<span>${escHtml(day(x))}</span></span>
+      <span class="cp-svc-t">${escHtml(x.isSeg ? ((x.incidents || [])[0] || {}).alarmCode || 'SEG' : x.vehicle || 'Dienst')}</span>
+      <span class="cp-svc-n">${(x.incidents || []).length}</span></button>`).join('')}
+      ${shared.length > 40 ? `<p class="cp-line">… und ${shared.length - 40} weitere</p>` : ''}</div>`;
+  box.querySelectorAll('[data-cp-svc]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.cpSvc;
+    closeDialog('dialog-colleague');
+    document.querySelectorAll('.lp-ov').forEach((x) => x.remove());
+    if (story) closeStory();
+    const sv = state.services.find((x) => x.id === id);
+    setTimeout(() => { if (sv && sv.isSeg) openIncidentView(id, (sv.incidents[0] || {}).id); else openServiceDetail(id); }, 260);
+  }));
+  box.scrollTop = 0;
+  openDialog('dialog-colleague');
+}
+// Namen überall anklickbar (vor anderen Klick-Handlern)
+document.addEventListener('click', (e) => {
+  const c = e.target.closest && e.target.closest('[data-colleague]');
+  if (!c) return;
+  e.stopPropagation(); e.preventDefault();
+  openColleagueProfile(c.dataset.colleague);
+}, true);
+
+// ── Abzeichen ────────────────────────────────────────────────────────────────
+/** Alle Abzeichen mit Fortschritt und dem Datum, an dem sie erreicht wurden. */
+function computeBadges() {
+  const svcs = state.services.slice().sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  const duty = svcs.filter((x) => !x.isSeg);
+  const incs = svcs.flatMap((x) => (x.incidents || []).map((inc) => ({ inc, svc: x })));
+  const dOf = (x) => (x ? (x.svc || x).startAt || '' : '');
+  const has = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+  const nth = (arr, n) => (arr.length >= n ? dOf(arr[n - 1]) : '');
+  const count = (id, icon, title, desc, arr, goal, tier) => ({ id, icon, title, desc, cur: Math.min(arr.length, goal), goal, date: nth(arr, goal), tier });
+  const once = (id, icon, title, desc, item, tier) => ({ id, icon, title, desc, cur: item ? 1 : 0, goal: 1, date: item ? dOf(item) : '', tier });
+  const nights = duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; });
+  const lightsArr = incs.filter((x) => x.inc.lights);
+  const weekend = duty.filter((x) => { const d = parseLocalDt(x.startAt); return d && (d.getDay() === 0 || d.getDay() === 6); });
+  const notes = incs.filter((x) => has(x.inc.note));
+  const favs = incs.filter((x) => x.inc.favorite);
+  const segs = svcs.filter((x) => x.isSeg);
+  const fullDoc = incs.filter((x) => has(x.inc.naca) && has(x.inc.einsatzart) && has(x.inc.statKz) && has((x.inc.pzc || {}).diag));
+  // verschiedene Kolleg:innen / Fahrzeuge in zeitlicher Reihenfolge
+  const distinctAt = (getList, goal) => { const seen = new Set(); for (const x of duty) { getList(x).forEach((v) => v && seen.add(String(v).toLowerCase())); if (seen.size >= goal) return { n: seen.size, date: x.startAt }; } return { n: seen.size, date: '' }; };
+  const crew10 = distinctAt((x) => x.colleagues || [], 10);
+  const fleet5 = distinctAt((x) => [x.vehicle], 5);
+  let dream = { n: 0, date: '' };
+  { const m = new Map(); for (const x of duty) for (const c of x.colleagues || []) { const k = String(c).toLowerCase(); const v = (m.get(k) || 0) + 1; m.set(k, v); if (v > dream.n) dream = { n: v, date: v === 25 ? x.startAt : dream.date }; } }
+  let streak = { n: 0, date: '' };
+  for (let i = 0, run = 0; i < duty.length; i++) { run = i && duty[i].vehicle && duty[i].vehicle === duty[i - 1].vehicle ? run + 1 : 1; if (run > streak.n) streak = { n: run, date: run === 10 ? duty[i].startAt : streak.date }; }
+  const runs = computeRuns(duty);
+  const marathon = runs.find((r) => r.items.length >= 3);
+  const wild = duty.find((x) => (x.incidents || []).length >= 8);
+  const long = duty.find((x) => +serviceDurationHours(x) >= 24);
+  const cpr = incs.find((x) => String(x.inc.naca) === '6');
+  const stork = incs.find((x) => /geburt|entbindung/i.test(pzcDiagnosis((x.inc.pzc || {}).diag) || '') || /geburt/i.test(x.inc.alarmCode || ''));
+  // NACA-Sammler: Stufen 0–6 je einmal
+  const firstNaca = {}; incs.forEach((x) => { const n = String(x.inc.naca); if (/^[0-6]$/.test(n) && !firstNaca[n]) firstNaca[n] = dOf(x); });
+  const nacaSeen = Object.keys(firstNaca).length;
+  const first = svcs[0] ? parseLocalDt(svcs[0].startAt) : null;
+  const anniv = first && Date.now() - first >= 365 * 864e5;
+  const annivDate = first ? new Date(first.getTime() + 365 * 864e5).toISOString().slice(0, 16) : '';
+  return [
+    count('inc1', '🚑', 'Erster Einsatz', 'Der Anfang von allem', incs, 1, 1),
+    count('inc50', '🎯', '50 Einsätze', 'Langsam wird’s Routine', incs, 50, 1),
+    count('inc100', '💯', '100 Einsätze', 'Dreistellig!', incs, 100, 2),
+    count('inc250', '🏅', '250 Einsätze', 'Alter Hase', incs, 250, 2),
+    count('inc500', '🏆', '500 Einsätze', 'Legende auf Rädern', incs, 500, 3),
+    count('inc1000', '👑', '1000 Einsätze', 'Hall of Fame', incs, 1000, 3),
+    count('svc10', '📋', '10 Dienste', 'Gut eingegroovt', duty, 10, 1),
+    count('svc50', '🗓️', '50 Dienste', 'Fixer Bestandteil der Wache', duty, 50, 2),
+    count('svc100', '🎖️', '100 Dienste', 'Dienstplan-Dauergast', duty, 100, 3),
+    count('night10', '🌙', 'Nachteule', '10 Nachtdienste', nights, 10, 1),
+    count('night50', '🦉', 'Nachtschwärmer:in', '50 Nachtdienste', nights, 50, 3),
+    count('lights25', '🔵', 'Blaulicht-Fan', '25 Einsätze mit Sonderrechten', lightsArr, 25, 1),
+    count('lights100', '🚨', 'Tatütata', '100 Einsätze mit Sonderrechten', lightsArr, 100, 2),
+    count('weekend20', '🎉', 'Wochenend-Krieger:in', '20 Dienste am Wochenende', weekend, 20, 2),
+    count('notes25', '✍️', 'Chronist:in', '25 Einsätze mit Notiz', notes, 25, 1),
+    count('fav10', '⭐', 'Sammler:in', '10 Favoriten', favs, 10, 1),
+    count('doc50', '📑', 'Dokumentations-Profi', '50 Einsätze mit NACA, Einsatzart, Statistikkennzahl und PZC', fullDoc, 50, 3),
+    once('seg1', '⚡', 'Großveranstaltung', 'Erster SEG-Einsatz', segs[0], 1),
+    once('marathon', '🏃', 'Marathon', '3 Schichten am Stück (Dienstblock)', marathon ? { startAt: marathon.items[marathon.items.length - 1].startAt } : null, 2),
+    once('wild', '🌪️', 'Wilder Ritt', '8 Einsätze in einer Schicht', wild, 2),
+    once('long24', '⏱️', 'Durchgemacht', 'Eine Schicht mit 24 Stunden oder mehr', long, 2),
+    once('cpr', '❤️‍🩹', 'Herzensretter:in', 'Einsatz mit NACA 6', cpr, 3),
+    once('stork', '🍼', 'Storch-Express', 'Einsatz rund um eine Geburt', stork, 3),
+    { id: 'naca', icon: '🎨', title: 'NACA-Sammler:in', desc: 'Jede NACA-Stufe von 0 bis 6 mindestens einmal', cur: nacaSeen, goal: 7, date: nacaSeen >= 7 ? Object.values(firstNaca).sort().pop() : '', tier: 3 },
+    { id: 'crew10', icon: '🤝', title: 'Teamplayer', desc: 'Mit 10 verschiedenen Kolleg:innen im Dienst', cur: Math.min(crew10.n, 10), goal: 10, date: crew10.n >= 10 ? crew10.date : '', tier: 1 },
+    { id: 'dream25', icon: '💞', title: 'Dreamteam', desc: '25 Dienste mit derselben Person', cur: Math.min(dream.n, 25), goal: 25, date: dream.n >= 25 ? dream.date : '', tier: 2 },
+    { id: 'fleet5', icon: '🚐', title: 'Fuhrpark-Kenner:in', desc: '5 verschiedene Fahrzeuge gefahren', cur: Math.min(fleet5.n, 5), goal: 5, date: fleet5.n >= 5 ? fleet5.date : '', tier: 1 },
+    { id: 'loyal10', icon: '💍', title: 'Treue Seele', desc: '10 Schichten in Folge auf demselben Fahrzeug', cur: Math.min(streak.n, 10), goal: 10, date: streak.n >= 10 ? streak.date : '', tier: 2 },
+    { id: 'anniv', icon: '🎂', title: 'Ein Jahr Tagebuch', desc: 'Seit einem Jahr dabei', cur: anniv ? 1 : 0, goal: 1, date: anniv ? annivDate : '', tier: 2 },
+  ].map((b) => ({ ...b, done: b.cur >= b.goal }));
+}
+
+function badgeTileHtml(b, i = 0) {
+  const d = b.done && b.date ? parseLocalDt(b.date.length > 10 ? b.date.slice(0, 16) : b.date + 'T00:00') : null;
+  return `<button type="button" class="bd${b.done ? ' is-done' : ''} bd-t${b.tier}" style="--i:${i}" data-badge="${b.id}">
+    <span class="bd-ic">${b.done ? b.icon : '🔒'}</span>
+    <span class="bd-t">${escHtml(b.title)}</span>
+    ${b.done ? `<span class="bd-d">${d ? escHtml(d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit' })) : ''}</span>` : `<span class="bd-p"><span style="width:${Math.round((b.cur / b.goal) * 100)}%"></span></span><span class="bd-d">${b.cur}/${b.goal}</span>`}
+  </button>`;
+}
+
+function badgesSectionHtml() {
+  const all = computeBadges();
+  const done = all.filter((b) => b.done).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const next = all.filter((b) => !b.done).sort((a, b) => b.cur / b.goal - a.cur / a.goal).slice(0, Math.max(0, 6 - Math.min(done.length, 3)));
+  const shown = [...done.slice(0, 3), ...next].slice(0, 6);
+  return `<section class="bd-card">
+    <div class="bd-head"><span class="bd-head-ic">🏅</span><h4>Abzeichen</h4><span class="bd-count">${done.length}/${all.length}</span><button type="button" class="bd-all" data-badges-all>Alle ›</button></div>
+    <div class="bd-bar"><span style="width:${Math.round((done.length / all.length) * 100)}%"></span></div>
+    <div class="bd-grid">${shown.map(badgeTileHtml).join('')}</div>
+  </section>`;
+}
+
+function openBadgesDialog(focusId) {
+  const box = document.getElementById('badges-body');
+  if (!box) return;
+  const all = computeBadges();
+  const done = all.filter((b) => b.done).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const open = all.filter((b) => !b.done).sort((a, b) => b.cur / b.goal - a.cur / a.goal);
+  const sec = (t, list) => list.length ? `<div class="cp-sub">${t}</div><div class="bd-list">${list.map((b, i) => `<div class="bd-row${b.done ? ' is-done' : ''}${b.id === focusId ? ' is-focus' : ''}" style="--i:${i}">${badgeTileHtml(b, i)}<div class="bd-row-t"><strong>${escHtml(b.title)}</strong><span>${escHtml(b.desc)}</span></div></div>`).join('')}</div>` : '';
+  document.getElementById('badges-title').textContent = `Abzeichen · ${done.length}/${all.length}`;
+  box.innerHTML = sec('Erreicht', done) + sec('Noch offen', open);
+  openDialog('dialog-badges');
+  const f = box.querySelector('.is-focus'); if (f) setTimeout(() => f.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+}
+document.addEventListener('click', (e) => {
+  const all = e.target.closest && e.target.closest('[data-badges-all]');
+  const one = !all && e.target.closest && e.target.closest('.bd-card [data-badge]');
+  if (all || one) openBadgesDialog(one ? one.dataset.badge : null);
+});
+
+/** Neu erreichte Abzeichen melden (beim ersten Mal nur still merken). */
+let badgeCheckTimer = 0;
+function checkNewBadges() {
+  clearTimeout(badgeCheckTimer);
+  badgeCheckTimer = setTimeout(() => {
+    let known = null;
+    try { known = JSON.parse(lsGet('etb_badges_seen') || 'null'); } catch (_) {}
+    const done = computeBadges().filter((b) => b.done);
+    const ids = done.map((b) => b.id);
+    if (known) {
+      const fresh = done.filter((b) => !known.includes(b.id));
+      if (fresh.length === 1) toast(`🏅 Neues Abzeichen: ${fresh[0].icon} ${fresh[0].title}`, 'success', 4000);
+      else if (fresh.length > 1) toast(`🏅 ${fresh.length} neue Abzeichen: ${fresh.map((b) => b.icon).join(' ')}`, 'success', 4000);
+    }
+    lsSet('etb_badges_seen', JSON.stringify(ids));
+  }, 700);
+}
+
 /** Wie „ergiebig“ ist ein Einsatz? Kennzahlen zählen, eine Notiz und Favorit deutlich mehr. */
 /** Lange Notizen für Story-Anzeigen an einer Wortgrenze kürzen. */
 function shortNote(text, max = 140) {
@@ -5171,6 +5439,21 @@ function buildStorySlides(r) {
       <div class="st-list">${incs.map((inc, i) => `<button type="button" class="st-list-row" style="--i:${i}" data-st-inc="${escHtml(inc.id)}" data-st-svc="${escHtml(r.busiest.id)}">
         <span class="st-dot${inc.lights ? ' on' : ''}"></span><span class="st-list-t">${escHtml(inc.alarmCode || 'Einsatz')}</span><span class="st-list-c">›</span></button>`).join('')}
         ${r.busiest.incidents.length > incs.length ? `<div class="st-list-more">… und ${r.busiest.incidents.length - incs.length} weitere</div>` : ''}</div>` });
+  }
+
+  // Liebste Companions: weitere Einsatzmittel bei deinen Einsätzen
+  {
+    const comp = countTop(r.incs.flatMap((x) => x.inc.extraVehicles || []), 3);
+    const withComp = r.incs.filter((x) => (x.inc.extraVehicles || []).length).length;
+    if (comp.length) {
+      const [c1, n1] = comp[0];
+      const t = c1.toLowerCase();
+      const quip = /nef|nah|nea/.test(t) ? 'Notarzt an Bord – die schweren Fälle. 🩺' : /rth|heli|christophorus|c\s?\d/.test(t) ? 'Rotor-Romantik. 🚁' : /fw|feuer|hlf|tlf|rlf/.test(t) ? 'Feuerwehr-Freundschaft. 🚒' : /pol|streife/.test(t) ? 'Mit Blaulicht-Kolleg:innen in Grün-Weiß. 👮' : /rtw|ktw|ntw/.test(t) ? 'Doppelt hält besser. 🚑🚑' : 'Ein eingespieltes Duo. 🤝';
+      pool.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Liebste Companions</div>
+        ${rank(comp.map(([k, n]) => { const ic = vehicleIconSrc(k, true); return [k, n, ic ? `<img class="st-rank-veh" src="${escHtml(ic)}" alt="">` : '<span class="st-rank-veh st-rank-e">🚨</span>']; }))}
+        <p class="st-text"><strong>${withComp}</strong> ${withComp === 1 ? 'Einsatz' : 'Einsätze'} mit weiteren Einsatzmitteln – am öftesten mit <strong>${escHtml(c1)}</strong> (${n1}×).</p>
+        <p class="st-text">${quip}</p>` });
+    }
   }
 
   // Fahrzeuge: Top 3 (bzw. Lieblingsfahrzeug)
@@ -5527,6 +5810,15 @@ function buildStorySlides(r) {
       <p class="st-text st-q-hint">Tippe auf deine Antwort – die Story wartet.</p>
       <p class="st-text st-q-answer" hidden>${qz.answer}</p>` });
   });
+
+  // Abzeichen, die in diesem Zeitraum erreicht wurden
+  {
+    const inP = (d) => d && (!p.from || d.slice(0, 10) >= p.from) && (!p.to || d.slice(0, 10) <= p.to);
+    const got = computeBadges().filter((b) => b.done && inP(b.date));
+    if (got.length) pool.push({ bg: 'st-bg-8', fx: 'confetti', html: `<div class="st-kicker">Neue Abzeichen</div><div class="st-emoji">🏅</div>
+      ${big(got.length)}<p class="st-lead">${got.length === 1 ? 'Abzeichen' : 'Abzeichen'} ${zr} freigeschaltet</p>
+      <div class="st-badges">${got.slice(0, 9).map((b, i) => `<div class="st-badge" style="--i:${i}"><span>${b.icon}</span><small>${escHtml(b.title)}</small></div>`).join('')}</div>` });
+  }
 
   // ── Mini-Spiele ────────────────────────────────────────────────────────
   const games = [];
@@ -6014,7 +6306,7 @@ function openStoryIncCard(svcId, incId) {
         <p class="st-text st-small">${escHtml(svc.vehicle || 'Dienst')}${svc.location ? ' · ' + escHtml(svc.location) : ''}</p>
         <div class="st-card-chips">${chips}</div>
         ${dx ? `<p class="st-text st-card-dx">🩺 ${escHtml(dx)}</p>` : ''}
-        ${inc.note ? `<p class="st-quote">„${escHtml(shortNote(inc.note))}“</p>` : ''}
+        ${inc.note ? `<p class="st-quote">„${linkifyHtml(shortNote(inc.note))}“</p>` : ''}
         <div class="st-card-btns">
           <button type="button" class="st-card-b" data-card="inc">📋 Einsatz anzeigen</button>
           <button type="button" class="st-card-b" data-card="svc">🚑 Dienst anzeigen</button>
@@ -6047,7 +6339,7 @@ function openStoryServicePeek(svcId) {
       <div class="peek-head-t">${shiftCodeHtml(svc.startAt, 'is-small')}<strong>${escHtml(svcWhenText(svc))}</strong>${svc.location ? `<span>${escHtml(svc.location)}</span>` : ''}</div>
     </div>
     ${crew.length ? `<p class="peek-line">👥 ${escHtml(crew.join(' · '))}</p>` : ''}
-    ${svc.note ? `<p class="peek-line peek-note">📝 ${escHtml(svc.note)}</p>` : ''}
+    ${svc.note ? `<p class="peek-line peek-note">📝 ${linkifyHtml(svc.note)}</p>` : ''}
     <div class="peek-sub">${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${incs.filter((i) => i.lights).length ? ` · ${incs.filter((i) => i.lights).length} mit Blaulicht` : ''}</div>
     <div class="hm-list">${incs.map((i) => homeIncRowHtml(i, svc, false).replace('class="hm-row hm-inc"', 'class="hm-row hm-inc peek-inc"')).join('') || '<p class="peek-line">Keine Einsätze in diesem Dienst.</p>'}</div>
     <button type="button" class="btn-ghost peek-open">Im Tagebuch öffnen ›</button>`;
@@ -7262,8 +7554,54 @@ document.addEventListener('click', (e) => {
   openHistorySheet(btn.dataset.hist);
 });
 
+let launchActionDone = false;
 // Öffnen aus einer Mitteilung (#dienstplan) bzw. Nachricht vom Service Worker
+/** Dienst, der gerade läuft (kein SEG). */
+function runningService(now = new Date()) {
+  return state.services.find((s) => { if (s.isSeg) return false; const a = parseLocalDt(s.startAt), b = parseLocalDt(s.endAt); return a && b && a <= now && now <= b; }) || null;
+}
+
+/** Kurzbefehle per Adresse, z. B. …/#neu-einsatz */
+const SHORTCUTS = [
+  { hash: '#neu-einsatz', label: 'Neuer Einsatz', sub: 'im laufenden Dienst – sonst neuer Dienst', icon: '🚑' },
+  { hash: '#neu-dienst', label: 'Neuer Dienst', sub: 'Dienst anlegen', icon: '📋' },
+  { hash: '#neu-seg', label: 'Neuer SEG-Einsatz', sub: 'einzelner Einsatz mit Beginn/Ende', icon: '⚡' },
+  { hash: '#tagebuch', label: 'Tagebuch', sub: 'direkt zur Liste', icon: '📖' },
+  { hash: '#statistik', label: 'Statistik', sub: '', icon: '📊' },
+  { hash: '#rueckblick', label: 'Jahresrückblick', sub: 'Story des aktuellen Jahres', icon: '✨' },
+];
+function runShortcut(hash) {
+  const now = new Date();
+  if (hash === '#neu-einsatz') {
+    const svc = runningService(now);
+    switchTab(svc ? 'dienste' : 'home');
+    setTimeout(() => {
+      if (svc) openIncidentDialog(svc.id, null);
+      else { toast('Gerade läuft kein Dienst – lege zuerst einen an.', 'info', 2600); openServiceDialog(null); }
+    }, 250);
+    return true;
+  }
+  if (hash === '#neu-dienst') { switchTab('home'); setTimeout(() => openServiceDialog(null), 250); return true; }
+  if (hash === '#neu-seg') { switchTab('home'); setTimeout(() => openIncidentDialog(null, null, { newSeg: true }), 250); return true; }
+  if (hash === '#tagebuch') { switchTab('dienste'); return true; }
+  if (hash === '#statistik') { switchTab('statistik'); return true; }
+  if (hash === '#rueckblick') { switchTab('statistik'); setTimeout(() => openStory('year', now.getFullYear()), 300); return true; }
+  return false;
+}
+window.addEventListener('hashchange', () => { if (SHORTCUTS.some((x) => x.hash === location.hash)) handleLaunchTarget(); });
+
 function handleLaunchTarget(hash = location.hash) {
+  if (SHORTCUTS.some((x) => x.hash === hash)) {
+    if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
+    return runShortcut(hash);
+  }
+  // Start-Aktion beim Öffnen (Einstellungen → Darstellung)
+  if (!hash && !launchActionDone) {
+    launchActionDone = true;
+    const act = lsGet('etb_launch_action') || '';
+    if (act === 'neu-einsatz' && runningService()) return runShortcut('#neu-einsatz');
+    if (act === 'tagebuch' || act === 'dienstplan' || act === 'statistik') { switchTab(act === 'tagebuch' ? 'dienste' : act); return true; }
+  }
   const m = /^#verlauf=(.+)$/.exec(hash || '');
   if (hash === '#dienstplan' || m) {
     if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -7770,6 +8108,7 @@ const UI_RESET_AFTER = 10 * 60 * 1000;
 let hiddenSince = 0;
 
 function restoreUiState() {
+  checkNewBadges();
   lsSet('etb_ui_state', null); // Altlast: früher gemerkte letzte Ansicht
   if (!handleLaunchTarget()) switchTab('home');
 }
@@ -7782,6 +8121,7 @@ function resetToHome() {
   renderServiceList(); renderServiceDetail();
   switchTab('home');
   ['tab-home', 'service-list-panel', 'settings-root'].forEach((id) => { const el = document.getElementById(id); if (el) el.scrollTop = 0; });
+  launchActionDone = false; handleLaunchTarget(''); // Start-Aktion auch nach längerer Pause
   return true;
 }
 
