@@ -3501,3 +3501,4 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .st-mem-actrow { padding-top: 4px; padding-bottom: 10px; }
 .st-mem-actrow .set-row-sub { font-size: 12px; }
 .st-mem-act { color: var(--accent); }
+.sq-teal { background: #30b0c7; } .sq-pink { background: #ff2d55; }

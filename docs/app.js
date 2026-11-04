@@ -3427,13 +3427,15 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 70;
+const APP_VERSION = 71;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
   dienstplan: 'Dienstplan',
+  bedienung: 'Bedienung',
   daten: 'Daten & Backup',
+  speicher: 'Speicher',
   ueber: 'Über',
 };
 let settingsSub = null;
@@ -3441,6 +3443,8 @@ let settingsSub = null;
 const SET_ICONS = {
   person: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5a7 7 0 0 1 14 0"/></svg>',
   brush: '<svg viewBox="0 0 24 24"><path d="M14.5 4.5 19.5 9.5 11 18l-5-5z"/><path d="M6 13c-2 1-2.5 3-2.5 6.5C7 19.5 9 19 10 17"/></svg>',
+  hand: '<svg viewBox="0 0 24 24"><path d="M8.5 12V5.5a1.5 1.5 0 0 1 3 0V11M11.5 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14.5 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.6 6.5-6 6.5-2.4 0-4-1.2-5.2-3.3L4.6 13.4a1.5 1.5 0 0 1 2.5-1.6l1.4 1.7"/></svg>',
+  disk: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
   car: '<svg viewBox="0 0 24 24"><path d="M3.5 16.5V9.5a2 2 0 0 1 2-2h8l4.5 4h1a1.5 1.5 0 0 1 1.5 1.5v3.5"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/><path d="M9.5 11.5h-3M8 10v3"/></svg>',
   siren: '<svg viewBox="0 0 24 24"><path d="M7 17v-5a5 5 0 0 1 10 0v5"/><path d="M5 17.5h14v2.5H5zM12 3v2M4.5 6l1.5 1.5M19.5 6 18 7.5"/></svg>',
@@ -3502,9 +3506,15 @@ function renderSettings() {
       </button>
     </div>
 
+    <div class="set-group-header">App</div>
     <div class="set-group">
-      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()), push: 'darstellung' })}
-      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
+      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', sub: 'Hell/Dunkel, Statistik-Stil', value: themeLabel(currentTheme()), push: 'darstellung' })}
+      ${setRow({ icon: 'hand', color: 'teal', title: 'Bedienung', sub: 'Beim Öffnen, Links, Kurzbefehle', value: ({ '': 'Start', 'neu-einsatz': 'Neuer Einsatz', tagebuch: 'Tagebuch', dienstplan: 'Dienstplan', statistik: 'Statistik' })[lsGet('etb_launch_action') || ''] || 'Start', push: 'bedienung' })}
+    </div>
+
+    <div class="set-group-header">Dienstplan</div>
+    <div class="set-group">
+      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Mitteilungen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
     </div>
 
     <div class="set-group-header">Stammdaten</div>
@@ -3514,9 +3524,14 @@ function renderSettings() {
       ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-open-abt-popup' })}
     </div>
 
+    <div class="set-group-header">Daten</div>
     <div class="set-group">
-      ${setRow({ icon: 'archive', color: 'blue', title: 'Daten &amp; Backup', push: 'daten' })}
-      ${setRow({ icon: 'info', color: 'gray', title: 'Über', push: 'ueber' })}
+      ${setRow({ icon: 'archive', color: 'blue', title: 'Daten &amp; Backup', sub: 'Sichern, Import, Kalender-Export', push: 'daten' })}
+      ${setRow({ icon: 'disk', color: 'pink', title: 'Speicher', sub: 'Belegung, Fahrzeuggrafiken', value: iconsOfflineEnabled() ? '' : 'Grafiken ausgelagert', push: 'speicher' })}
+    </div>
+
+    <div class="set-group">
+      ${setRow({ icon: 'info', color: 'gray', title: 'Über', value: 'Version ' + APP_VERSION, push: 'ueber' })}
     </div>
     <p class="set-group-footer">${state.services.length} Dienste · ${incCount} Einsätze – gespeichert nur auf diesem Gerät.</p>`;
 
@@ -3558,6 +3573,8 @@ function renderSettingsPage() {
   const builders = {
     profil: settingsPageProfil,
     darstellung: settingsPageDarstellung,
+    bedienung: settingsPageBedienung,
+    speicher: settingsPageSpeicher,
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
     ueber: settingsPageUeber,
@@ -3609,27 +3626,7 @@ function settingsPageDarstellung(el, title) {
         <span class="set-check">${SET_ICONS.check}</span>
       </button>`).join('')}
     </div>
-    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>
-    <div class="set-group-header">Beim Öffnen</div>
-    <div class="set-group" role="radiogroup" aria-label="Beim Öffnen">
-      ${[['', 'Startseite', ''], ['neu-einsatz', 'Neuer Einsatz', 'Läuft gerade ein Dienst, öffnet sich sofort „Neuer Einsatz“ – sonst die Startseite'], ['tagebuch', 'Tagebuch', ''], ['dienstplan', 'Dienstplan', ''], ['statistik', 'Statistik', '']].map(([v, l, sub]) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${(lsGet('etb_launch_action') || '') === v}" data-launch-choice="${v}">
-        <span class="set-row-text"><span class="set-row-title">${l}</span>${sub ? `<span class="set-row-sub">${sub}</span>` : ''}</span><span class="set-check">${SET_ICONS.check}</span></button>`).join('')}
-    </div>
-    <p class="set-group-footer">Gilt, wenn die App frisch gestartet wird oder länger als 10 Minuten im Hintergrund war.</p>
-    <div class="set-group-header">Kurzbefehle</div>
-    <div class="set-group">
-      ${SHORTCUTS.map((x) => `<div class="set-row sc-row"><span class="sc-ic">${x.icon}</span><span class="set-row-text"><span class="set-row-title">${x.label}</span><span class="set-row-sub sc-url">${escHtml(location.origin + location.pathname + x.hash)}</span></span>
-        <button type="button" class="btn-ghost sc-copy" data-sc="${x.hash}">Kopieren</button></div>`).join('')}
-    </div>
-    <p class="set-group-footer">Diese Adressen öffnen die App direkt an der passenden Stelle – z. B. als Lesezeichen, auf Android/Desktop als App-Verknüpfung (lange auf das App-Symbol drücken). Hinweis iPhone: Kurzbefehle-App und Links öffnen solche Adressen in Safari statt in der installierten App – dort nutzt du am besten „Beim Öffnen → Neuer Einsatz“.</p>`;
-  el.querySelectorAll('[data-launch-choice]').forEach((btn) => btn.addEventListener('click', () => {
-    lsSet('etb_launch_action', btn.dataset.launchChoice || null);
-    el.querySelectorAll('[data-launch-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
-  }));
-  el.querySelectorAll('.sc-copy').forEach((btn) => btn.addEventListener('click', async () => {
-    const url = location.origin + location.pathname + btn.dataset.sc;
-    try { await navigator.clipboard.writeText(url); toast('Adresse kopiert.', 'success', 1500); } catch (_) { prompt('Adresse kopieren:', url); }
-  }));
+    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>`;
   el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
       lsSet('etb_stats_style', btn.dataset.statsChoice);
@@ -3688,27 +3685,9 @@ function settingsPageDienstplan(el, title) {
     <div class="set-group">
       ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-dp-open-abt' })}
     </div>
-    <p class="set-group-footer">Verknüpft den Abteilungsnamen eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag.</p>
-
-    <div class="set-group-header">Tagesdienstplan öffnen</div>
-    <div class="set-group" role="radiogroup" aria-label="Tagesdienstplan öffnen">
-      <button type="button" class="set-row set-choice" role="radio" aria-checked="${dpLinkMode() === 'safari'}" data-dp-link="safari">
-        <span class="set-row-text"><span class="set-row-title">In Safari</span><span class="set-row-sub">Du bleibst im Online Dienstplan angemeldet</span></span>
-        <span class="set-check">${SET_ICONS.check}</span>
-      </button>
-      <button type="button" class="set-row set-choice" role="radio" aria-checked="${dpLinkMode() === 'app'}" data-dp-link="app">
-        <span class="set-row-text"><span class="set-row-title">In der App</span><span class="set-row-sub">Öffnet ein Fenster über dem Tagebuch</span></span>
-        <span class="set-check">${SET_ICONS.check}</span>
-      </button>
-    </div>
-    <p class="set-group-footer">${isIOSDevice() ? '„In Safari“ nutzt ein iOS-Schema (ab iOS 17). Passiert beim Tippen nichts, „In der App“ wählen.' : 'Auf diesem Gerät öffnen Links immer in einem neuen Tab; die Auswahl gilt für iPhone/iPad.'}</p>`;
+    <p class="set-group-footer">Verknüpft den Abteilungsnamen eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag. Ob Links in Safari oder in der App aufgehen, stellst du unter <strong>Einstellungen → Bedienung</strong> ein.</p>`;
   el.querySelector('#btn-dp-open-abt').addEventListener('click', openAbteilungenPopup);
   renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
-  el.querySelectorAll('[data-dp-link]').forEach((btn) => btn.addEventListener('click', () => {
-    lsSet(DP_LINK_KEY, btn.dataset.dpLink);
-    el.querySelectorAll('[data-dp-link]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
-    renderServiceList(); if (selectedServiceId) renderServiceDetail();
-  }));
 
   const urlEl = el.querySelector('#dp-worker-url');
   const tokEl = el.querySelector('#dp-worker-token');
@@ -3804,6 +3783,70 @@ function settingsPageDaten(el, title) {
   el.querySelector('#btn-open-reset').addEventListener('click', openResetDialog);
 }
 
+// — Bedienung —————————————————————————————————————————————————————————
+function settingsPageBedienung(el, title) {
+  el.innerHTML = `${title}
+    <div class="set-group-header">Beim Öffnen</div>
+    <div class="set-group" role="radiogroup" aria-label="Beim Öffnen">
+      ${[['', 'Startseite', ''], ['neu-einsatz', 'Neuer Einsatz', 'Läuft gerade ein Dienst, öffnet sich sofort „Neuer Einsatz“ – sonst die Startseite'], ['tagebuch', 'Tagebuch', ''], ['dienstplan', 'Dienstplan', ''], ['statistik', 'Statistik', '']].map(([v, l, sub]) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${(lsGet('etb_launch_action') || '') === v}" data-launch-choice="${v}">
+        <span class="set-row-text"><span class="set-row-title">${l}</span>${sub ? `<span class="set-row-sub">${sub}</span>` : ''}</span><span class="set-check">${SET_ICONS.check}</span></button>`).join('')}
+    </div>
+    <p class="set-group-footer">Gilt, wenn die App frisch gestartet wird oder länger als 10 Minuten im Hintergrund war.</p>
+    <div class="set-group-header">Kurzbefehle</div>
+    <div class="set-group">
+      ${SHORTCUTS.map((x) => `<div class="set-row sc-row"><span class="sc-ic">${x.icon}</span><span class="set-row-text"><span class="set-row-title">${x.label}</span><span class="set-row-sub sc-url">${escHtml(location.origin + location.pathname + x.hash)}</span></span>
+        <button type="button" class="btn-ghost sc-copy" data-sc="${x.hash}">Kopieren</button></div>`).join('')}
+    </div>
+    <p class="set-group-footer">Diese Adressen öffnen die App direkt an der passenden Stelle – z. B. als Lesezeichen, auf Android/Desktop als App-Verknüpfung (lange auf das App-Symbol drücken). Hinweis iPhone: Kurzbefehle-App und Links öffnen solche Adressen in Safari statt in der installierten App – dort nutzt du am besten „Beim Öffnen → Neuer Einsatz“.</p>    <div class="set-group-header">Links öffnen</div>
+    <div class="set-group" role="radiogroup" aria-label="Links öffnen">
+      <button type="button" class="set-row set-choice" role="radio" aria-checked="${dpLinkMode() === 'safari'}" data-dp-link="safari">
+        <span class="set-row-text"><span class="set-row-title">In Safari</span><span class="set-row-sub">Du bleibst im Online Dienstplan angemeldet</span></span>
+        <span class="set-check">${SET_ICONS.check}</span>
+      </button>
+      <button type="button" class="set-row set-choice" role="radio" aria-checked="${dpLinkMode() === 'app'}" data-dp-link="app">
+        <span class="set-row-text"><span class="set-row-title">In der App</span><span class="set-row-sub">Öffnet ein Fenster über dem Tagebuch</span></span>
+        <span class="set-check">${SET_ICONS.check}</span>
+      </button>
+    </div>
+    <p class="set-group-footer">Gilt für den Tagesdienstplan und für Links in Notizen. ${isIOSDevice() ? '„In Safari“ nutzt ein iOS-Schema (ab iOS 17). Passiert beim Tippen nichts, „In der App“ wählen.' : 'Auf diesem Gerät öffnen Links immer in einem neuen Tab; die Auswahl gilt für iPhone/iPad.'}</p>`;
+  el.querySelectorAll('[data-launch-choice]').forEach((btn) => btn.addEventListener('click', () => {
+    lsSet('etb_launch_action', btn.dataset.launchChoice || null);
+    el.querySelectorAll('[data-launch-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
+  }));
+  el.querySelectorAll('.sc-copy').forEach((btn) => btn.addEventListener('click', async () => {
+    const url = location.origin + location.pathname + btn.dataset.sc;
+    try { await navigator.clipboard.writeText(url); toast('Adresse kopiert.', 'success', 1500); } catch (_) { prompt('Adresse kopieren:', url); }
+  }));
+  el.querySelectorAll('[data-dp-link]').forEach((btn) => btn.addEventListener('click', () => {
+    lsSet(DP_LINK_KEY, btn.dataset.dpLink);
+    el.querySelectorAll('[data-dp-link]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
+    renderServiceList(); if (selectedServiceId) renderServiceDetail();
+  }));
+}
+
+// — Speicher ——————————————————————————————————————————————————————————
+function settingsPageSpeicher(el, title) {
+  el.innerHTML = `${title}
+    <div class="set-group-header">Speicher auf diesem Gerät</div>
+    <div class="set-group" id="about-storage"><div class="set-row"><span class="set-row-text set-row-title">Wird berechnet …</span></div></div>
+    <p class="set-group-footer" id="about-storage-foot"></p>
+    <div class="set-group">
+      <label class="set-row set-row-switch">
+        <span class="set-row-text"><span class="set-row-title">Fahrzeuggrafiken offline speichern</span><span class="set-row-sub">Aus: Grafiken werden jedes Mal aus dem Netz geladen und nicht auf dem Gerät abgelegt.</span></span>
+        <input type="checkbox" class="set-switch" id="about-icons-offline" ${iconsOfflineEnabled() ? 'checked' : ''}>
+      </label>
+    </div>
+    <p class="set-group-footer">Tipp: Unter „Daten &amp; Backup“ regelmäßig eine Sicherung exportieren.</p>`;
+  renderStorageOverview(el);
+  el.querySelector('#about-icons-offline').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    if (!on && !confirm('Fahrzeuggrafiken nicht mehr auf dem Gerät speichern?\n\nDie gespeicherten Grafiken werden gelöscht. Ohne Netz werden dann keine Fahrzeugbilder angezeigt.')) { e.target.checked = true; return; }
+    await setIconsOffline(on);
+    toast(on ? 'Grafiken werden wieder offline gespeichert.' : 'Fahrzeuggrafiken ausgelagert.', 'success', 2200);
+    renderStorageOverview(el);
+  });
+}
+
 // — Über ————————————————————————————————————————————————————————————————
 function settingsPageUeber(el, title) {
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
@@ -3822,24 +3865,7 @@ function settingsPageUeber(el, title) {
       <div class="set-row"><span class="set-row-text set-row-title">Als App installiert</span><span class="set-row-value">${standalone ? 'Ja' : 'Nein'}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Dauerhafter Speicher</span><span class="set-row-value" id="about-persist">…</span></div>
     </div>
-    <div class="set-group-header">Speicher auf diesem Gerät</div>
-    <div class="set-group" id="about-storage"><div class="set-row"><span class="set-row-text set-row-title">Wird berechnet …</span></div></div>
-    <p class="set-group-footer" id="about-storage-foot"></p>
-    <div class="set-group">
-      <label class="set-row set-row-switch">
-        <span class="set-row-text"><span class="set-row-title">Fahrzeuggrafiken offline speichern</span><span class="set-row-sub">Aus: Grafiken werden jedes Mal aus dem Netz geladen und nicht auf dem Gerät abgelegt.</span></span>
-        <input type="checkbox" class="set-switch" id="about-icons-offline" ${iconsOfflineEnabled() ? 'checked' : ''}>
-      </label>
-    </div>
     <p class="set-group-footer">${standalone ? '' : 'Tipp: In Safari „Teilen → Zum Home-Bildschirm“ wählen, dann startet das Tagebuch wie eine App. '}Privates Eigenprojekt – kein Angebot des ÖRK.</p>`;
-  renderStorageOverview(el);
-  el.querySelector('#about-icons-offline').addEventListener('change', async (e) => {
-    const on = e.target.checked;
-    if (!on && !confirm('Fahrzeuggrafiken nicht mehr auf dem Gerät speichern?\n\nDie gespeicherten Grafiken werden gelöscht. Ohne Netz werden dann keine Fahrzeugbilder angezeigt.')) { e.target.checked = true; return; }
-    await setIconsOffline(on);
-    toast(on ? 'Grafiken werden wieder offline gespeichert.' : 'Fahrzeuggrafiken ausgelagert.', 'success', 2200);
-    renderStorageOverview(el);
-  });
   // Welche Version liegt offline auf dem Gerät (Service-Worker-Cache)?
   const swEl = el.querySelector('#about-sw');
   if ('caches' in window) {
