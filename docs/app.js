@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 54;
+const APP_VERSION = 55;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5113,8 +5113,79 @@ function buildStorySlides(r) {
       <p class="st-text st-q-answer" hidden>${qz.answer}</p>` });
   });
 
+  // ── Mini-Spiele ────────────────────────────────────────────────────────
+  const games = [];
+  // Rubbellos: verdeckt einen zufälligen Einsatz aus dem Zeitraum
+  if (r.incs.length) {
+    const x = pick(r.incs);
+    const ic = vehicleIconSrc(x.svc.vehicle, !!x.inc.lights);
+    games.push({ bg: 'st-bg-8', game: 'scratch', html: `<div class="st-kicker">Rubbellos</div>
+      <h2 class="st-title st-title-sm">Rubbel deinen Zufalls-Einsatz frei!</h2>
+      <div class="st-scratch st-game">
+        <div class="st-scratch-prize">
+          ${ic ? `<img class="st-vimg st-prize-veh" src="${escHtml(ic)}" alt="">` : '<div class="st-emoji">🎁</div>'}
+          <b>${escHtml(x.inc.alarmCode || 'Einsatz')}</b>
+          <span>${escHtml(fmtDay(x.svc))}${x.svc.vehicle ? ' · ' + escHtml(x.svc.vehicle) : ''}</span>
+          ${x.inc.lights ? '<span class="st-prize-tag">🔵 mit Blaulicht</span>' : ''}
+        </div>
+        <canvas class="st-scratch-c" aria-label="Rubbelfeld"></canvas>
+      </div>
+      <p class="st-text st-g-hint">Mit dem Finger rubbeln ✋</p>
+      <button type="button" class="st-link st-g-after" hidden data-st-inc="${escHtml(x.inc.id)}" data-st-svc="${escHtml(x.svc.id)}">Einsatz ansehen ›</button>` });
+  }
+  // Slot-Maschine mit den eigenen Fahrzeugen
+  {
+    // gleiche Grafik = gleiches Symbol (mehrere Fahrzeuge einer Kategorie zusammenfassen)
+    const byIcon = new Map();
+    r.vehStats.forEach((v) => {
+      const src = vehicleIconSrc(v.name, true);
+      if (!src) return;
+      const e = byIcon.get(src) || { name: [], shifts: 0, incs: 0, lights: 0 };
+      e.name.push(v.name); e.shifts += v.shifts; e.incs += v.incs; e.lights += v.lights;
+      byIcon.set(src, e);
+    });
+    const syms = [...byIcon.entries()].slice(0, 4).map(([src, e]) => ({ key: src, html: `<img class="st-vimg" src="${escHtml(src)}" alt="">`,
+      v: { name: e.name.length > 2 ? e.name.slice(0, 2).join(', ') + ' & Co' : e.name.join(' & '), shifts: e.shifts, incs: e.incs, lights: e.lights } }));
+    ['🚑', '🚨', '☕', '⭐', '🍀'].forEach((e) => { if (syms.length < 5) syms.push({ key: e, html: `<span class="st-slot-e">${e}</span>` }); });
+    games.push({ bg: 'st-bg-6', game: 'slot', data: { syms: syms.map(({ key, html, v }) => ({ key, html, info: v ? `${escHtml(v.name)}: ${v.shifts} Schichten, ${v.incs} Einsätze, ${v.lights}× Blaulicht` : '' })) },
+      html: `<div class="st-kicker">Einarmiger Bandit</div><div class="st-emoji">🎰</div>
+      <div class="st-slot st-game"><div class="st-reel"><div class="st-strip"></div></div><div class="st-reel"><div class="st-strip"></div></div><div class="st-reel"><div class="st-strip"></div></div></div>
+      <button type="button" class="st-spin">Drehen 🎰</button>
+      <p class="st-text st-g-hint">3 Versuche – drei gleiche gewinnen!</p>` });
+  }
+  // Blaulicht-Reaktionstest
+  games.push({ bg: 'st-bg-2', game: 'react', html: `<div class="st-kicker">Reaktionstest</div>
+    <h2 class="st-title st-title-sm">Tippe, sobald das Blaulicht angeht!</h2>
+    <button type="button" class="st-react st-game"><span class="st-react-t">Tippen zum Starten</span></button>
+    <p class="st-text st-g-hint">Bestzeit: –</p>` });
+  // Schätzen mit Schieberegler
+  {
+    const est = [];
+    if (r.hours >= 10) est.push({ q: `Wie viele Stunden warst du ${zr} im Dienst?`, n: Math.round(r.hours), unit: 'Stunden' });
+    if (r.incs.length >= 5) est.push({ q: `Wie viele Einsätze hattest du ${zr}?`, n: r.incs.length, unit: 'Einsätze' });
+    if (r.lights >= 3) est.push({ q: `Wie oft bist du ${zr} mit Blaulicht gefahren?`, n: r.lights, unit: 'Blaulichtfahrten' });
+    if (est.length) {
+      const e = pick(est);
+      const max = Math.max(10, Math.round((e.n * (1.6 + Math.random() * 0.8)) / 5) * 5);
+      games.push({ bg: 'st-bg-9', game: 'guess', data: { n: e.n, max, unit: e.unit }, html: `<div class="st-kicker">Schätz mal!</div><div class="st-emoji">🎯</div>
+        <h2 class="st-title st-title-sm">${e.q}</h2>
+        <div class="st-guess st-game"><div class="st-guess-v">${Math.round(max / 2)}</div>
+          <div class="st-guess-track"><div class="st-guess-fill"></div><div class="st-guess-real" hidden></div><div class="st-guess-thumb"></div></div>
+          <div class="st-guess-l"><span>0</span><span>${max}</span></div></div>
+        <button type="button" class="st-spin st-guess-ok">Tipp abgeben</button>
+        <p class="st-text st-g-hint">Regler ziehen</p>` });
+    }
+  }
+  const gameCount = Math.min(games.length, isYear ? 2 : 1 + Math.round(Math.random()));
+  const chosenGames = shuffle(games).slice(0, gameCount);
+
   // Auswahl: jedes Mal anders gemischt, nicht immer alle Module
-  const body = shuffle(pool).slice(0, isYear ? 11 : 9);
+  const body = shuffle(pool).slice(0, (isYear ? 11 : 9) - chosenGames.length);
+  // Spiele an zufälligen Stellen einstreuen (nicht direkt hintereinander)
+  chosenGames.forEach((g, gi) => {
+    const lo = Math.floor((gi * body.length) / chosenGames.length), hi = Math.floor(((gi + 1) * body.length) / chosenGames.length);
+    body.splice(lo + Math.floor(Math.random() * (hi - lo + 1)), 0, g);
+  });
   // Quizfragen in Reihenfolge nummerieren
   const qSlides = body.filter((x) => x.quiz);
   qSlides.forEach((x, i) => { x.html = x.html.replace('<!--qn-->', qSlides.length > 1 ? ` · Frage ${i + 1}` : ''); });
@@ -5145,7 +5216,8 @@ function openStory(kind, year, month) {
   el.setAttribute('aria-label', period.title);
   el.innerHTML = `<div class="st-progress">${slides.map(() => '<span><i></i></span>').join('')}</div>
     <button type="button" class="st-close" aria-label="Schließen">✕</button>
-    <div class="st-stage"></div>`;
+    <div class="st-stage"></div>
+    <div class="st-nav"><button type="button" class="st-prev">‹ Zurück</button><button type="button" class="st-next">Weiter ›</button></div>`;
   document.body.appendChild(el);
   story = { el, slides, i: 0, timer: 0, started: 0, elapsed: 0, paused: false, period };
   showStorySlide(0);
@@ -5180,6 +5252,154 @@ function storyFxHtml(sl) {
   return '';
 }
 
+/** Mini-Spiele in der Story. */
+function initStoryGame(stage, sl) {
+  const hint = stage.querySelector('.st-g-hint');
+  const win = () => stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' }));
+  const finish = () => {
+    sl.played = true;
+    const bar = story && story.el.querySelectorAll('.st-progress span')[story.i];
+    if (bar) bar.classList.add('done');
+  };
+
+  if (sl.game === 'scratch') {
+    const box = stage.querySelector('.st-scratch'), cv = box.querySelector('canvas');
+    const after = stage.querySelector('.st-g-after');
+    const reveal = () => { cv.classList.add('gone'); if (after) after.hidden = false; if (hint) hint.innerHTML = '<strong>Freigerubbelt! 🎉</strong>'; finish(); };
+    if (sl.played) { reveal(); return; }
+    requestAnimationFrame(() => {
+      const w = box.clientWidth, h = box.clientHeight, dpr = window.devicePixelRatio || 1;
+      cv.width = w * dpr; cv.height = h * dpr;
+      const c = cv.getContext('2d');
+      c.scale(dpr, dpr);
+      const g = c.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, '#d9d9de'); g.addColorStop(0.5, '#a9a9b2'); g.addColorStop(1, '#e8e8ec');
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+      c.fillStyle = 'rgba(0,0,0,.18)';
+      for (let k = 0; k < 140; k++) c.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+      c.fillStyle = 'rgba(60,60,70,.75)'; c.font = '800 22px -apple-system, system-ui, sans-serif'; c.textAlign = 'center';
+      c.fillText('🚑  RUBBELN  🚑', w / 2, h / 2 + 8);
+      c.globalCompositeOperation = 'destination-out';
+      c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = 44;
+      let last = null, moves = 0, done = false;
+      const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+      const check = () => {
+        const d = c.getImageData(0, 0, cv.width, cv.height).data;
+        let clear = 0, n = 0;
+        for (let k = 3; k < d.length; k += 4 * 97) { n++; if (d[k] < 40) clear++; }
+        if (clear / n > 0.5 && !done) { done = true; reveal(); win(); }
+      };
+      cv.addEventListener('pointerdown', (e) => { e.stopPropagation(); last = pos(e); cv.setPointerCapture(e.pointerId); c.beginPath(); c.arc(last[0], last[1], 22, 0, Math.PI * 2); c.fill(); });
+      cv.addEventListener('pointermove', (e) => {
+        if (!last || done) return;
+        const p = pos(e);
+        c.beginPath(); c.moveTo(last[0], last[1]); c.lineTo(p[0], p[1]); c.stroke();
+        last = p;
+        if (++moves % 12 === 0) check();
+      });
+      const up = () => { if (last) check(); last = null; };
+      cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    });
+    return;
+  }
+
+  if (sl.game === 'slot') {
+    const syms = sl.data.syms;
+    const reels = [...stage.querySelectorAll('.st-strip')];
+    const btn = stage.querySelector('.st-spin');
+    const H = 84;
+    let tries = sl.tries || 0, spinning = false;
+    const fill = (strip, list) => { strip.innerHTML = list.map((x) => `<div class="st-sym">${x.html}</div>`).join(''); };
+    reels.forEach((rl) => { fill(rl, [syms[Math.floor(Math.random() * syms.length)]]); rl.style.transform = 'none'; });
+    const left = () => 3 - tries;
+    const label = () => { btn.textContent = left() > 0 ? `Drehen 🎰 (${left()})` : 'Keine Versuche mehr'; btn.disabled = left() <= 0; };
+    label();
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (spinning || left() <= 0) return;
+      spinning = true; tries++; sl.tries = tries; btn.disabled = true;
+      // Ergebnis: beim letzten Versuch hilft das Glück ein bisschen nach
+      let res = reels.map(() => syms[Math.floor(Math.random() * syms.length)]);
+      if (tries === 3 && !sl.won && Math.random() < 0.7) { const j = syms[Math.floor(Math.random() * Math.min(2, syms.length))]; res = [j, j, j]; }
+      reels.forEach((rl, k) => {
+        const n = 18 + k * 7;
+        const list = Array.from({ length: n }, () => syms[Math.floor(Math.random() * syms.length)]);
+        list.push(res[k]);
+        fill(rl, list);
+        rl.style.transition = 'none'; rl.style.transform = 'translateY(0)';
+        void rl.offsetWidth;
+        rl.style.transition = `transform ${1.2 + k * 0.5}s cubic-bezier(.15,.7,.25,1)`;
+        rl.style.transform = `translateY(${-n * H}px)`;
+      });
+      setTimeout(() => {
+        spinning = false;
+        const same = res[0].key === res[1].key && res[1].key === res[2].key;
+        const two = res[0].key === res[1].key || res[1].key === res[2].key || res[0].key === res[2].key;
+        if (same) {
+          sl.won = true; win();
+          stage.querySelector('.st-slot').classList.add('is-win');
+          hint.innerHTML = `<strong>JACKPOT! 🎰💰</strong>${res[0].info ? `<br><span class="st-small">${res[0].info}</span>` : ''}`;
+          finish(); btn.disabled = true; btn.textContent = 'Gewonnen! 🏆';
+          return;
+        }
+        hint.innerHTML = two ? '<strong>Knapp! Zwei gleiche 😬</strong>' : pick1(['Niete – nochmal! 🙃', 'Leider nichts. 🫠', 'Die Bank gewinnt immer. 🏦']);
+        if (left() <= 0) { hint.innerHTML += '<br>Kein Jackpot – aber du hast ja den besten Job. 😉'; finish(); }
+        label();
+      }, 1200 + 2 * 500 + 150);
+    });
+    return;
+  }
+
+  if (sl.game === 'react') {
+    const btn = stage.querySelector('.st-react'), t = btn.querySelector('.st-react-t');
+    let st8 = 'idle', timer = 0, t0 = 0, best = sl.best || 0;
+    const showBest = () => { hint.innerHTML = `Bestzeit: <strong>${best ? best + ' ms' : '–'}</strong>`; };
+    showBest();
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (st8 === 'idle' || st8 === 'result') {
+        st8 = 'wait'; btn.className = 'st-react st-game is-wait'; t.textContent = 'Warten …';
+        timer = setTimeout(() => { st8 = 'go'; btn.className = 'st-react st-game is-go'; t.textContent = 'JETZT!'; t0 = performance.now(); }, 1500 + Math.random() * 2500);
+      } else if (st8 === 'wait') {
+        clearTimeout(timer); st8 = 'result'; btn.className = 'st-react st-game is-early'; t.innerHTML = 'Fehlstart! 🚦<small>Nochmal tippen</small>';
+      } else if (st8 === 'go') {
+        const ms = Math.round(performance.now() - t0);
+        st8 = 'result'; btn.className = 'st-react st-game is-done';
+        const q = ms < 230 ? 'Schneller als die Leitstelle! ⚡' : ms < 320 ? 'Ausrückzeit: vorbildlich. 👍' : ms < 450 ? 'Solide – Kaffee schon ausgetrunken? ☕' : 'Noch im Bereitschaftsraum? 😴';
+        t.innerHTML = `${ms} ms<small>${q}</small>`;
+        if (!best || ms < best) { best = ms; sl.best = ms; if (ms < 320) win(); }
+        showBest(); finish();
+      }
+    });
+    return;
+  }
+
+  if (sl.game === 'guess') {
+    const { n, max, unit } = sl.data;
+    const track = stage.querySelector('.st-guess-track'), thumb = track.querySelector('.st-guess-thumb'), fillEl = track.querySelector('.st-guess-fill');
+    const real = track.querySelector('.st-guess-real'), out = stage.querySelector('.st-guess-v'), ok = stage.querySelector('.st-guess-ok');
+    let val = sl.val != null ? sl.val : Math.round(max / 2), locked = !!sl.played;
+    const draw = () => { const f = val / max; thumb.style.left = f * 100 + '%'; fillEl.style.width = f * 100 + '%'; out.textContent = val; };
+    const set = (e) => { const r = track.getBoundingClientRect(); val = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * max); draw(); };
+    let drag = false;
+    track.parentElement.addEventListener('pointerdown', (e) => { if (locked) return; e.stopPropagation(); drag = true; track.parentElement.setPointerCapture(e.pointerId); set(e); });
+    track.parentElement.addEventListener('pointermove', (e) => { if (drag && !locked) set(e); });
+    track.parentElement.addEventListener('pointerup', () => { drag = false; });
+    const resolve = () => {
+      locked = true; sl.played = true; sl.val = val; ok.disabled = true; ok.hidden = true;
+      real.hidden = false; real.style.left = Math.min(100, (n / max) * 100) + '%';
+      const dev = n ? Math.abs(val - n) / n : 1;
+      out.innerHTML = `${val} <small>dein Tipp</small> · <span class="st-guess-n">${n}</span> <small>${escHtml(unit)}</small>`;
+      hint.innerHTML = dev <= 0.05 ? '<strong>Volltreffer! 🎯</strong> Du kennst dich.' : dev <= 0.15 ? '<strong>Sehr nah dran! 👏</strong>' : dev <= 0.35 ? `<strong>Gar nicht schlecht.</strong> ${Math.round(dev * 100)} % daneben.` : `<strong>Uff – ${Math.round(dev * 100)} % daneben. 🙈</strong>`;
+      if (dev <= 0.15) win();
+      finish();
+    };
+    draw();
+    if (locked) { resolve(); return; }
+    ok.addEventListener('click', (e) => { e.stopPropagation(); resolve(); });
+  }
+}
+
 function showStorySlide(i) {
   if (!story) return;
   if (i < 0) i = 0;
@@ -5208,6 +5428,11 @@ function showStorySlide(i) {
     };
     if (prefersReducedMotion()) n.textContent = fmtNum(target); else requestAnimationFrame(step);
   });
+  const prev = story.el.querySelector('.st-prev'), next = story.el.querySelector('.st-next');
+  if (prev) prev.disabled = i === 0;
+  if (next) next.hidden = i === story.slides.length - 1;
+  story.el.classList.toggle('is-interactive', !!(sl.game || sl.quiz));
+  if (sl.game) initStoryGame(stage, sl);
   const done = stage.querySelector('.st-done');
   if (done) done.addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
   const again = stage.querySelector('.st-again');
@@ -5270,8 +5495,9 @@ function scheduleStoryNext() {
   story.el.classList.remove('paused');
   if (story.i === story.slides.length - 1) return; // letzte Folie bleibt stehen
   const cur = story.slides[story.i];
-  story.el.classList.toggle('is-quiz', !!(cur.quiz && !cur.answered));
+  story.el.classList.toggle('is-quiz', !!((cur.quiz && !cur.answered) || cur.game));
   if (cur.quiz && !cur.answered) return; // Quiz wartet auf die Antwort
+  if (cur.game) return;                    // Spiele: weiter nur per Knopf
   const ms = story.slides[story.i].ms || STORY_SLIDE_MS;
   story.timer = setTimeout(() => showStorySlide(story.i + 1), Math.max(0, ms - story.elapsed));
 }
@@ -5293,13 +5519,19 @@ function resumeStory() {
 function bindStoryGestures(el) {
   let x0 = 0, y0 = 0, t0 = 0, holdTimer = 0, held = false;
   el.querySelector('.st-close').addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
+  const ignore = (e) => !story || e.target.closest('button, canvas, .st-game, .st-nav') || story.el.classList.contains('is-interactive');
+  let armed = false;
+  el.querySelector('.st-prev').addEventListener('click', (e) => { e.stopPropagation(); if (story) showStorySlide(story.i - 1); });
+  el.querySelector('.st-next').addEventListener('click', (e) => { e.stopPropagation(); if (story) showStorySlide(story.i + 1); });
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc], [data-quiz]')) return;
+    armed = !ignore(e);
+    if (!armed) return;
     x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); held = false;
     holdTimer = setTimeout(() => { held = true; pauseStory(); }, 250);
   });
   el.addEventListener('pointerup', (e) => {
-    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc], [data-quiz]')) return;
+    if (!armed || ignore(e)) { armed = false; return; }
+    armed = false;
     clearTimeout(holdTimer);
     const dy = e.clientY - y0, dx = e.clientX - x0;
     if (held) { resumeStory(); return; }
