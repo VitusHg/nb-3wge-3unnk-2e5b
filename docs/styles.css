@@ -3502,3 +3502,11 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .st-mem-actrow .set-row-sub { font-size: 12px; }
 .st-mem-act { color: var(--accent); }
 .sq-teal { background: #30b0c7; } .sq-pink { background: #ff2d55; }
+.srch-people { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.srch-person { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: none; border-radius: var(--radius); background: var(--card); color: var(--text); font: inherit; text-align: left; }
+.srch-person:active { opacity: .7; }
+.srch-av { width: 38px; height: 38px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 14px; font-weight: 800; color: #fff; background: linear-gradient(140deg, hsl(var(--h) 60% 52%), hsl(calc(var(--h) + 40) 60% 40%)); }
+.srch-person-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.srch-person-t b { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srch-person-t small { font-size: 13px; color: var(--text2); }
+.srch-person-c { color: var(--text3); font-size: 20px; }

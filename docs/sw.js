@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v71'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v73'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -136,7 +136,7 @@ self.addEventListener('push', (event) => {
 async function bumpBadge(msg) {
   try {
     const tag = String(msg.tag || '');
-    if (tag === 'etb-test') return;
+    if (tag === 'etb-test' || tag === 'etb-quick') return; // kein Dienstplan-Ereignis
     const keys = Array.isArray(msg.keys) ? msg.keys.map(String)
       : tag.startsWith('etb-') && tag !== 'etb-summary' ? [tag.slice(4)] : ['summary-' + Date.now()];
     const cache = await caches.open('etb-meta');

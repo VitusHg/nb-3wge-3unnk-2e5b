@@ -767,11 +767,22 @@ function initTabs() {
       // Wurzel des Tabs; ist man schon dort, wird nach oben gescrollt.
       if (tab === (TAB_ROOT[activeTab] || activeTab)) {
         if (navAnimating) return;
+        const target = getBackTarget();
         if (tab === 'dienste') {
           const si = document.getElementById('search-input');
-          if (si && si.value) { si.value = ''; si.blur(); renderServiceList(); }
+          if (target) {
+            if (si && si.value) { si.value = ''; si.blur(); renderServiceList(); }
+            popAnimated(target);
+            return;
+          }
+          // schon auf der Tagebuch-Liste → nach oben und direkt ins Suchfeld
+          if (si) {
+            if (si.value) { si.value = ''; renderServiceList(); }
+            scrollActiveToTop();
+            si.focus({ preventScroll: true });
+          }
+          return;
         }
-        const target = getBackTarget();
         if (target) popAnimated(target);
         else scrollActiveToTop();
         return;
@@ -839,6 +850,27 @@ function renderServiceList() {
     });
   }
   listEl.innerHTML = '';
+  // Personen: Kolleg:innen, deren Name passt → Profil
+  if (q) {
+    const people = new Map();
+    state.services.forEach((sv) => (sv.colleagues || []).forEach((c) => {
+      if (!c || !String(c).toLowerCase().includes(q)) return;
+      const k = String(c).trim().toLowerCase();
+      const e = people.get(k) || { name: String(c).trim(), n: 0 };
+      e.n++; people.set(k, e);
+    }));
+    const list = [...people.values()].sort((a, b) => b.n - a.n).slice(0, 8);
+    if (list.length) {
+      const sec = document.createElement('div');
+      sec.className = 'srch-section';
+      sec.innerHTML = `<div class="svc-month"><span>Personen</span><span class="svc-month-meta">${people.size} Treffer</span></div>
+        <div class="srch-people">${list.map((p) => `<button type="button" class="srch-person" data-colleague="${escHtml(p.name)}">
+          <span class="srch-av" style="--h:${colleagueHue(p.name)}">${escHtml(colleagueInitials(p.name))}</span>
+          <span class="srch-person-t"><b>${escHtml(p.name)}</b><small>${p.n} gemeinsame ${p.n === 1 ? 'Dienst' : 'Dienste'}</small></span>
+          <span class="srch-person-c">›</span></button>`).join('')}</div>`;
+      listEl.appendChild(sec);
+    }
+  }
   if (q && incHits.length) {
     const sec = document.createElement('div');
     sec.className = 'srch-section';
@@ -3427,7 +3459,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 71;
+const APP_VERSION = 73;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7135,7 +7167,7 @@ function workerBase() {
   return window.RKDienstplan ? window.RKDienstplan.normalizeWorkerUrl(url) : url.replace(/\/dienstplan\.ics$/, '').replace(/\/+$/, '');
 }
 
-async function workerApi(path, { method = 'GET', body } = {}) {
+async function workerApi(path, { method = 'GET', body, keepalive = false } = {}) {
   const base = workerBase();
   if (!base || !dpConfigured()) throw new Error('Dienstplan ist nicht verbunden.');
   let res;
@@ -7145,6 +7177,7 @@ async function workerApi(path, { method = 'GET', body } = {}) {
       headers: Object.assign({ Authorization: 'Bearer ' + dpConfig().token }, body ? { 'Content-Type': 'application/json' } : {}),
       body: body ? JSON.stringify(body) : undefined,
       cache: 'no-store',
+      keepalive,
     });
   } catch (_) { throw new Error('Worker nicht erreichbar.'); }
   let data = {};
@@ -7159,6 +7192,27 @@ async function workerApi(path, { method = 'GET', body } = {}) {
     const err = new Error(msg); err.code = data.error || res.status; throw err;
   }
   return data;
+}
+
+// ── Schnell-Einsatz per Mitteilung ─────────────────────────────────────────
+// Läuft ein Dienst, liegt eine Mitteilung „Neuer Einsatz?“ bereit. Antippen öffnet
+// „Neuer Einsatz“; beim Verlassen der App wird sie neu verschickt. Dienstplan-
+// Dienste meldet zusätzlich der Worker kurz nach Dienstbeginn.
+const QUICK_PUSH_KEY = 'etb_quick_push';
+const QUICK_ARMED_KEY = 'etb_quick_armed';
+function quickPushEnabled() { return lsGet(QUICK_PUSH_KEY) !== '0'; }
+function quickPushArm() {
+  if (!quickPushEnabled() || !dpConfigured()) return;
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (!endpoint || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const svc = runningService();
+  if (!svc) return;
+  const id = svc.id + '|' + svc.endAt;
+  if (lsGet(QUICK_ARMED_KEY) === id) return;
+  const end = parseLocalDt(svc.endAt);
+  lsSet(QUICK_ARMED_KEY, id);
+  workerApi('/push/quick', { method: 'POST', keepalive: true, body: { endpoint, send: { title: svc.vehicle || 'Dienst', until: end ? end.getTime() : Date.now() + 3600e3 } } })
+    .catch(() => lsSet(QUICK_ARMED_KEY, null));
 }
 
 function pushSupport() {
@@ -7221,6 +7275,10 @@ async function renderPushSettings(host) {
     <div class="set-group">
       ${active
         ? `<div class="set-row"><span class="set-row-text"><span class="set-row-title">Aktiv auf diesem Gerät</span><span class="set-row-sub" id="push-status">Status wird geladen…</span></span></div>
+           <label class="set-row set-row-switch">
+             <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz im Dienst</span><span class="set-row-sub">Während eines laufenden Dienstes liegt „🚑 Neuer Einsatz?“ als Mitteilung bereit – antippen öffnet sofort die Einsatzerfassung.</span></span>
+             <input type="checkbox" class="set-switch" id="push-quick" ${quickPushEnabled() ? 'checked' : ''}>
+           </label>
            <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text set-row-title">Testmitteilung senden</span></button>
            <button type="button" class="set-row set-destructive" id="btn-push-off"><span class="set-row-text set-row-title">Benachrichtigungen ausschalten</span></button>`
         : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
@@ -7241,6 +7299,14 @@ async function renderPushSettings(host) {
     await disablePush();
     toast('Benachrichtigungen ausgeschaltet.', 'success');
     renderPushSettings(host);
+  });
+  const quick = host.querySelector('#push-quick');
+  if (quick) quick.addEventListener('change', async () => {
+    const on = quick.checked;
+    lsSet(QUICK_PUSH_KEY, on ? '1' : '0');
+    lsSet(QUICK_ARMED_KEY, null);
+    try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: on } }); toast(on ? 'Schnell-Einsatz aktiv.' : 'Schnell-Einsatz aus.', 'success', 1500); }
+    catch (err) { toast(err.code === 'not_found' ? 'Bitte den Worker aktualisieren, damit das auch für Dienstplan-Dienste gilt.' : err.message, 'info', 5000); }
   });
   const test = host.querySelector('#btn-push-test');
   if (test) test.addEventListener('click', async () => {
@@ -7621,9 +7687,14 @@ function runShortcut(hash) {
   if (hash === '#rueckblick') { switchTab('statistik'); setTimeout(() => openStory('year', now.getFullYear()), 300); return true; }
   return false;
 }
-window.addEventListener('hashchange', () => { if (SHORTCUTS.some((x) => x.hash === location.hash)) handleLaunchTarget(); });
+window.addEventListener('hashchange', () => { if (location.hash === '#neu-einsatz-push' || SHORTCUTS.some((x) => x.hash === location.hash)) handleLaunchTarget(); });
 
 function handleLaunchTarget(hash = location.hash) {
+  if (hash === '#neu-einsatz-push') {
+    if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
+    lsSet(QUICK_ARMED_KEY, null); // beim nächsten Verlassen eine neue Mitteilung schicken
+    return runShortcut('#neu-einsatz');
+  }
   if (SHORTCUTS.some((x) => x.hash === hash)) {
     if (hash === location.hash) history.replaceState(null, '', location.pathname + location.search);
     return runShortcut(hash);
@@ -7718,6 +7789,8 @@ function getActiveScrollers() {
     const el = document.getElementById(settingsSub ? 'settings-sub' : 'settings-root');
     return el ? [el] : [];
   }
+  // Statistik scrollt im eigenen Container
+  if (activeTab === 'statistik') return [document.getElementById('tab-statistik'), document.getElementById('stats-container')].filter(Boolean);
   const el = document.getElementById('tab-' + activeTab);
   return el ? [el] : [];
 }
@@ -8183,7 +8256,7 @@ function initAppLifecycle() {
 
   // Rückkehr aus dem Hintergrund: Uhr, Countdown & Daten sofort aktuell
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { hiddenSince = Date.now(); return; }
+    if (document.hidden) { hiddenSince = Date.now(); quickPushArm(); return; }
     const away = hiddenSince ? Date.now() - hiddenSince : 0;
     hiddenSince = 0;
     if (away > UI_RESET_AFTER && activeTab !== 'home' && Date.now() - launchTabAt > 5000 && resetToHome()) return;
