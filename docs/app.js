@@ -3427,7 +3427,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 69;
+const APP_VERSION = 70;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3914,18 +3914,25 @@ async function renderStorageOverview(root) {
     { t: 'Dienstplan-Zwischenspeicher', sub: 'Kalender, Änderungen, Verlauf', b: dp, c: '#30d158' },
     { t: 'Einstellungen & Sonstiges', sub: 'Fahrzeuge, Profil, Merker', b: other, c: '#8e8e93' },
   ];
-  if (icons) rows.push({ t: 'Fahrzeuggrafiken', sub: icons.count ? `${icons.count} ${icons.count === 1 ? 'Grafik' : 'Grafiken'}${icons.unknown ? ` · ${icons.unknown}× Größe vom Server nicht lesbar` : ''}` : iconsOfflineEnabled() ? 'noch keine gespeichert' : 'ausgelagert – nicht auf dem Gerät', b: icons.bytes, c: '#0a84ff', unknown: icons.unknown, icons: true });
+  // Größe der Grafiken: vom Fremdserver nicht lesbar → aus der Systemangabe schätzen
+  let sysUsage = null;
+  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); if (e && e.usage != null) sysUsage = e; } } catch (_) {}
+  let iconEst = null;
+  if (icons && icons.unknown && sysUsage) {
+    const rest = sysUsage.usage - (app ? app.bytes : 0) - icons.bytes;
+    if (rest > 0) iconEst = rest + icons.bytes;
+  }
+  if (icons) rows.push({ t: 'Fahrzeuggrafiken', sub: icons.count ? `${icons.count} ${icons.count === 1 ? 'Grafik' : 'Grafiken'}${icons.unknown ? (iconEst ? ' · Obergrenze' : ' · Größe unbekannt') : ''}` : iconsOfflineEnabled() ? 'noch keine gespeichert' : 'ausgelagert – nicht auf dem Gerät', b: iconEst || icons.bytes, est: !!iconEst, c: '#0a84ff', unknown: icons.unknown && !iconEst, icons: true });
   if (app) rows.push({ t: 'App-Dateien (offline)', sub: `Version ${APP_VERSION}`, b: app.bytes, c: '#bf5af2' });
   if (foreign) rows.push({ t: 'Andere Apps dieser Adresse', sub: 'z. B. RKTel – wird hier nicht angefasst', b: foreign, c: '#48484a' });
   const total = rows.reduce((n, r) => n + r.b, 0) || 1;
   const lsUsed = stateTotal + dp + own + foreign;
-  box.innerHTML = `<div class="set-row st-mem-bar-row"><div class="st-mem-bar">${rows.filter((r) => r.b).map((r) => `<span style="flex:${r.b};background:${r.c}"></span>`).join('')}</div></div>` +
+  box.innerHTML = `<div class="set-row st-mem-bar-row"><div class="st-mem-bar">${rows.filter((r) => r.b && !r.est).map((r) => `<span style="flex:${r.b};background:${r.c}"></span>`).join('')}</div></div>` +
     rows.map((r) => `<div class="set-row st-mem-row"><span class="st-mem-dot" style="background:${r.c}"></span>
       <span class="set-row-text"><span class="set-row-title">${r.t}</span><span class="set-row-sub">${escHtml(r.sub)}</span></span>
-      <span class="set-row-value">${r.unknown && !r.b ? '?' : fmtBytes(r.b) + (r.unknown ? ' +' : '')}</span>
-      ${r.icons && icons.count ? '<button type="button" class="btn-ghost st-mem-act" id="about-icons-drop">Auslagern</button>' : ''}</div>`).join('');
-  let est = '';
-  try { if (navigator.storage && navigator.storage.estimate) { const e = await navigator.storage.estimate(); if (e && e.usage != null) est = ` Laut System belegt diese Adresse insgesamt ${fmtBytes(e.usage)}${e.quota ? ` von erlaubten ${fmtBytes(e.quota)}` : ''}.`; } } catch (_) {}
+      <span class="set-row-value">${r.unknown && !r.b ? '–' : (r.est ? 'max. ' : '') + fmtBytes(r.b) + (r.unknown ? ' +' : '')}</span></div>
+      ${r.icons && icons.count ? `<div class="set-row st-mem-actrow"><span class="set-row-text"><span class="set-row-sub">${r.est ? 'Der Grafik-Server gibt die Dateigröße aus Sicherheitsgründen nicht preis. Angezeigt ist der Rest der Gesamtbelegung – die echte Größe ist meist deutlich kleiner. ' : ''}Auslagern löscht die gespeicherten Grafiken vom Gerät.</span></span><button type="button" class="btn-ghost st-mem-act" id="about-icons-drop">Auslagern</button></div>` : ''}`).join('');
+  const est = sysUsage ? ` Laut System belegt diese Adresse insgesamt ${fmtBytes(sysUsage.usage)}${sysUsage.quota ? ` von erlaubten ${fmtBytes(sysUsage.quota)}` : ''}.` : '';
   const pct = Math.round((lsUsed / (5 * 1024 * 1024)) * 100);
   foot.innerHTML = `Tagebuch, Listen und Einstellungen liegen im Browser-Speicher (localStorage). Safari erlaubt dort etwa 5 MB pro Adresse – davon sind <strong>${fmtBytes(lsUsed)} (${pct} %)</strong> belegt${foreign ? ', inklusive anderer Apps auf dieser Adresse' : ''}.${est} Regelmäßig sichern lohnt sich: iOS kann Daten von Web-Apps löschen, die länger nicht geöffnet wurden.`;
   const drop = box.querySelector('#about-icons-drop');

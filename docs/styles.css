@@ -3496,3 +3496,8 @@ img.veh-sq { object-fit: cover !important; object-position: 50% 55%; }
 
 .bd-row .bd-t { display: none; }
 .bd-row .bd { width: 76px; }
+label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: var(--text); font-weight: 400; }
+.set-row-switch .set-row-title { color: var(--text); }
+.st-mem-actrow { padding-top: 4px; padding-bottom: 10px; }
+.st-mem-actrow .set-row-sub { font-size: 12px; }
+.st-mem-act { color: var(--accent); }
