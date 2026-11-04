@@ -3372,7 +3372,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 63;
+const APP_VERSION = 64;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3448,7 +3448,7 @@ function renderSettings() {
     </div>
 
     <div class="set-group">
-      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()), push: 'darstellung' })}
+      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()) + ' · ' + (uiStyle() === 'classic' ? 'Klassisch' : 'Dynamisch'), push: 'darstellung' })}
       ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
     </div>
 
@@ -3531,7 +3531,13 @@ function settingsPageProfil(el, title) {
 }
 
 // — Darstellung —————————————————————————————————————————————————————————
-function statsStyle() { return lsGet('etb_stats_style') === 'classic' ? 'classic' : 'dynamic'; }
+function uiStyle() { return lsGet('etb_ui_style') === 'classic' ? 'classic' : 'dynamic'; }
+function applyUiStyle(v) {
+  lsSet('etb_ui_style', v);
+  document.documentElement.setAttribute('data-ui', v);
+}
+// Statistik folgt dem App-Stil
+function statsStyle() { return uiStyle(); }
 
 function settingsPageDarstellung(el, title) {
   const cur = currentTheme();
@@ -3547,20 +3553,20 @@ function settingsPageDarstellung(el, title) {
       ${opt('dark', 'Dunkel', 'Angenehm im Nachtdienst')}
     </div>
     <p class="set-group-footer">Bedienung und Funktionen sind in allen Designs gleich.</p>
-    <div class="set-group-header">Statistik</div>
-    <div class="set-group" role="radiogroup" aria-label="Statistik">
-      ${['dynamic', 'classic'].map((v) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${statsStyle() === v}" data-stats-choice="${v}">
-        <span class="set-row-text"><span class="set-row-title">${v === 'dynamic' ? 'Dynamisch' : 'Klassisch'}</span><span class="set-row-sub">${v === 'dynamic' ? 'Podest, Anteilsbalken, Tageszeit-Raster und Farbe' : 'Schlichte Ranglisten mit Kreisdiagrammen'}</span></span>
+    <div class="set-group-header">Stil</div>
+    <div class="set-group" role="radiogroup" aria-label="Stil">
+      ${['dynamic', 'classic'].map((v) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${uiStyle() === v}" data-ui-choice="${v}">
+        <span class="set-row-text"><span class="set-row-title">${v === 'dynamic' ? 'Dynamisch ✨' : 'Klassisch'}</span><span class="set-row-sub">${v === 'dynamic' ? 'Farbverläufe, schwebende Tab-Leiste, bunte Statistik mit Podest' : 'Schlicht im iOS-Stil, Statistik mit Ranglisten und Kreisdiagrammen'}</span></span>
         <span class="set-check">${SET_ICONS.check}</span>
       </button>`).join('')}
     </div>
-    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>`;
-  el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
+    <p class="set-group-footer">Gilt für die ganze App inklusive Statistik. Funktionen und Daten sind in beiden Stilen gleich.</p>`;
+  el.querySelectorAll('[data-ui-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      lsSet('etb_stats_style', btn.dataset.statsChoice);
-      el.querySelectorAll('[data-stats-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
+      applyUiStyle(btn.dataset.uiChoice);
+      el.querySelectorAll('[data-ui-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
       renderStats();
-      toast(btn.dataset.statsChoice === 'classic' ? 'Klassische Statistik aktiv.' : 'Dynamische Statistik aktiv.', 'success', 1500);
+      toast(btn.dataset.uiChoice === 'classic' ? 'Klassischer Stil aktiv.' : 'Dynamischer Stil aktiv ✨', 'success', 1500);
     });
   });
   el.querySelectorAll('[data-theme-choice]').forEach((btn) => {

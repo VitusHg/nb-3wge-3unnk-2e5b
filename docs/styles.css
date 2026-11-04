@@ -3417,3 +3417,121 @@ img.veh-sq { object-fit: cover !important; object-position: 50% 55%; }
 .sf-preset { padding: 6px 12px; border: 1px solid var(--border, transparent); border-radius: 999px; background: var(--card); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
 .sf-preset.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 #dialog-stats-filter .sf-section-title { border-bottom: none; padding-bottom: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   App-Stil „Dynamisch“ – liegt als Ebene über dem klassischen Design.
+   Aktiv mit <html data-ui="dynamic">. Klassisch = ohne diese Regeln.
+   ══════════════════════════════════════════════════════════════════════════ */
+html[data-ui="dynamic"] {
+  --dyn-grad: linear-gradient(135deg, #ff453a 0%, #ff2d55 45%, #bf5af2 100%);
+  --dyn-grad-cool: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 60%, #bf5af2 100%);
+  --dyn-grad-soft: linear-gradient(135deg, color-mix(in srgb, #ff453a 14%, var(--card)), color-mix(in srgb, #bf5af2 12%, var(--card)));
+  --dyn-glow: 0 8px 24px rgba(255, 45, 85, .28);
+  --dyn-radius: 20px;
+}
+/* Hintergrund: weiche Farbwolken */
+html[data-ui="dynamic"] body::before {
+  content: ''; position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(40% 35% at 15% 10%, rgba(255, 69, 58, .16), transparent 70%),
+    radial-gradient(35% 30% at 90% 20%, rgba(191, 90, 242, .16), transparent 70%),
+    radial-gradient(40% 35% at 70% 95%, rgba(10, 132, 255, .14), transparent 70%);
+  animation: dyn-drift 24s ease-in-out infinite alternate;
+}
+@keyframes dyn-drift { to { transform: translate3d(3%, -2%, 0) rotate(4deg); } }
+html[data-ui="dynamic"] #layout { position: relative; z-index: 1; }
+html[data-ui="dynamic"] .tab-panel, html[data-ui="dynamic"] #service-list-panel, html[data-ui="dynamic"] #service-detail-panel { background: transparent; }
+
+/* Große Titel mit Farbverlauf */
+html[data-ui="dynamic"] .large-title {
+  width: fit-content; max-width: 100%;
+  background: var(--dyn-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-weight: 900; letter-spacing: -.5px;
+}
+
+/* Tab-Leiste: schwebende Glas-Pille */
+@media (max-width: 760px) {
+  html[data-ui="dynamic"] #sidebar {
+    left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 8px); width: auto; height: 64px; padding: 6px;
+    border-radius: 26px; border: .5px solid color-mix(in srgb, var(--text) 12%, transparent);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+  }
+  html[data-ui="dynamic"] .nav-btn { height: 52px; border-radius: 20px; padding-top: 5px; transition: color .2s, transform .2s; }
+  html[data-ui="dynamic"] .nav-btn.active { color: #fff; background: var(--dyn-grad) !important; box-shadow: var(--dyn-glow) !important; transform: translateY(-2px); }
+  html[data-ui="dynamic"] .nav-btn.active .nav-icon svg { fill-opacity: .3; }
+}
+@media (min-width: 761px) {
+  html[data-ui="dynamic"] .nav-btn.active { color: #fff; background: var(--dyn-grad); box-shadow: var(--dyn-glow); }
+}
+
+/* Karten */
+html[data-ui="dynamic"] .service-card,
+html[data-ui="dynamic"] .hm-card,
+html[data-ui="dynamic"] .dp-shift-card,
+html[data-ui="dynamic"] .set-group {
+  border-radius: var(--dyn-radius); border: none;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent) inset, 0 6px 20px rgba(0, 0, 0, .14);
+}
+html[data-ui="dynamic"] .service-card { position: relative; border-left: none; margin-bottom: 8px; animation: dyn-in .4s var(--ease-ios) both; }
+html[data-ui="dynamic"] .service-card::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--dyn-grad-cool); }
+html[data-ui="dynamic"] .service-card:nth-child(2) { animation-delay: .03s; } html[data-ui="dynamic"] .service-card:nth-child(3) { animation-delay: .06s; }
+html[data-ui="dynamic"] .service-card:nth-child(4) { animation-delay: .09s; } html[data-ui="dynamic"] .service-card:nth-child(5) { animation-delay: .12s; }
+html[data-ui="dynamic"] .service-card:active { transform: scale(.985); }
+@keyframes dyn-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+html[data-ui="dynamic"] .dp-shift-card { border-left: none; position: relative; }
+html[data-ui="dynamic"] .dp-shift-card::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 0 4px 4px 0; background: var(--dyn-grad); }
+html[data-ui="dynamic"] .dp-shift-card.is-saved::before { background: linear-gradient(#30d158, #0b6e4f); }
+html[data-ui="dynamic"] .hm-card { animation: dyn-in .45s var(--ease-ios) both; }
+html[data-ui="dynamic"] .hm-hero.is-active { position: relative; box-shadow: 0 10px 30px rgba(255, 45, 85, .25); }
+html[data-ui="dynamic"] .hm-hero.is-active::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px; pointer-events: none;
+  background: conic-gradient(from var(--dyn-a, 0deg), #ff453a, #bf5af2, #0a84ff, #30d158, #ff453a);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: dyn-spin 6s linear infinite;
+}
+@property --dyn-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes dyn-spin { to { --dyn-a: 360deg; } }
+html[data-ui="dynamic"] .hm-progress-track { height: 8px; border-radius: 4px; }
+html[data-ui="dynamic"] .hm-progress-fill { background: var(--dyn-grad); box-shadow: 0 0 12px rgba(255, 45, 85, .5); }
+
+/* Monatsüberschriften als Pillen */
+html[data-ui="dynamic"] .svc-month > span:first-child::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 1px; border-radius: 50%; background: var(--dyn-grad); }
+html[data-ui="dynamic"] .svc-month > span:first-child { color: var(--text); font-weight: 800; }
+
+/* Knöpfe */
+html[data-ui="dynamic"] .btn-primary { background: var(--dyn-grad); border: none; box-shadow: var(--dyn-glow); color: #fff; }
+html[data-ui="dynamic"] .btn-primary:active { transform: scale(.97); }
+html[data-ui="dynamic"] .btn-secondary { background: color-mix(in srgb, #bf5af2 14%, var(--card)); border-color: transparent; }
+html[data-ui="dynamic"] .icon-round, html[data-ui="dynamic"] .hm-add-inc { box-shadow: var(--dyn-glow); }
+html[data-ui="dynamic"] .icon-round.is-primary, html[data-ui="dynamic"] #btn-add-service { background: var(--dyn-grad) !important; }
+
+/* Einstellungen: bunte Symbole */
+html[data-ui="dynamic"] .sq-icon { border-radius: 10px; background-image: linear-gradient(135deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0)); box-shadow: 0 3px 8px rgba(0, 0, 0, .18); }
+html[data-ui="dynamic"] .set-row:active { background: color-mix(in srgb, #bf5af2 10%, var(--card)); }
+
+/* Dialoge & Sheets */
+html[data-ui="dynamic"] .dialog-box { border-radius: 26px; position: relative; overflow: hidden; }
+html[data-ui="dynamic"] .dialog-box::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--dyn-grad); z-index: 2; }
+html[data-ui="dynamic"] .lp-box::before { display: none; }
+html[data-ui="dynamic"] .dialog-header h3 { font-weight: 800; }
+html[data-ui="dynamic"] .as-group { border-radius: 20px; }
+html[data-ui="dynamic"] .toast { border-radius: 18px; box-shadow: 0 10px 30px rgba(0, 0, 0, .3); }
+
+/* Eingaben */
+html[data-ui="dynamic"] input:focus, html[data-ui="dynamic"] textarea:focus, html[data-ui="dynamic"] select:focus {
+  outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, #bf5af2 40%, transparent) !important; border-color: #bf5af2 !important;
+}
+
+/* Kleine Hingucker */
+html[data-ui="dynamic"] .home-inc-dot.lights, html[data-ui="dynamic"] .st-dot.on { box-shadow: 0 0 8px #0a84ff; }
+html[data-ui="dynamic"] .rv-banner { box-shadow: var(--dyn-glow); }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="dynamic"] body::before, html[data-ui="dynamic"] .hm-hero.is-active::before { animation: none; }
+  html[data-ui="dynamic"] .service-card, html[data-ui="dynamic"] .hm-card { animation: none; }
+}
+
+@media (max-width: 760px) {
+  html[data-ui="dynamic"] { --tabbar-h: calc(84px + var(--safe-bottom)); }
+}
+html[data-ui="dynamic"] .btn-round-add { background: var(--dyn-grad); box-shadow: var(--dyn-glow); }
