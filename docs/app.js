@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 51;
+const APP_VERSION = 52;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4583,6 +4583,43 @@ function computeReview(period) {
   // Einsätze nach Wochentag (Mo … So)
   const perWeekday = Array.from({ length: 7 }, () => 0);
   incs.forEach((x) => { const d = parseLocalDt(x.svc.startAt); if (d) perWeekday[(d.getDay() + 6) % 7]++; });
+  // Fahrzeuge: Schichten, Einsätze, Blaulicht
+  const vm = new Map();
+  duty.forEach((x) => {
+    if (!x.vehicle) return;
+    const v = vm.get(x.vehicle) || { name: x.vehicle, shifts: 0, incs: 0, lights: 0 };
+    v.shifts++; v.incs += (x.incidents || []).length; v.lights += (x.incidents || []).filter((i) => i.lights).length;
+    vm.set(x.vehicle, v);
+  });
+  const vehStats = [...vm.values()].sort((a, b) => b.shifts - a.shifts || b.incs - a.incs);
+  const chrono = duty.slice().sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  let vehStreak = null;
+  for (let i = 0, run = 0; i < chrono.length; i++) {
+    run = i && chrono[i].vehicle && chrono[i].vehicle === chrono[i - 1].vehicle ? run + 1 : 1;
+    if (chrono[i].vehicle && (!vehStreak || run > vehStreak.n)) vehStreak = { name: chrono[i].vehicle, n: run };
+  }
+  // Uhrzeit: nur Einsätze, die während der Schicht angelegt wurden
+  const perHour = Array.from({ length: 24 }, () => 0);
+  incs.forEach((x) => {
+    const c = x.inc.createdAt ? new Date(x.inc.createdAt) : null;
+    const a = parseLocalDt(x.svc.startAt), b = parseLocalDt(x.svc.endAt);
+    if (c && a && b && c >= a && c <= new Date(b.getTime() + 2 * 3600e3)) perHour[c.getHours()]++;
+  });
+  // Crew-Chemie: Ø Einsätze pro Schicht je Kolleg:in (ab 2 gemeinsamen Schichten)
+  const cm = new Map();
+  duty.forEach((x) => (x.colleagues || []).filter(Boolean).forEach((c) => {
+    const e = cm.get(c) || { name: c, shifts: 0, incs: 0 };
+    e.shifts++; e.incs += (x.incidents || []).length; cm.set(c, e);
+  }));
+  const crewChem = [...cm.values()].filter((e) => e.shifts >= 2).map((e) => ({ ...e, avg: e.incs / e.shifts })).sort((a, b) => b.avg - a.avg);
+  // Längste Pause zwischen zwei Diensten
+  let longestGap = null;
+  for (let i = 1; i < chrono.length; i++) {
+    const a = parseLocalDt(chrono[i - 1].endAt), b = parseLocalDt(chrono[i].startAt);
+    if (!a || !b) continue;
+    const days = Math.floor((b - a) / 864e5);
+    if (!longestGap || days > longestGap.days) longestGap = { days, from: a, to: b };
+  }
   const svcPerMonth = Array.from({ length: 12 }, () => 0);
   duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) svcPerMonth[d.getMonth()]++; });
   // Vergleich mit dem Zeitraum davor
@@ -4612,6 +4649,7 @@ function computeReview(period) {
     runs, longestRun: runs.slice().sort((a, b) => b.hours - a.hours)[0] || null,
     lightsRecord: duty.map((x) => ({ svc: x, n: (x.incidents || []).filter((i) => i.lights).length })).sort((a, b) => b.n - a.n)[0] || null,
     perWeekday,
+    vehStats, vehStreak, perHour, crewChem, longestGap,
     prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0 },
   };
 }
@@ -4719,7 +4757,7 @@ function buildStorySlides(r) {
   if (r.incs.length) {
     const pct = Math.round((r.lights / r.incs.length) * 100);
     const verdict = pct >= 60 ? 'Du lebst auf der linken Spur. 🏎️' : pct >= 30 ? 'Gesunde Mischung aus Tatütata und Gemütlichkeit.' : pct > 0 ? 'Meistens ganz entspannt unterwegs. 🐢' : 'Kein einziges Mal Blaulicht – Zen-Meister:in. 🧘';
-    pool.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Sonderrechte</div><div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">mit Blaulicht 🔵</p>
+    pool.push({ bg: 'st-bg-4', fx: pct >= 30 ? 'sosi' : '', html: `<div class="st-kicker">Sonderrechte</div><div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">mit Blaulicht 🔵</p>
       <div class="st-bar"><span style="width:${pct}%"></span></div>
       <p class="st-text">${r.lights} mit, ${r.incs.length - r.lights} ohne Sonderrechte.</p><p class="st-text">${verdict}</p>` });
   }
@@ -4732,7 +4770,7 @@ function buildStorySlides(r) {
   // Wildester Dienst mit Einsatzliste (antippbar)
   if (r.busiest && (r.busiest.incidents || []).length > 1) {
     const incs = incidentsNewestFirst(r.busiest.incidents).reverse().slice(0, 7);
-    pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Dein wildester Dienst</div>
+    pool.push({ bg: 'st-bg-6', rain: '🔥', html: `<div class="st-kicker">Dein wildester Dienst</div>
       <div class="st-big st-big-sm" data-count="${r.busiest.incidents.length}">0</div><p class="st-lead">Einsätze in einer Schicht 🔥</p>
       <p class="st-text"><strong>${escHtml(fmtDay(r.busiest))}</strong> · ${escHtml(r.busiest.vehicle || 'Dienst')}</p>
       <div class="st-list">${incs.map((inc, i) => `<button type="button" class="st-list-row" style="--i:${i}" data-st-inc="${escHtml(inc.id)}" data-st-svc="${escHtml(r.busiest.id)}">
@@ -4786,7 +4824,8 @@ function buildStorySlides(r) {
       const [code, n] = r.topPzc;
       const quip = pzcQuip(`${code} ${pzcDiagnosis(code)}`.toLowerCase(), n);
       const others = r.pzcList.slice(1, 3).filter(([, c]) => c >= 2);
-      pzcSlides.push({ bg: 'st-bg-11', html: `<div class="st-kicker">PZC-Analyse</div>
+      const tt = `${code} ${pzcDiagnosis(code)}`.toLowerCase();
+      pzcSlides.push({ bg: 'st-bg-11', rain: /katheter|harn/.test(tt) ? '💧' : /alkohol/.test(tt) ? '🍻' : /hypogly/.test(tt) ? '🍬' : /übelkeit|erbrechen/.test(tt) ? '🤢' : '', html: `<div class="st-kicker">PZC-Analyse</div>
         <div class="st-big st-big-sm">${escHtml(code)}</div><p class="st-lead">${escHtml(label(code))}</p>
         <p class="st-text"><strong>${n}×</strong> ${zr} – ${Math.round((n / pzcTotal) * 100)} % aller vergebenen PZCs.</p>
         <p class="st-text">${quip}</p>
@@ -4831,7 +4870,7 @@ function buildStorySlides(r) {
       : /kind|pädiat/.test(t) ? 'Kleine Patient:innen, große Herzen. 🧸'
       : /geburt|gyn/.test(t) ? 'Storch-Express. 🍼'
       : 'Spannend, was alles dabei war.';
-    pool.push({ bg: 'st-bg-5', html: `<div class="st-kicker">Statistikkennzahl im Fokus</div><div class="st-emoji">🔎</div>
+    pool.push({ bg: 'st-bg-5', rain: /alkohol|rausch|intox/.test(t) ? '🍻' : '', html: `<div class="st-kicker">Statistikkennzahl im Fokus</div><div class="st-emoji">🔎</div>
       ${big(n)}<p class="st-lead">× ${escHtml(label)}</p><p class="st-text">${quip}</p>` });
   }
 
@@ -4865,7 +4904,7 @@ function buildStorySlides(r) {
   // Längster Dienstblock
   if (r.longestRun && r.longestRun.items.length > 1) {
     const lr = r.longestRun;
-    pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Marathon-Block</div><div class="st-emoji">🏃</div>
+    pool.push({ bg: 'st-bg-6', rain: '☕', html: `<div class="st-kicker">Marathon-Block</div><div class="st-emoji">🏃</div>
       ${big(Math.round(lr.hours))}<p class="st-lead">Stunden am Stück</p>
       <p class="st-text"><strong>${lr.items.length} Schichten</strong> hintereinander · ${lr.incidents} Einsätze</p>
       <p class="st-text st-small">${escHtml(runLabel(lr))}</p>
@@ -4874,7 +4913,7 @@ function buildStorySlides(r) {
 
   // Blaulicht-Rekord in einer Schicht
   if (r.lightsRecord && r.lightsRecord.n >= 2) {
-    pool.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Blaulicht-Rekord</div><div class="st-emoji">🚨</div>
+    pool.push({ bg: 'st-bg-4', fx: 'sosi', html: `<div class="st-kicker">Blaulicht-Rekord</div><div class="st-emoji">🚨</div>
       ${big(r.lightsRecord.n)}<p class="st-lead">Blaulichtfahrten in einer Schicht</p>
       <p class="st-text">${escHtml(fmtDay(r.lightsRecord.svc))} · ${escHtml(r.lightsRecord.svc.vehicle || 'Dienst')}</p>` });
   }
@@ -4906,10 +4945,156 @@ function buildStorySlides(r) {
       <p class="st-text">Am meisten los: <strong>${WEEKDAY_LONG[(r.perWeekday.indexOf(max) + 1) % 7]}</strong></p>` });
   }
 
-  // Auswahl: bis zu 9 Folien aus dem Pool, jedes Mal anders gemischt
-  const body = shuffle(pool).slice(0, isYear ? 10 : 8);
+  // ── Fahrzeug-Spielereien ──────────────────────────────────────────────
+  const vimg = (name, sosi, cls = '') => {
+    const src = vehicleIconSrc(name, sosi);
+    return src ? `<img class="st-vimg ${cls}" src="${escHtml(src)}" alt="">` : `<span class="st-vimg st-vemoji ${cls}">🚑</span>`;
+  };
+  const hasIcons = r.vehStats.some((v) => vehicleIconSrc(v.name));
 
-  const tail = { bg: 'st-bg-1', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
+  // Fuhrpark-Parade: alle Fahrzeuge fahren im Konvoi durchs Bild
+  if (r.vehStats.length >= 2 && hasIcons) {
+    const cars = r.vehStats.slice(0, 6);
+    pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Fuhrpark-Parade</div>
+      <h2 class="st-title">${r.vehStats.length} Fahrzeuge</h2>
+      <div class="st-road">${cars.map((v, i) => `<div class="st-car" style="--i:${i};--n:${cars.length}">${v.lights / Math.max(1, v.incs) >= 0.5 && vehicleIconSrc(v.name, true) !== vehicleIconSrc(v.name) ? `<span class="st-blink">${vimg(v.name, false, 'is-n')}${vimg(v.name, true, 'is-s')}</span>` : vimg(v.name, false)}</div>`).join('')}</div>
+      <div class="st-chips">${cars.map((v, i) => `<span class="st-chip-s" style="--i:${i}">${escHtml(v.name)} · ${v.shifts}×</span>`).join('')}</div>
+      <p class="st-text st-small">Mit Blaulicht unterwegs: wer mehr als die Hälfte seiner Einsätze mit Sonderrechten gefahren ist</p>` });
+  }
+
+  // Jede Schicht ein Icon
+  if (r.duty.length >= 6 && hasIcons) {
+    const shown = r.duty.slice().sort((a, b) => (a.startAt || '').localeCompare(b.startAt || '')).slice(-60);
+    const withL = shown.filter((x) => (x.incidents || []).some((i) => i.lights)).length;
+    pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">${isYear ? 'Dein Jahr' : 'Dein Monat'} in Fahrzeugen</div>
+      <div class="st-wall${shown.length > 30 ? ' is-dense' : ''}">${shown.map((x, i) => { const l = (x.incidents || []).some((k) => k.lights); return `<span class="st-wall-i${l ? ' is-l' : ''}" style="--i:${i}">${vimg(x.vehicle, l)}</span>`; }).join('')}</div>
+      <p class="st-text">Jedes Icon eine Schicht – <strong>${withL}</strong> davon mit Blaulicht 🔵</p>` });
+  }
+
+  // Blaulicht-Champion: Fahrzeug mit der höchsten Blaulichtquote
+  const champ = r.vehStats.filter((v) => v.incs >= 3).sort((a, b) => b.lights / b.incs - a.lights / a.incs)[0];
+  if (champ && champ.lights) {
+    const pct = Math.round((champ.lights / champ.incs) * 100);
+    pool.push({ bg: 'st-bg-4', fx: 'sosi', html: `<div class="st-kicker">Blaulicht-Champion</div>
+      <div class="st-champ">${vimg(champ.name, false, 'is-n')}${vimg(champ.name, true, 'is-s')}</div>
+      <h2 class="st-title">${escHtml(champ.name)}</h2>
+      <div class="st-big st-big-sm"><span data-count="${pct}">0</span>%</div><p class="st-lead">der Einsätze mit Sonderrechten</p>
+      <p class="st-text">${pct >= 60 ? 'Das Ding kennt nur eine Spur: die linke. 🏎️' : pct >= 30 ? 'Tatütata mit Ansage.' : 'Selbst der Champion fährt meistens gemütlich. 🐢'}</p>` });
+  }
+
+  // Fahrzeug-Duell der beiden häufigsten Fahrzeuge
+  if (r.vehStats.length >= 2 && r.vehStats[1].shifts >= 2) {
+    const [a, b] = r.vehStats;
+    const per = (v) => v.shifts ? v.incs / v.shifts : 0;
+    const lp = (v) => v.incs ? Math.round((v.lights / v.incs) * 100) : 0;
+    const row = (label, x, y, fmt) => `<div class="st-duel-row"><span class="${x > y ? 'win' : ''}">${fmt(x)}</span><small>${label}</small><span class="${y > x ? 'win' : ''}">${fmt(y)}</span></div>`;
+    const score = (per(a) > per(b)) + (lp(a) > lp(b)) + (a.shifts > b.shifts) - (per(b) > per(a)) - (lp(b) > lp(a)) - (b.shifts > a.shifts);
+    pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Fahrzeug-Duell</div>
+      <div class="st-duel"><div class="st-duel-a">${vimg(a.name, false)}<b>${escHtml(a.name)}</b></div><div class="st-vs">VS</div><div class="st-duel-b">${vimg(b.name, false, 'is-flip')}<b>${escHtml(b.name)}</b></div></div>
+      <div class="st-duel-rows">
+        ${row('Schichten', a.shifts, b.shifts, String)}
+        ${row('Ø Einsätze/Schicht', per(a), per(b), (v) => fmtNum(Math.round(v * 10) / 10))}
+        ${row('Blaulicht', lp(a), lp(b), (v) => v + ' %')}
+      </div>
+      <p class="st-text">${score === 0 ? 'Unentschieden – beide gleich gut. 🤝' : `Sieger: <strong>${escHtml((score > 0 ? a : b).name)}</strong> 🏆`}</p>` });
+  }
+
+  // Treueste Beziehung: meiste Schichten in Folge auf demselben Fahrzeug
+  if (r.vehStreak && r.vehStreak.n >= 3) {
+    pool.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Treueste Beziehung</div>
+      <div class="st-love">${vimg(r.vehStreak.name, false)}<span class="st-heart">❤️</span></div>
+      ${big(r.vehStreak.n)}<p class="st-lead">Schichten in Folge auf ${escHtml(r.vehStreak.name)}</p>
+      <p class="st-text">${r.vehStreak.n >= 6 ? 'Ihr seid quasi verheiratet. 💍' : 'Da bahnt sich was an. 😍'}</p>` });
+  }
+
+  // ── weitere Auswertungen ─────────────────────────────────────────────────
+  // Rush-Hour nach Uhrzeit der Einsätze
+  const hourTotal = r.perHour.reduce((a, b) => a + b, 0);
+  if (hourTotal >= 6) {
+    const max = Math.max(...r.perHour);
+    const h = r.perHour.indexOf(max);
+    const night = r.perHour.slice(0, 6).reduce((a, b) => a + b, 0);
+    pool.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Deine Rush-Hour</div>
+      <h2 class="st-title">${String(h).padStart(2, '0')}–${String((h + 1) % 24).padStart(2, '0')} Uhr</h2>
+      <div class="st-hours">${r.perHour.map((n, i) => `<span class="${i === h ? 'is-best' : ''}" style="--i:${i};height:${Math.max(4, Math.round((n / max) * 100))}%"></span>`).join('')}</div>
+      <div class="st-hours-l"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
+      <p class="st-text">${night / hourTotal >= 0.2 ? `${night} Einsätze zwischen 0 und 6 Uhr – Geisterstunde. 👻` : h < 10 ? 'Morgenstund hat Blaulicht im Mund. 🌅' : h < 17 ? 'Mittags ist am meisten los. 🍝' : 'Abends geht’s rund. 🌆'}</p>` });
+  }
+
+  // Couch-Schichten ohne Einsatz
+  const quiet = r.duty.filter((x) => !(x.incidents || []).length).length;
+  if (quiet && r.duty.length >= 3) {
+    pool.push({ bg: 'st-bg-5', rain: '🛋️', html: `<div class="st-kicker">Couch-Schichten</div><div class="st-emoji">🛋️</div>
+      ${big(quiet)}<p class="st-lead">${quiet === 1 ? 'Schicht' : 'Schichten'} ganz ohne Einsatz</p>
+      <p class="st-text">${pick(['Netflix & Chill auf der Wache. 📺', 'Fahrzeugpflege deluxe. 🧽', 'Der Kaffee war wenigstens heiß. ☕'])}</p>` });
+  }
+
+  // Crew-Chemie: mit wem wird es wild, mit wem ruhig?
+  if (r.crewChem.length >= 2) {
+    const wild = r.crewChem[0], calm = r.crewChem[r.crewChem.length - 1];
+    if (wild.avg - calm.avg >= 0.5) {
+      pool.push({ bg: 'st-bg-3', html: `<div class="st-kicker">Crew-Chemie</div><div class="st-emoji">⚗️</div>
+        <p class="st-text">Mit <strong>${escHtml(wild.name)}</strong> wird’s wild:</p><div class="st-big st-big-sm">Ø ${fmtNum(Math.round(wild.avg * 10) / 10)}</div><p class="st-lead">Einsätze pro Schicht 🌪️</p>
+        <p class="st-text">Mit <strong>${escHtml(calm.name)}</strong> bleibt’s ruhig: Ø ${fmtNum(Math.round(calm.avg * 10) / 10)} – Glücksbringer:in 🍀</p>` });
+    }
+  }
+
+  // Erster und letzter Einsatz
+  if (r.incs.length >= 3) {
+    const sorted = r.incs.slice().sort((a, b) => (a.svc.startAt || '').localeCompare(b.svc.startAt || '') || (a.inc.createdAt || '').localeCompare(b.inc.createdAt || ''));
+    const f = sorted[0], l = sorted[sorted.length - 1];
+    const card = (x, k) => `<button type="button" class="st-fl" data-st-inc="${escHtml(x.inc.id)}" data-st-svc="${escHtml(x.svc.id)}"><small>${k}</small><b>${escHtml(x.inc.alarmCode || 'Einsatz')}</b><span>${escHtml(fmtDay(x.svc))}</span></button>`;
+    pool.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Anfang & Ende</div><div class="st-emoji">🎬</div>
+      ${card(f, 'Alles begann mit')}<div class="st-fl-dots">⋮</div>${card(l, 'und endete mit')}
+      <p class="st-text st-small">${r.incs.length - 2} Einsätze dazwischen</p>` });
+  }
+
+  // Längste Pause (Jahr)
+  if (isYear && r.longestGap && r.longestGap.days >= 7) {
+    const g = r.longestGap;
+    pool.push({ bg: 'st-bg-5', rain: '🏝️', html: `<div class="st-kicker">Längste Pause</div><div class="st-emoji">🏝️</div>
+      ${big(g.days)}<p class="st-lead">Tage ohne Dienst</p>
+      <p class="st-text">${escHtml(g.from.toLocaleDateString('de-AT', { day: 'numeric', month: 'long' }))} bis ${escHtml(g.to.toLocaleDateString('de-AT', { day: 'numeric', month: 'long' }))}</p>
+      <p class="st-text">${g.days >= 21 ? 'Urlaub verdient! 🌴' : 'Kurz durchschnaufen. 😮‍💨'}</p>` });
+  }
+
+  // Wochenend-Krieger:in
+  const we = r.weekdays[0] + r.weekdays[6];
+  if (r.duty.length >= 4 && we) {
+    const pct = Math.round((we / r.duty.length) * 100);
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Wochenende</div><div class="st-emoji">${pct >= 40 ? '🎉' : '🗓️'}</div>
+      <div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">deiner Schichten am Wochenende</p>
+      <p class="st-text">${pct >= 40 ? 'Wochenend-Krieger:in – Party machen die anderen. 🪩' : pct >= 25 ? 'Ganz normal verteilt.' : 'Wochenende ist heilig. 😇'}</p>` });
+  }
+
+  // Quiz: Tippen zum Raten
+  const quizzes = [];
+  if (r.vehStats.length >= 3) {
+    const opts = shuffle(r.vehStats.slice(0, 3));
+    quizzes.push({ q: 'Mit welchem Fahrzeug warst du am öftesten unterwegs?', opts: opts.map((v) => ({ html: `${vimg(v.name, false, 'is-q')}<span>${escHtml(v.name)}</span>`, ok: v === r.vehStats[0], sub: `${v.shifts}×` })) });
+  }
+  if (r.topKeywords.length >= 3) {
+    const [kw, n] = pick(r.topKeywords.slice(0, 3));
+    const wrong = shuffle([Math.max(1, n - 2 - Math.floor(Math.random() * 3)), n + 2 + Math.floor(Math.random() * 4)].filter((x) => x !== n));
+    const vals = shuffle([n, ...wrong.slice(0, 2)]);
+    quizzes.push({ q: `Wie oft hattest du „${escHtml(kw)}“?`, opts: vals.map((v) => ({ html: `<span class="st-q-n">${v}×</span>`, ok: v === n })) });
+  }
+  if (r.topCrew.length >= 3) {
+    const opts = shuffle(r.topCrew.slice(0, 3));
+    quizzes.push({ q: 'Mit wem warst du am häufigsten im Dienst?', opts: opts.map(([name, n]) => ({ html: `<span>${escHtml(name)}</span>`, ok: name === r.topCrew[0][0], sub: `${n}×` })) });
+  }
+  if (quizzes.length) {
+    const qz = pick(quizzes);
+    pool.push({ bg: 'st-bg-7', ms: 11000, html: `<div class="st-kicker">Quiz</div><div class="st-emoji">🤔</div>
+      <h2 class="st-title st-title-sm">${qz.q}</h2>
+      <div class="st-quiz">${qz.opts.map((o, i) => `<button type="button" class="st-q" style="--i:${i}" data-quiz="${o.ok ? 1 : 0}">${o.html}${o.sub ? `<small>${escHtml(o.sub)}</small>` : ''}</button>`).join('')}</div>
+      <p class="st-text st-small st-q-hint">Tippe auf deine Antwort</p>` });
+  }
+
+  // Auswahl: jedes Mal anders gemischt, nicht immer alle Module
+  const body = shuffle(pool).slice(0, isYear ? 11 : 9);
+
+  const tail = { bg: 'st-bg-1', fx: 'confetti', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
     <div class="st-sum">
       <div><span>${r.duty.length}</span>Schichten</div>
       <div><span>${fmtNum(Math.round(r.hours))}</span>Stunden</div>
@@ -4953,6 +5138,22 @@ function closeStory() {
   if (activeTab === 'home') renderHome().catch(() => {});
 }
 
+function pick1(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+/** Hintergrund-Effekte einer Folie: Blaulicht-Blitzer, Konfetti, Emoji-Regen. */
+function storyFxHtml(sl) {
+  if (prefersReducedMotion()) return '';
+  if (sl.fx === 'sosi') return '<div class="st-fx st-fx-sosi" aria-hidden="true"><i></i><i></i></div>';
+  if (sl.fx === 'confetti') {
+    const cols = ['#ffd60a', '#ff453a', '#64d2ff', '#30d158', '#bf5af2', '#fff'];
+    return `<div class="st-fx" aria-hidden="true">${Array.from({ length: 42 }, (_, i) => `<i class="st-conf" style="left:${Math.random() * 100}%;background:${cols[i % cols.length]};animation-delay:${(Math.random() * 1.2).toFixed(2)}s;animation-duration:${(2.2 + Math.random() * 1.8).toFixed(2)}s;--r:${Math.round(Math.random() * 720 - 360)}deg"></i>`).join('')}</div>`;
+  }
+  if (sl.rain) {
+    return `<div class="st-fx" aria-hidden="true">${Array.from({ length: 16 }, () => `<i class="st-rain" style="left:${Math.random() * 96}%;font-size:${Math.round(18 + Math.random() * 22)}px;animation-delay:${(Math.random() * 4).toFixed(2)}s;animation-duration:${(3.5 + Math.random() * 3).toFixed(2)}s">${sl.rain}</i>`).join('')}</div>`;
+  }
+  return '';
+}
+
 function showStorySlide(i) {
   if (!story) return;
   if (i < 0) i = 0;
@@ -4961,12 +5162,14 @@ function showStorySlide(i) {
   const sl = story.slides[i];
   const stage = story.el.querySelector('.st-stage');
   stage.className = 'st-stage ' + sl.bg;
-  stage.innerHTML = `<div class="st-slide">${sl.html}</div>`;
+  if (!sl.tr) sl.tr = 1 + Math.floor(Math.random() * 5);
+  stage.innerHTML = `${storyFxHtml(sl)}<div class="st-slide st-tr-${sl.tr}">${sl.html}</div>`;
   story.el.querySelectorAll('.st-progress span').forEach((b, k) => {
     b.classList.toggle('done', k < i);
     b.classList.toggle('active', k === i);
     const bar = b.querySelector('i');
     bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = '';
+    bar.style.animationDuration = k === i ? (sl.ms || STORY_SLIDE_MS) + 'ms' : '';
   });
   // Zahlen hochzählen
   stage.querySelectorAll('[data-count]').forEach((n) => {
@@ -4987,6 +5190,20 @@ function showStorySlide(i) {
     const per = story.period;
     openStory(per.kind, per.year, per.month);
   });
+  stage.querySelectorAll('[data-quiz]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const box = b.closest('.st-quiz');
+    if (box.classList.contains('answered')) return;
+    box.classList.add('answered');
+    b.classList.add('picked');
+    const ok = b.dataset.quiz === '1';
+    const hint = stage.querySelector('.st-q-hint');
+    if (hint) hint.innerHTML = ok ? pick1(['Richtig! 🎯', 'Volltreffer! 🎉', 'Genau so war’s! 👏']) : pick1(['Knapp daneben! 😅', 'Leider nein – aber fast. 🙈', 'Nope! Gut, dass es das Tagebuch gibt. 📓']);
+    if (ok) stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' }));
+    // nach der Antwort noch kurz stehen lassen
+    story.elapsed = Math.max(0, (sl.ms || STORY_SLIDE_MS) - 3500);
+    scheduleStoryNext();
+  }));
   stage.querySelectorAll('[data-st-inc]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     const svcId = b.dataset.stSvc, incId = b.dataset.stInc;
@@ -5003,7 +5220,8 @@ function scheduleStoryNext() {
   story.started = Date.now();
   story.el.classList.remove('paused');
   if (story.i === story.slides.length - 1) return; // letzte Folie bleibt stehen
-  story.timer = setTimeout(() => showStorySlide(story.i + 1), STORY_SLIDE_MS - story.elapsed);
+  const ms = story.slides[story.i].ms || STORY_SLIDE_MS;
+  story.timer = setTimeout(() => showStorySlide(story.i + 1), Math.max(0, ms - story.elapsed));
 }
 
 function pauseStory() {
@@ -5024,12 +5242,12 @@ function bindStoryGestures(el) {
   let x0 = 0, y0 = 0, t0 = 0, holdTimer = 0, held = false;
   el.querySelector('.st-close').addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc]')) return;
+    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc], [data-quiz]')) return;
     x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); held = false;
     holdTimer = setTimeout(() => { held = true; pauseStory(); }, 250);
   });
   el.addEventListener('pointerup', (e) => {
-    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc]')) return;
+    if (e.target.closest('.st-close, .st-done, .st-again, [data-st-inc], [data-quiz]')) return;
     clearTimeout(holdTimer);
     const dy = e.clientY - y0, dx = e.clientX - x0;
     if (held) { resumeStory(); return; }
