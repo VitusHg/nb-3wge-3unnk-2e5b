@@ -3513,3 +3513,4 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .hm-inc-btns { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .hm-bell { width: 40px; height: 40px; border: none; border-radius: 50%; background: var(--fill); font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
 .hm-bell:active { transform: scale(.93); }
+.set-action.is-strong .set-row-title { font-weight: 700; }

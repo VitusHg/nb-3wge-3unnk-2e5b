@@ -3459,7 +3459,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 76;
+const APP_VERSION = 77;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3892,12 +3892,35 @@ function settingsPageUeber(el, title) {
       <div class="set-row"><span class="set-row-text set-row-title">Version</span><span class="set-row-value">${APP_VERSION}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Stand</span><span class="set-row-value">${APP_VERSION_DATE}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Offline gespeichert</span><span class="set-row-value" id="about-sw">…</span></div>
+      <div class="set-row"><span class="set-row-text set-row-title">Neueste Version</span><span class="set-row-value" id="about-latest">…</span></div>
+      <button type="button" class="set-row set-action" id="btn-app-update"><span class="set-row-text set-row-title">Nach Update suchen</span></button>
     </div>
+    <p class="set-group-footer">Lädt die App-Dateien frisch vom Server. Deine Daten, Einstellungen und Mitteilungen bleiben erhalten.</p>
     <div class="set-group">
       <div class="set-row"><span class="set-row-text set-row-title">Als App installiert</span><span class="set-row-value">${standalone ? 'Ja' : 'Nein'}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Dauerhafter Speicher</span><span class="set-row-value" id="about-persist">…</span></div>
     </div>
     <p class="set-group-footer">${standalone ? '' : 'Tipp: In Safari „Teilen → Zum Home-Bildschirm“ wählen, dann startet das Tagebuch wie eine App. '}Privates Eigenprojekt – kein Angebot des ÖRK.</p>`;
+  // Neueste Version am Server prüfen, bei Bedarf aktualisieren
+  const latestEl = el.querySelector('#about-latest');
+  const upd = el.querySelector('#btn-app-update');
+  let latest = null;
+  const check = async () => {
+    latestEl.textContent = 'wird geprüft …';
+    latest = await latestAppVersion();
+    if (latest === null) { latestEl.textContent = 'nicht erreichbar'; upd.querySelector('.set-row-title').textContent = 'Nach Update suchen'; return; }
+    const newer = latest > APP_VERSION;
+    latestEl.textContent = newer ? `Version ${latest} verfügbar` : `Version ${latest} ✓ aktuell`;
+    upd.querySelector('.set-row-title').textContent = newer ? `Jetzt auf Version ${latest} aktualisieren` : 'Trotzdem neu laden';
+    upd.classList.toggle('is-strong', newer);
+  };
+  check();
+  upd.addEventListener('click', async () => {
+    if (latest === null) { check(); return; }
+    upd.disabled = true;
+    upd.querySelector('.set-row-title').textContent = 'Wird aktualisiert …';
+    await forceAppUpdate();
+  });
   // Welche Version liegt offline auf dem Gerät (Service-Worker-Cache)?
   const swEl = el.querySelector('#about-sw');
   if ('caches' in window) {
@@ -4001,6 +4024,34 @@ async function renderStorageOverview(root) {
     toast('Fahrzeuggrafiken ausgelagert.', 'success', 2200);
     renderStorageOverview(root);
   });
+}
+
+/** Version, die gerade am Server liegt (aus sw.js gelesen, am Cache vorbei). */
+async function latestAppVersion() {
+  try {
+    const res = await fetch('./sw.js?v=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const m = /CACHE_PREFIX \+ 'v(\d+)'/.exec(await res.text());
+    return m ? Number(m[1]) : null;
+  } catch (_) { return null; }
+}
+
+/** App-Dateien frisch holen und neu starten – Daten und Mitteilungen bleiben. */
+async function forceAppUpdate() {
+  try {
+    const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if (reg) await reg.update().catch(() => {});
+    // Browser-Zwischenspeicher für die App-Dateien auffrischen
+    await Promise.all(['./', './index.html', './app.js', './styles.css', './sw.js', './manifest.json']
+      .map((u) => fetch(u, { cache: 'reload' }).catch(() => {})));
+    // eigene Offline-Kopien verwerfen (Fahrzeuggrafiken & Hinweise bleiben)
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k.startsWith('etb-cache-')).map((k) => caches.delete(k)));
+    }
+    if (reg && reg.waiting) reg.waiting.postMessage({ type: 'skip-waiting' });
+  } catch (_) {}
+  location.reload();
 }
 
 function updateUserLabel() {
@@ -8327,6 +8378,10 @@ function initAppLifecycle() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenSince = Date.now(); quickPushArm(); return; }
     if (!runningService()) quickNotifications().then((l) => l.forEach((n) => n.close()));
+    if ('serviceWorker' in navigator && Date.now() - (window.__swCheckedAt || 0) > 30 * 60e3) {
+      window.__swCheckedAt = Date.now();
+      navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+    }
     const away = hiddenSince ? Date.now() - hiddenSince : 0;
     hiddenSince = 0;
     if (away > UI_RESET_AFTER && activeTab !== 'home' && Date.now() - launchTabAt > 5000 && resetToHome()) return;

@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v76'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v77'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -22,6 +22,10 @@ const APP_SHELL = [
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
 ];
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'skip-waiting') self.skipWaiting();
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -81,6 +85,8 @@ self.addEventListener('fetch', (event) => {
   }
   // Übrige fremde Herkunft (Cloudflare Worker …) immer direkt ans Netz
   if (!inScope(url)) return;
+  // Update-Prüfung und erzwungenes Neuladen: immer direkt vom Server
+  if (url.pathname.endsWith('/sw.js') || event.request.cache === 'no-store' || event.request.cache === 'reload') return;
 
   // Seitenaufruf: Netzwerk zuerst mit kurzem Zeitlimit (Updates kommen an),
   // offline bzw. im Funkloch sofort aus dem Cache.
