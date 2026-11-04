@@ -2909,7 +2909,16 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
   flex: 2; position: relative; text-align: left; border: none; border-radius: var(--radius-lg); padding: 16px; min-height: 92px; color: #fff;
   background: linear-gradient(140deg, #ff453a, #5e2bd6); display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; overflow: hidden;
 }
-.rv-year.is-small { flex: 1; background: linear-gradient(140deg, #0a84ff, #30b04f); }
+.rv-year { flex: 1; min-width: 0; }
+.rv-year.is-month { background: linear-gradient(140deg, #0a84ff, #30b04f); }
+.rv-year.is-month .rv-year-t { font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-all { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 11px; border: none; border-radius: 14px; background: var(--panel); color: var(--accent); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.rv-group { margin-bottom: 18px; }
+.rv-group:last-child { margin-bottom: 0; }
+.rv-group-year { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 14px 16px; margin-bottom: 8px; border: none; border-radius: 14px; color: #fff; font: inherit; font-size: 17px; font-weight: 800; background: linear-gradient(140deg, #ff453a, #5e2bd6); cursor: pointer; }
+.rv-group-months { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rv-group-months .rv-month { min-width: 0; padding: 12px 6px; background: var(--fill); }
+.rv-year-k { padding-right: 36px; }
 .rv-year-k { font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; opacity: .9; }
 .rv-year-t { font-size: 30px; font-weight: 900; letter-spacing: -1px; }
 .rv-year .rv-play { position: absolute; right: 14px; top: 14px; }
@@ -2936,17 +2945,6 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 /* Start: Fortschritt aktueller Dienst */
 .hm-progress-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: -6px; padding: 0 2px; font-size: 12px; color: var(--text2); font-variant-numeric: tabular-nums; }
 .hm-progress-pct { font-weight: 700; color: var(--accent); }
-
-/* Statistik: Dienstblöcke */
-.stats-runs { padding: 14px 16px; margin-bottom: 12px; border-radius: 16px; background: var(--card, var(--surface)); }
-.stats-runs-hd { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
-.stats-runs-hd span { font-size: 15px; font-weight: 700; }
-.stats-runs-hd small { font-size: 12px; color: var(--text2); }
-.stats-runs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-.stats-runs-grid > div { padding: 10px 6px; border-radius: 12px; background: var(--fill); text-align: center; font-size: 12px; color: var(--text2); min-width: 0; }
-.stats-runs-grid strong { display: block; font-size: 20px; color: var(--text); font-variant-numeric: tabular-nums; }
-.stats-runs-best { font-size: 14px; line-height: 1.4; }
-.stats-runs-best span { font-size: 12px; color: var(--text2); }
 
 /* Story: neue Elemente */
 .st-big.st-big-sm { font-size: 64px; letter-spacing: -2px; }

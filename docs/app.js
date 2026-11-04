@@ -1302,24 +1302,6 @@ function runLabel(r) {
   return `${d(a)} ${formatTimeHM(a)} – ${a.toDateString() === b.toDateString() ? '' : d(b) + ' '}${formatTimeHM(b)}`;
 }
 
-/** Statistik-Karte „Dienstblöcke“. */
-function runsPanelHtml(services) {
-  const runs = computeRuns(services);
-  const multi = runs.filter((r) => r.items.length > 1);
-  if (!multi.length) return '';
-  const longest = runs.slice().sort((a, b) => b.hours - a.hours || b.items.length - a.items.length)[0];
-  const avgInc = runs.length ? runs.reduce((n, r) => n + r.incidents, 0) / runs.length : 0;
-  return `<div class="stats-runs">
-    <div class="stats-runs-hd"><span>Dienstblöcke</span><small>Schichten mit &lt; ${RUN_GAP_H} h Pause gelten als ein Block</small></div>
-    <div class="stats-runs-grid">
-      <div><strong>${runs.length}</strong><span>Blöcke</span></div>
-      <div><strong>${multi.length}</strong><span>mit mehreren Schichten</span></div>
-      <div><strong>${String(Math.round(avgInc * 10) / 10).replace('.', ',')}</strong><span>Ø Einsätze pro Block</span></div>
-    </div>
-    <div class="stats-runs-best">🏃 Längster Block: <strong>${longest.items.length} ${longest.items.length === 1 ? 'Schicht' : 'Schichten'} · ${String(Math.round(longest.hours * 10) / 10).replace('.', ',')} h</strong><br><span>${escHtml(runLabel(longest))} · ${longest.incidents} Einsätze</span></div>
-  </div>`;
-}
-
 /** Zuletzt angelegter Einsatz zuerst (Anlagezeit, sonst Reihenfolge der Erfassung). */
 function incidentsNewestFirst(list) {
   return (list || []).map((inc, i) => ({ inc, i }))
@@ -2246,7 +2228,6 @@ function renderStats() {
       <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
     </div>
-    ${runsPanelHtml(nonSegSvcs)}
     <div class="stats-grid">
       ${statsCard('Top Einsätze', allAlarm, true)}
       ${statsCard('Top Kolleg:innen', allColleagues, true)}
@@ -3188,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 49;
+const APP_VERSION = 50;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4996,14 +4977,35 @@ function bindStoryGestures(el) {
 
 /** Einstieg in der Statistik: Jahreskarte + Monate als Kacheln. */
 function reviewsEntryHtml() {
+  const months = reviewMonthsWithData();
+  if (!months.length) return '';
+  const now = new Date();
   const years = reviewYearsWithData();
-  if (!years.length) return '';
-  const months = reviewMonthsWithData().slice(0, 12);
+  const y = years.includes(now.getFullYear()) ? now.getFullYear() : years[0];
+  const [my, mm] = months.find(([yy, m]) => yy === now.getFullYear() && m === now.getMonth()) || months[0];
+  const more = months.length > 1 || years.length > 1;
   return `<section class="rv-entry">
-    <div class="rv-years">${years.slice(0, 3).map((y, i) => `<button type="button" class="rv-year${i ? ' is-small' : ''}" data-story="year" data-y="${y}">
-      <span class="rv-year-k">Rückblick</span><span class="rv-year-t">${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>`).join('')}</div>
-    <div class="rv-months" role="list">${months.map(([y, m]) => `<button type="button" class="rv-month" role="listitem" data-story="month" data-y="${y}" data-m="${m}"><span>${MONTHS_DE[m].slice(0, 3)}</span><small>${y}</small></button>`).join('')}</div>
+    <div class="rv-years">
+      <button type="button" class="rv-year" data-story="year" data-y="${y}">
+        <span class="rv-year-k">Jahr</span><span class="rv-year-t">${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>
+      <button type="button" class="rv-year is-month" data-story="month" data-y="${my}" data-m="${mm}">
+        <span class="rv-year-k">Monat</span><span class="rv-year-t">${MONTHS_DE[mm]}</span><span class="rv-play" aria-hidden="true">▶</span></button>
+    </div>
+    ${more ? '<button type="button" class="rv-all" data-rv-all>Alle Rückblicke <span aria-hidden="true">›</span></button>' : ''}
   </section>`;
+}
+
+/** Popup mit allen Jahres- und Monatsrückblicken. */
+function openReviewsDialog() {
+  const box = document.getElementById('reviews-body');
+  if (!box) return;
+  const months = reviewMonthsWithData();
+  box.innerHTML = reviewYearsWithData().map((y) => `<div class="rv-group">
+    <button type="button" class="rv-group-year" data-story="year" data-y="${y}"><span>Jahresrückblick ${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>
+    <div class="rv-group-months">${months.filter(([yy]) => yy === y).sort((a, b) => a[1] - b[1]).map(([yy, m]) =>
+      `<button type="button" class="rv-month" data-story="month" data-y="${yy}" data-m="${m}"><span>${MONTHS_DE[m].slice(0, 3)}</span></button>`).join('')}</div>
+  </div>`).join('');
+  openDialog('dialog-reviews');
 }
 
 /** Hinweis auf Start: zu Monatsbeginn der Vormonat, zum Jahreswechsel das Jahr. */
@@ -5024,7 +5026,12 @@ function storyBannerHtml(now) {
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('[data-story]');
-  if (!b) return;
+  if (!b) {
+    if (e.target.closest && e.target.closest('[data-rv-all]')) openReviewsDialog();
+    return;
+  }
+  const dlg = document.getElementById('dialog-reviews');
+  if (dlg && dlg.contains(b)) closeDialog('dialog-reviews');
   openStory(b.dataset.story, +b.dataset.y, b.dataset.m !== undefined ? +b.dataset.m : undefined);
 });
 
