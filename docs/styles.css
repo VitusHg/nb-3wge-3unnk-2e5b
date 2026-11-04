@@ -3072,3 +3072,21 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .st-blink { position: relative; display: inline-block; width: 110px; height: 66px; }
 .st-blink .st-vimg { position: absolute; inset: 0; }
 .st-blink .st-vimg.is-s { animation: home-veh-sosi 1s ease-in-out infinite !important; }
+
+/* Quiz v2 */
+.story.is-quiz .st-progress span.active i { animation-play-state: paused; }
+.st-quiz.is-4 { display: grid; grid-template-columns: 1fr 1fr; }
+.st-quiz.is-4 .st-q { flex-direction: column; justify-content: center; gap: 6px; min-height: 84px; padding: 12px 10px; text-align: center; }
+.st-quiz.is-4 .st-q span { flex: none; }
+.st-quiz.is-4 .st-q .st-vimg.is-q { width: 76px; height: 46px; }
+.st-q { position: relative; }
+.st-q:active { transform: scale(.97); }
+.st-q-n { font-size: 22px; }
+.st-q-mark { position: absolute; top: -9px; right: -9px; width: 28px; height: 28px; border-radius: 50%; display: none; align-items: center; justify-content: center; font-style: normal; font-size: 15px; font-weight: 900; color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .3); animation: st-pop .45s var(--ease-ios); }
+.st-quiz.answered .st-q[data-quiz="1"] .st-q-mark { display: flex; background: #30d158; }
+.st-quiz.answered .st-q[data-quiz="1"] .st-q-mark::before { content: '✓'; }
+.st-quiz.answered .st-q.picked[data-quiz="0"] .st-q-mark { display: flex; background: #ff453a; }
+.st-quiz.answered .st-q.picked[data-quiz="0"] .st-q-mark::before { content: '✕'; }
+.st-q-hint { min-height: 26px; }
+.st-q-answer { margin-top: 2px; font-size: 17px; animation: st-slide .4s var(--ease-ios); }
+.st-q-score { font-size: 17px; }

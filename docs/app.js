@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 53;
+const APP_VERSION = 54;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4957,9 +4957,9 @@ function buildStorySlides(r) {
     const cars = r.vehStats.slice(0, 6);
     pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Fuhrpark-Parade</div>
       <h2 class="st-title">${r.vehStats.length} Fahrzeuge</h2>
-      <div class="st-road">${cars.map((v, i) => `<div class="st-car" style="--i:${i};--n:${cars.length}">${v.lights / Math.max(1, v.incs) >= 0.5 && vehicleIconSrc(v.name, true) !== vehicleIconSrc(v.name) ? `<span class="st-blink">${vimg(v.name, false, 'is-n')}${vimg(v.name, true, 'is-s')}</span>` : vimg(v.name, false)}</div>`).join('')}</div>
+      <div class="st-road">${cars.map((v, i) => `<div class="st-car" style="--i:${i};--n:${cars.length}">${vimg(v.name, true)}</div>`).join('')}</div>
       <div class="st-chips">${cars.map((v, i) => `<span class="st-chip-s" style="--i:${i}">${escHtml(v.name)} · ${v.shifts}×</span>`).join('')}</div>
-      <p class="st-text st-small">Mit Blaulicht unterwegs: wer mehr als die Hälfte seiner Einsätze mit Sonderrechten gefahren ist</p>` });
+      <p class="st-text">${pick(['Alle mit Blaulicht – Platz da! 🚨', 'Rettungsgasse bitte! 🛣️', 'Der Konvoi deines Vertrauens.'])}</p>` });
   }
 
   // Jede Schicht ein Icon
@@ -5067,32 +5067,57 @@ function buildStorySlides(r) {
       <p class="st-text">${pct >= 40 ? 'Wochenend-Krieger:in – Party machen die anderen. 🪩' : pct >= 25 ? 'Ganz normal verteilt.' : 'Wochenende ist heilig. 😇'}</p>` });
   }
 
-  // Quiz: Tippen zum Raten
+  // Quiz: Frage antippen, die Story wartet auf die Antwort
   const quizzes = [];
-  if (r.vehStats.length >= 3) {
-    const opts = shuffle(r.vehStats.slice(0, 3));
-    quizzes.push({ q: 'Mit welchem Fahrzeug warst du am öftesten unterwegs?', opts: opts.map((v) => ({ html: `${vimg(v.name, false, 'is-q')}<span>${escHtml(v.name)}</span>`, ok: v === r.vehStats[0], sub: `${v.shifts}×` })) });
-  }
-  if (r.topKeywords.length >= 3) {
+  const uniqueTop = (rows) => rows.length >= 3 && rows[0][1] > rows[1][1];
+  const numOpts = (n) => {
+    const set = new Set();
+    shuffle([0.5, 0.7, 1.35, 1.6, 2]).forEach((f) => { const v = Math.max(1, Math.round(n * f)); if (v !== n && set.size < 3) set.add(v); });
+    for (let d = 1; set.size < 3; d++) { if (n + d * 2 !== n) set.add(n + d * 2); }
+    return shuffle([n, ...set]);
+  };
+  const choice = (q, rows, render, answer) => quizzes.push({ q, answer, opts: shuffle(rows.slice(0, rows.length >= 4 ? 4 : 3)).map((row) => ({ ...render(row), ok: row === rows[0] })) });
+  const vRows = r.vehStats.map((v) => [v.name, v.shifts]);
+  if (uniqueTop(vRows)) choice('Mit welchem Fahrzeug warst du am öftesten unterwegs?', vRows,
+    ([name, n]) => ({ html: `${vimg(name, false, 'is-q')}<span>${escHtml(name)}</span>`, sub: `${n}×` }), `${escHtml(vRows[0][0])} – ${vRows[0][1]} Schichten`);
+  if (uniqueTop(r.topKeywords)) choice('Welches Stichwort hattest du am häufigsten?', r.topKeywords,
+    ([k, n]) => ({ html: `<span>${escHtml(k)}</span>`, sub: `${n}×` }), `${escHtml(r.topKeywords[0][0])} – ${r.topKeywords[0][1]}×`);
+  if (uniqueTop(r.topCrew)) choice('Mit wem warst du am häufigsten im Dienst?', r.topCrew,
+    ([k, n]) => ({ html: `<span>${escHtml(k)}</span>`, sub: `${n}×` }), `${escHtml(r.topCrew[0][0])} – ${r.topCrew[0][1]} Schichten`);
+  if (r.topKeywords.length >= 2) {
     const [kw, n] = pick(r.topKeywords.slice(0, 3));
-    const wrong = shuffle([Math.max(1, n - 2 - Math.floor(Math.random() * 3)), n + 2 + Math.floor(Math.random() * 4)].filter((x) => x !== n));
-    const vals = shuffle([n, ...wrong.slice(0, 2)]);
-    quizzes.push({ q: `Wie oft hattest du „${escHtml(kw)}“?`, opts: vals.map((v) => ({ html: `<span class="st-q-n">${v}×</span>`, ok: v === n })) });
+    quizzes.push({ q: `Wie oft hattest du „${escHtml(kw)}“?`, answer: `${n}× ${zr}`, opts: numOpts(n).map((v) => ({ html: `<span class="st-q-n">${v}×</span>`, ok: v === n })) });
   }
-  if (r.topCrew.length >= 3) {
-    const opts = shuffle(r.topCrew.slice(0, 3));
-    quizzes.push({ q: 'Mit wem warst du am häufigsten im Dienst?', opts: opts.map(([name, n]) => ({ html: `<span>${escHtml(name)}</span>`, ok: name === r.topCrew[0][0], sub: `${n}×` })) });
+  if (r.incs.length >= 5) {
+    const n = r.incs.length;
+    quizzes.push({ q: `Wie viele Einsätze hattest du ${zr}?`, answer: `${n} Einsätze`, opts: numOpts(n).map((v) => ({ html: `<span class="st-q-n">${v}</span>`, ok: v === n })) });
   }
-  if (quizzes.length) {
-    const qz = pick(quizzes);
-    pool.push({ bg: 'st-bg-7', ms: 11000, html: `<div class="st-kicker">Quiz</div><div class="st-emoji">🤔</div>
+  if (r.incs.length >= 5) {
+    const pct = Math.round((r.lights / r.incs.length) * 100);
+    const buckets = [[0, 24, 'unter 25 %'], [25, 49, '25 – 49 %'], [50, 74, '50 – 74 %'], [75, 100, '75 % oder mehr']];
+    quizzes.push({ q: 'Wie viel Prozent deiner Einsätze waren mit Blaulicht?', answer: `${pct} % mit Blaulicht`, opts: buckets.map(([lo, hi, l]) => ({ html: `<span class="st-q-n">${l}</span>`, ok: pct >= lo && pct <= hi })) });
+  }
+  if (isYear) {
+    const m = r.perMonth.map((n, i) => [MONTHS_DE[i], n]).filter(([, n]) => n).sort((x, y) => y[1] - x[1]);
+    if (uniqueTop(m)) choice('In welchem Monat war am meisten los?', m, ([k, n]) => ({ html: `<span>${k}</span>`, sub: `${n} Einsätze` }), `${m[0][0]} – ${m[0][1]} Einsätze`);
+  }
+  const nacaRows = r.naca.map((n, i) => ['NACA ' + i, n]).filter(([, n]) => n).sort((x, y) => y[1] - x[1]);
+  if (uniqueTop(nacaRows)) choice('Welcher NACA-Wert kam am häufigsten vor?', nacaRows, ([k, n]) => ({ html: `<span>${k}</span>`, sub: `${n}×` }), `${nacaRows[0][0]} – ${nacaRows[0][1]}×`);
+  // bis zu zwei verschiedene Fragen pro Story
+  const qs = shuffle(quizzes).slice(0, quizzes.length >= 4 ? 2 : 1);
+  qs.forEach((qz, qi) => {
+    pool.push({ bg: qi ? 'st-bg-3' : 'st-bg-7', quiz: true, html: `<div class="st-kicker">Quiz<!--qn--></div><div class="st-emoji st-q-emoji">🤔</div>
       <h2 class="st-title st-title-sm">${qz.q}</h2>
-      <div class="st-quiz">${qz.opts.map((o, i) => `<button type="button" class="st-q" style="--i:${i}" data-quiz="${o.ok ? 1 : 0}">${o.html}${o.sub ? `<small>${escHtml(o.sub)}</small>` : ''}</button>`).join('')}</div>
-      <p class="st-text st-small st-q-hint">Tippe auf deine Antwort</p>` });
-  }
+      <div class="st-quiz${qz.opts.length === 4 ? ' is-4' : ''}">${qz.opts.map((o, i) => `<button type="button" class="st-q" style="--i:${i}" data-quiz="${o.ok ? 1 : 0}">${o.html}${o.sub ? `<small>${escHtml(o.sub)}</small>` : ''}<i class="st-q-mark" aria-hidden="true"></i></button>`).join('')}</div>
+      <p class="st-text st-q-hint">Tippe auf deine Antwort – die Story wartet.</p>
+      <p class="st-text st-q-answer" hidden>${qz.answer}</p>` });
+  });
 
   // Auswahl: jedes Mal anders gemischt, nicht immer alle Module
   const body = shuffle(pool).slice(0, isYear ? 11 : 9);
+  // Quizfragen in Reihenfolge nummerieren
+  const qSlides = body.filter((x) => x.quiz);
+  qSlides.forEach((x, i) => { x.html = x.html.replace('<!--qn-->', qSlides.length > 1 ? ` · Frage ${i + 1}` : ''); });
 
   const tail = { bg: 'st-bg-1', fx: 'confetti', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
     <div class="st-sum">
@@ -5101,6 +5126,7 @@ function buildStorySlides(r) {
       <div><span>${r.incs.length}</span>Einsätze</div>
       <div><span>${r.lights}</span>Blaulicht</div>
     </div>
+    <p class="st-text st-q-score" hidden></p>
     <p class="st-text">Danke für deinen Einsatz ❤️</p>
     <div class="st-end-btns"><button type="button" class="st-again">Nochmal mischen 🔀</button><button type="button" class="st-done">Fertig</button></div>` };
   return [...head, ...body, tail];
@@ -5197,13 +5223,36 @@ function showStorySlide(i) {
     box.classList.add('answered');
     b.classList.add('picked');
     const ok = b.dataset.quiz === '1';
+    sl.answered = ok ? 'ok' : 'no';
+    sl.picked = [...box.children].indexOf(b);
     const hint = stage.querySelector('.st-q-hint');
-    if (hint) hint.innerHTML = ok ? pick1(['Richtig! 🎯', 'Volltreffer! 🎉', 'Genau so war’s! 👏']) : pick1(['Knapp daneben! 😅', 'Leider nein – aber fast. 🙈', 'Nope! Gut, dass es das Tagebuch gibt. 📓']);
+    if (hint) hint.innerHTML = `<strong>${ok ? pick1(['Richtig! 🎯', 'Volltreffer! 🎉', 'Genau so war’s! 👏', 'Du kennst dich aus! 🧠']) : pick1(['Knapp daneben! 😅', 'Leider nein. 🙈', 'Nope! Gut, dass es das Tagebuch gibt. 📓', 'Daneben! 🙃'])}</strong>`;
+    const ans = stage.querySelector('.st-q-answer');
+    if (ans) { ans.hidden = false; ans.innerHTML = (ok ? '' : 'Richtig wäre: ') + ans.innerHTML; }
+    const em = stage.querySelector('.st-q-emoji');
+    if (em) { em.textContent = ok ? '🥳' : '🫣'; em.style.animation = 'none'; void em.offsetWidth; em.style.animation = ''; }
     if (ok) stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' }));
-    // nach der Antwort noch kurz stehen lassen
-    story.elapsed = Math.max(0, (sl.ms || STORY_SLIDE_MS) - 3500);
+    // Antwort noch kurz zeigen, dann weiter
+    sl.ms = 4500;
+    const bar = story.el.querySelectorAll('.st-progress span')[story.i].querySelector('i');
+    bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; bar.style.animationDuration = '4500ms';
+    story.el.classList.remove('is-quiz');
+    story.elapsed = 0;
     scheduleStoryNext();
   }));
+  // schon beantwortete Frage (zurückgeblättert): Ergebnis direkt zeigen
+  if (sl.quiz && sl.answered) {
+    const box = stage.querySelector('.st-quiz');
+    box.classList.add('answered');
+    if (box.children[sl.picked]) box.children[sl.picked].classList.add('picked');
+    const ans = stage.querySelector('.st-q-answer'); if (ans) ans.hidden = false;
+    const hint = stage.querySelector('.st-q-hint'); if (hint) hint.hidden = true;
+  }
+  const score = stage.querySelector('.st-q-score');
+  if (score) {
+    const asked = story.slides.filter((x) => x.answered);
+    if (asked.length) { score.hidden = false; const n = asked.filter((x) => x.answered === 'ok').length; score.innerHTML = `Quiz: <strong>${n} von ${asked.length}</strong> richtig ${n === asked.length ? '🧠' : n ? '👍' : '🙈'}`; }
+  }
   stage.querySelectorAll('[data-st-inc]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
     const svcId = b.dataset.stSvc, incId = b.dataset.stInc;
@@ -5220,6 +5269,9 @@ function scheduleStoryNext() {
   story.started = Date.now();
   story.el.classList.remove('paused');
   if (story.i === story.slides.length - 1) return; // letzte Folie bleibt stehen
+  const cur = story.slides[story.i];
+  story.el.classList.toggle('is-quiz', !!(cur.quiz && !cur.answered));
+  if (cur.quiz && !cur.answered) return; // Quiz wartet auf die Antwort
   const ms = story.slides[story.i].ms || STORY_SLIDE_MS;
   story.timer = setTimeout(() => showStorySlide(story.i + 1), Math.max(0, ms - story.elapsed));
 }
