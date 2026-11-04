@@ -17,9 +17,6 @@
       document.documentElement.setAttribute('data-theme', t);
       var light = t === 'light' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
       document.getElementById('theme-color-meta').setAttribute('content', light ? '#f2f2f7' : '#000000');
-      var ui = null;
-      try { ui = localStorage.getItem('etb_ui_style'); } catch (e) { /* ignorieren */ }
-      document.documentElement.setAttribute('data-ui', ui === 'classic' ? 'classic' : 'dynamic');
     })();
   </script>
   <!-- iOS PWA -->
