@@ -2878,7 +2878,7 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .st-rank-t { flex: 1; font-size: 19px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
 .st-rank-c { font-size: 16px; font-weight: 700; opacity: .85; }
 .st-veh { max-width: 220px; max-height: 120px; object-fit: contain; margin-bottom: 14px; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .35)); animation: st-drive .9s var(--ease-ios); }
-@keyframes st-drive { from { transform: translateX(-120%); } to { transform: none; } }
+@keyframes st-drive { from { transform: translateX(120vw); } to { transform: none; } }
 .st-naca, .st-months { display: flex; align-items: flex-end; justify-content: center; gap: 6px; height: 150px; margin: 18px 0 8px; }
 .st-naca-col, .st-month { flex: 1; max-width: 34px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
 .st-naca-bar, .st-month-bar { width: 100%; min-height: 3px; border-radius: 6px 6px 2px 2px; background: rgba(255, 255, 255, .85); animation: st-rise .9s var(--ease-ios); transform-origin: bottom; }
@@ -3003,10 +3003,10 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .st-vimg.is-flip { transform: scaleX(-1); }
 .st-road { position: relative; height: 92px; margin: 18px -26px 10px; overflow: hidden; }
 .st-road::after { content: ''; position: absolute; left: 0; right: 0; bottom: 10px; height: 4px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .7) 0 26px, transparent 26px 48px); animation: st-lane .6s linear infinite; }
-@keyframes st-lane { to { background-position: -48px 0; } }
-.st-car { position: absolute; left: 0; bottom: 14px; animation: st-cross calc(var(--n) * 1.1s + 1.6s) linear infinite; animation-delay: calc(var(--i) * 1.1s); transform: translateX(-140px); }
+@keyframes st-lane { to { background-position: 48px 0; } }
+.st-car { position: absolute; left: 0; bottom: 14px; animation: st-cross calc(var(--n) * 1.1s + 1.6s) linear infinite; animation-delay: calc(var(--i) * 1.1s); transform: translateX(calc(100vw + 20px)); }
 .st-car .st-vimg { width: 110px; height: 66px; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .35)); }
-@keyframes st-cross { 0% { transform: translateX(-140px); } 70%, 100% { transform: translateX(calc(100vw + 20px)); } }
+@keyframes st-cross { 0% { transform: translateX(calc(100vw + 20px)); } 70%, 100% { transform: translateX(-140px); } }
 .st-car .st-vimg { animation: st-bump .35s ease-in-out infinite alternate; }
 @keyframes st-bump { to { transform: translateY(-2px); } }
 .st-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 6px 0 10px; }
@@ -3037,7 +3037,7 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .st-duel-row small { font-size: 12px; opacity: .85; }
 .st-love { position: relative; display: inline-block; margin-bottom: 6px; }
 .st-love .st-vimg { width: 180px; height: 105px; animation: st-drive .9s var(--ease-ios); }
-.st-heart { position: absolute; right: -14px; top: -10px; font-size: 40px; animation: st-beat 1s .8s ease-in-out infinite; }
+.st-heart { position: absolute; left: -14px; top: -10px; font-size: 40px; animation: st-beat 1s .8s ease-in-out infinite; }
 @keyframes st-beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.3); } 30% { transform: scale(1); } 45% { transform: scale(1.2); } }
 
 /* ── Story: weitere Folien ────────────────────────────────────────────── */

@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 52;
+const APP_VERSION = 53;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4990,7 +4990,7 @@ function buildStorySlides(r) {
     const row = (label, x, y, fmt) => `<div class="st-duel-row"><span class="${x > y ? 'win' : ''}">${fmt(x)}</span><small>${label}</small><span class="${y > x ? 'win' : ''}">${fmt(y)}</span></div>`;
     const score = (per(a) > per(b)) + (lp(a) > lp(b)) + (a.shifts > b.shifts) - (per(b) > per(a)) - (lp(b) > lp(a)) - (b.shifts > a.shifts);
     pool.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Fahrzeug-Duell</div>
-      <div class="st-duel"><div class="st-duel-a">${vimg(a.name, false)}<b>${escHtml(a.name)}</b></div><div class="st-vs">VS</div><div class="st-duel-b">${vimg(b.name, false, 'is-flip')}<b>${escHtml(b.name)}</b></div></div>
+      <div class="st-duel"><div class="st-duel-a">${vimg(a.name, false, 'is-flip')}<b>${escHtml(a.name)}</b></div><div class="st-vs">VS</div><div class="st-duel-b">${vimg(b.name, false)}<b>${escHtml(b.name)}</b></div></div>
       <div class="st-duel-rows">
         ${row('Schichten', a.shifts, b.shifts, String)}
         ${row('Ø Einsätze/Schicht', per(a), per(b), (v) => fmtNum(Math.round(v * 10) / 10))}
