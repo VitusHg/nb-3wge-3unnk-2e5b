@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4549,6 +4549,12 @@ const MONTHS_DE = ['Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli'
 const STORY_SLIDE_MS = 6500;
 
 function reviewPeriod(kind, year, month) {
+  if (kind === 'all') {
+    const first = state.services.map((x) => (x.startAt || '').slice(0, 10)).filter(Boolean).sort()[0] || '';
+    const fy = first ? first.slice(0, 4) : '';
+    const ny = String(new Date().getFullYear());
+    return { kind, from: '', to: '', first, label: 'All-Time', title: fy && fy !== ny ? `Deine Dienstzeit ${fy}–${ny}` : 'Deine Dienstzeit' };
+  }
   if (kind === 'year') return { kind, year, from: `${year}-01-01`, to: `${year}-12-31`, label: String(year), title: `Dein Dienstjahr ${year}` };
   const mm = String(month + 1).padStart(2, '0');
   const last = new Date(year, month + 1, 0).getDate();
@@ -4623,8 +4629,11 @@ function computeReview(period) {
   const svcPerMonth = Array.from({ length: 12 }, () => 0);
   duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) svcPerMonth[d.getMonth()]++; });
   // Vergleich mit dem Zeitraum davor
-  const prev = period.kind === 'year' ? reviewPeriod('year', period.year - 1) : reviewPeriod('month', period.month === 0 ? period.year - 1 : period.year, (period.month + 11) % 12);
-  const prevList = servicesInRange(prev.from, prev.to);
+  const prev = period.kind === 'all' ? { label: '', from: '9999', to: '9999' } : period.kind === 'year' ? reviewPeriod('year', period.year - 1) : reviewPeriod('month', period.month === 0 ? period.year - 1 : period.year, (period.month + 11) % 12);
+  const prevList = period.kind === 'all' ? [] : servicesInRange(prev.from, prev.to);
+  // Einsätze und Schichten je Kalenderjahr (für All-Time)
+  const perYear = {};
+  list.forEach((x) => { const y = (x.startAt || '').slice(0, 4); if (!y) return; const e = perYear[y] || (perYear[y] = { shifts: 0, incs: 0 }); if (!x.isSeg) e.shifts++; e.incs += (x.incidents || []).length; });
   const prevInc = prevList.reduce((n, x) => n + (x.incidents || []).length, 0);
   return {
     period, list, duty, segs, incs, hours, nights, lights, busiest, longest,
@@ -4649,7 +4658,7 @@ function computeReview(period) {
     runs, longestRun: runs.slice().sort((a, b) => b.hours - a.hours)[0] || null,
     lightsRecord: duty.map((x) => ({ svc: x, n: (x.incidents || []).filter((i) => i.lights).length })).sort((a, b) => b.n - a.n)[0] || null,
     perWeekday,
-    vehStats, vehStreak, perHour, crewChem, longestGap,
+    vehStats, vehStreak, perHour, crewChem, longestGap, perYear,
     prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0 },
   };
 }
@@ -4719,8 +4728,9 @@ function pzcQuip(t, n) {
 
 function buildStorySlides(r) {
   const p = r.period;
-  const isYear = p.kind === 'year';
-  const zr = isYear ? 'dieses Jahr' : 'diesen Monat';
+  const isAll = p.kind === 'all';
+  const isYear = p.kind !== 'month'; // All-Time verhält sich wie ein (langes) Jahr
+  const zr = isAll ? 'insgesamt' : isYear ? 'dieses Jahr' : 'diesen Monat';
   const big = (n, cls = '') => `<div class="st-big ${cls}" data-count="${n}">0</div>`;
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const shuffle = (arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -4735,7 +4745,7 @@ function buildStorySlides(r) {
 
   // ── fester Anfang ────────────────────────────────────────────────────────
   const head = [];
-  head.push({ bg: 'st-bg-1', html: `<div class="st-emoji">🚑</div><div class="st-kicker">${isYear ? 'Rückblick' : 'Monatsrückblick'}</div><h2 class="st-title">${escHtml(p.title)}</h2><p class="st-text">${pick(isYear ? ['Ein Jahr voller Dienste, Einsätze und Kaffee. Bereit?', 'Schnall dich an – es wird ein wilder Ritt.', 'Blaulicht an, wir fahren zurück durchs Jahr.'] : ['Schauen wir, was in diesem Monat los war.', 'Kurzer Funkspruch: dein Monat in Zahlen.', 'Einsatzbereit für deinen Monatsrückblick?'])}</p><div class="st-hint">Tippen zum Weiterblättern</div>` });
+  head.push({ bg: 'st-bg-1', html: `<div class="st-emoji">🚑</div><div class="st-kicker">${isAll ? 'All-Time-Rückblick' : isYear ? 'Rückblick' : 'Monatsrückblick'}</div><h2 class="st-title">${escHtml(p.title)}</h2><p class="st-text">${pick(isAll ? ['Alles, was du je eingetragen hast – in einer Story.', 'Von der ersten Schicht bis heute. Bereit?', 'Die ganz große Runde – Blaulicht an!'] : isYear ? ['Ein Jahr voller Dienste, Einsätze und Kaffee. Bereit?', 'Schnall dich an – es wird ein wilder Ritt.', 'Blaulicht an, wir fahren zurück durchs Jahr.'] : ['Schauen wir, was in diesem Monat los war.', 'Kurzer Funkspruch: dein Monat in Zahlen.', 'Einsatzbereit für deinen Monatsrückblick?'])}</p><div class="st-hint">Mit „Weiter“ geht’s los</div>` });
 
   const days = r.hours / 24;
   head.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Im Dienst</div>${big(r.duty.length)}<p class="st-lead">${r.duty.length === 1 ? 'Schicht' : 'Schichten'}</p>
@@ -4860,7 +4870,7 @@ function buildStorySlides(r) {
   if (r.statKzList.length) {
     const [label, n] = pick(r.statKzList.slice(0, 4));
     const t = label.toLowerCase();
-    const quip = /alkohol|rausch|intox/.test(t) ? `${isYear ? 'Ein rauschiges Jahr' : 'Ein rauschiger Monat'} 🍻`
+    const quip = /alkohol|rausch|intox/.test(t) ? `${isAll ? 'Rauschige Zeiten' : isYear ? 'Ein rauschiges Jahr' : 'Ein rauschiger Monat'} 🍻`
       : /psych/.test(t) ? 'Viel Seelenarbeit. 🫂'
       : /verkehr|unfall/.test(t) ? 'Asphalt-Cowboy. 🛣️'
       : /sturz/.test(t) ? 'Hoppala! 🍂'
@@ -4897,7 +4907,7 @@ function buildStorySlides(r) {
   // Zufälliges Zitat aus den Notizen
   if (r.notes.length >= 2) {
     const n = pick(r.notes);
-    pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Zitat ${isYear ? 'des Jahres' : 'des Monats'}</div><div class="st-emoji">💬</div>
+    pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Zitat ${isAll ? 'für die Ewigkeit' : isYear ? 'des Jahres' : 'des Monats'}</div><div class="st-emoji">💬</div>
       <p class="st-quote st-quote-big">„${escHtml(n.inc.note)}“</p><p class="st-text st-small">${escHtml(n.inc.alarmCode || '')} · ${escHtml(fmtDay(n.svc))}</p>` });
   }
 
@@ -4932,9 +4942,29 @@ function buildStorySlides(r) {
   if (isYear) {
     const max = Math.max(1, ...r.perMonth);
     const best = r.perMonth.indexOf(Math.max(...r.perMonth));
-    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Dein Jahr in Monaten</div>
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">${isAll ? 'Einsätze nach Monat' : 'Dein Jahr in Monaten'}</div>
       <div class="st-months">${r.perMonth.map((n, i) => `<div class="st-month${i === best && n ? ' is-best' : ''}"><span class="st-month-n">${n || ''}</span><span class="st-month-bar" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-month-l">${MONTHS_DE[i].slice(0, 1)}</span></div>`).join('')}</div>
       ${r.perMonth[best] ? `<p class="st-text">Stärkster Monat: <strong>${MONTHS_DE[best]}</strong> mit ${r.perMonth[best]} Einsätzen</p>` : ''}` });
+  }
+
+  // All-Time: Jahre im Vergleich
+  if (isAll) {
+    const ys = Object.keys(r.perYear).sort();
+    if (ys.length >= 2) {
+      const max = Math.max(1, ...ys.map((y) => r.perYear[y].incs));
+      const best = ys.reduce((a, y) => (r.perYear[y].incs > r.perYear[a].incs ? y : a), ys[0]);
+      pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Deine Jahre</div>
+        <div class="st-months">${ys.map((y) => `<div class="st-month${y === best ? ' is-best' : ''}"><span class="st-month-n">${r.perYear[y].incs || ''}</span><span class="st-month-bar" style="height:${Math.round((r.perYear[y].incs / max) * 100)}%"></span><span class="st-month-l">${"'" + y.slice(2)}</span></div>`).join('')}</div>
+        <p class="st-text">Stärkstes Jahr: <strong>${best}</strong> mit ${r.perYear[best].incs} Einsätzen</p>` });
+    }
+    if (p.first) {
+      const d0 = new Date(p.first + 'T00:00');
+      const days = Math.max(1, Math.round((Date.now() - d0) / 864e5));
+      pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">Dabei seit</div><div class="st-emoji">📅</div>
+        <h2 class="st-title">${escHtml(d0.toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' }))}</h2>
+        ${big(days)}<p class="st-lead">Tage Einsatztagebuch</p>
+        <p class="st-text">Im Schnitt alle <strong>${fmtNum(Math.round((days / Math.max(1, r.duty.length)) * 10) / 10)} Tage</strong> eine Schicht.</p>` });
+    }
   }
 
   // Monat: Wochen-Verlauf
@@ -4966,7 +4996,7 @@ function buildStorySlides(r) {
   if (r.duty.length >= 6 && hasIcons) {
     const shown = r.duty.slice().sort((a, b) => (a.startAt || '').localeCompare(b.startAt || '')).slice(-60);
     const withL = shown.filter((x) => (x.incidents || []).some((i) => i.lights)).length;
-    pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">${isYear ? 'Dein Jahr' : 'Dein Monat'} in Fahrzeugen</div>
+    pool.push({ bg: 'st-bg-10', html: `<div class="st-kicker">${isAll ? 'Deine Dienstzeit' : isYear ? 'Dein Jahr' : 'Dein Monat'} in Fahrzeugen</div>
       <div class="st-wall${shown.length > 30 ? ' is-dense' : ''}">${shown.map((x, i) => { const l = (x.incidents || []).some((k) => k.lights); return `<span class="st-wall-i${l ? ' is-l' : ''}" style="--i:${i}">${vimg(x.vehicle, l)}</span>`; }).join('')}</div>
       <p class="st-text">Jedes Icon eine Schicht – <strong>${withL}</strong> davon mit Blaulicht 🔵</p>` });
   }
@@ -5133,25 +5163,24 @@ function buildStorySlides(r) {
       <p class="st-text st-g-hint">Mit dem Finger rubbeln ✋</p>
       <button type="button" class="st-link st-g-after" hidden data-st-inc="${escHtml(x.inc.id)}" data-st-svc="${escHtml(x.svc.id)}">Einsatz ansehen ›</button>` });
   }
-  // Slot-Maschine mit den eigenen Fahrzeugen
-  {
-    // gleiche Grafik = gleiches Symbol (mehrere Fahrzeuge einer Kategorie zusammenfassen)
-    const byIcon = new Map();
-    r.vehStats.forEach((v) => {
-      const src = vehicleIconSrc(v.name, true);
-      if (!src) return;
-      const e = byIcon.get(src) || { name: [], shifts: 0, incs: 0, lights: 0 };
-      e.name.push(v.name); e.shifts += v.shifts; e.incs += v.incs; e.lights += v.lights;
-      byIcon.set(src, e);
-    });
-    const syms = [...byIcon.entries()].slice(0, 4).map(([src, e]) => ({ key: src, html: `<img class="st-vimg" src="${escHtml(src)}" alt="">`,
-      v: { name: e.name.length > 2 ? e.name.slice(0, 2).join(', ') + ' & Co' : e.name.join(' & '), shifts: e.shifts, incs: e.incs, lights: e.lights } }));
-    ['🚑', '🚨', '☕', '⭐', '🍀'].forEach((e) => { if (syms.length < 5) syms.push({ key: e, html: `<span class="st-slot-e">${e}</span>` }); });
-    games.push({ bg: 'st-bg-6', game: 'slot', data: { syms: syms.map(({ key, html, v }) => ({ key, html, info: v ? `${escHtml(v.name)}: ${v.shifts} Schichten, ${v.incs} Einsätze, ${v.lights}× Blaulicht` : '' })) },
+  // Slot-Maschine: Walzen mit den Fahrzeugen aus dem Zeitraum, Gewinn = meistgefahrenes Fahrzeug
+  if (r.vehStats.length) {
+    const sym = (src, emoji) => src ? `<img class="st-vimg" src="${escHtml(src)}" alt="">` : `<span class="st-slot-e">${emoji || '🚑'}</span>`;
+    const keyOf = (name) => vehicleIconSrc(name, true) || 'veh:' + name;
+    const syms = [];
+    const seen = new Set();
+    r.vehStats.forEach((v) => { const k = keyOf(v.name); if (!seen.has(k) && syms.length < 5) { seen.add(k); syms.push({ key: k, html: sym(vehicleIconSrc(v.name, true)) }); } });
+    // zu wenig verschiedene: andere Fahrzeuggrafiken aus der Liste, dann Emojis
+    (state.vehicleCategories || []).forEach((c) => { const src = c.iconSoSi || c.iconNormal; if (src && !seen.has(src) && syms.length < 5) { seen.add(src); syms.push({ key: src, html: sym(src) }); } });
+    ['🚨', '☕', '⭐', '🍀', '🩺'].forEach((e) => { if (syms.length < 5) syms.push({ key: e, html: sym('', e) }); });
+    // Gewinne der Reihe nach: Platz 1, 2, 3 der meistgefahrenen Fahrzeuge
+    const prizes = r.vehStats.slice(0, 3).map((v, i) => ({ key: keyOf(v.name), rank: i + 1,
+      text: `<strong>${i === 0 ? 'JACKPOT! 🎰💰' : `Platz ${i + 1}! ${i === 1 ? '🥈' : '🥉'}`}</strong><br>${i === 0 ? 'Dein meistgefahrenes Fahrzeug' : 'Auf Platz ' + (i + 1)}: <strong>${escHtml(v.name)}</strong><br><span class="st-small">${v.shifts} ${v.shifts === 1 ? 'Schicht' : 'Schichten'} · ${v.incs} Einsätze · ${v.lights}× Blaulicht ${zr}</span>` }));
+    games.push({ bg: 'st-bg-6', game: 'slot', data: { syms, prizes },
       html: `<div class="st-kicker">Einarmiger Bandit</div><div class="st-emoji">🎰</div>
       <div class="st-slot st-game"><div class="st-reel"><div class="st-strip"></div></div><div class="st-reel"><div class="st-strip"></div></div><div class="st-reel"><div class="st-strip"></div></div></div>
       <button type="button" class="st-spin">Drehen 🎰</button>
-      <p class="st-text st-g-hint">3 Versuche – drei gleiche gewinnen!</p>` });
+      <p class="st-text st-g-hint">Zieh am Hebel – was hast du am öftesten gefahren?</p>` });
   }
   // Blaulicht-Reaktionstest
   games.push({ bg: 'st-bg-2', game: 'react', html: `<div class="st-kicker">Reaktionstest</div>
@@ -5215,9 +5244,8 @@ function openStory(kind, year, month) {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-label', period.title);
   el.innerHTML = `<div class="st-progress">${slides.map(() => '<span><i></i></span>').join('')}</div>
-    <button type="button" class="st-close" aria-label="Schließen">✕</button>
     <div class="st-stage"></div>
-    <div class="st-nav"><button type="button" class="st-prev">‹ Zurück</button><button type="button" class="st-next">Weiter ›</button></div>`;
+    <div class="st-nav"><button type="button" class="st-prev">‹ Zurück</button><button type="button" class="st-close" aria-label="Schließen">✕</button><button type="button" class="st-next">Weiter ›</button></div>`;
   document.body.appendChild(el);
   story = { el, slides, i: 0, timer: 0, started: 0, elapsed: 0, paused: false, period };
   showStorySlide(0);
@@ -5304,27 +5332,35 @@ function initStoryGame(stage, sl) {
   }
 
   if (sl.game === 'slot') {
-    const syms = sl.data.syms;
+    const { syms, prizes } = sl.data;
     const reels = [...stage.querySelectorAll('.st-strip')];
     const btn = stage.querySelector('.st-spin');
     const H = 84;
-    let tries = sl.tries || 0, spinning = false;
+    let spinning = false;
+    sl.spins = sl.spins || 0;
+    const symFor = (key) => syms.find((x) => x.key === key) || syms[0];
+    const rnd = () => syms[Math.floor(Math.random() * syms.length)];
     const fill = (strip, list) => { strip.innerHTML = list.map((x) => `<div class="st-sym">${x.html}</div>`).join(''); };
-    reels.forEach((rl) => { fill(rl, [syms[Math.floor(Math.random() * syms.length)]]); rl.style.transform = 'none'; });
-    const left = () => 3 - tries;
-    const label = () => { btn.textContent = left() > 0 ? `Drehen 🎰 (${left()})` : 'Keine Versuche mehr'; btn.disabled = left() <= 0; };
+    const label = () => {
+      const more = sl.spins < prizes.length;
+      btn.textContent = sl.spins === 0 ? 'Drehen 🎰' : more ? `Nochmal – Platz ${sl.spins + 1}? 🎰` : 'Alle Gewinne abgeräumt 🏆';
+      btn.disabled = !more;
+    };
+    // Startbild bzw. letztes Ergebnis
+    const shown = sl.spins ? symFor(prizes[sl.spins - 1].key) : null;
+    reels.forEach((rl) => { fill(rl, [shown || rnd()]); rl.style.transform = 'none'; });
+    if (sl.spins) hint.innerHTML = prizes[sl.spins - 1].text;
     label();
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (spinning || left() <= 0) return;
-      spinning = true; tries++; sl.tries = tries; btn.disabled = true;
-      // Ergebnis: beim letzten Versuch hilft das Glück ein bisschen nach
-      let res = reels.map(() => syms[Math.floor(Math.random() * syms.length)]);
-      if (tries === 3 && !sl.won && Math.random() < 0.7) { const j = syms[Math.floor(Math.random() * Math.min(2, syms.length))]; res = [j, j, j]; }
+      if (spinning || sl.spins >= prizes.length) return;
+      spinning = true; btn.disabled = true;
+      const prize = prizes[sl.spins];
+      const target = symFor(prize.key);
       reels.forEach((rl, k) => {
         const n = 18 + k * 7;
-        const list = Array.from({ length: n }, () => syms[Math.floor(Math.random() * syms.length)]);
-        list.push(res[k]);
+        const list = Array.from({ length: n }, rnd);
+        list.push(target);
         fill(rl, list);
         rl.style.transition = 'none'; rl.style.transform = 'translateY(0)';
         void rl.offsetWidth;
@@ -5333,19 +5369,14 @@ function initStoryGame(stage, sl) {
       });
       setTimeout(() => {
         spinning = false;
-        const same = res[0].key === res[1].key && res[1].key === res[2].key;
-        const two = res[0].key === res[1].key || res[1].key === res[2].key || res[0].key === res[2].key;
-        if (same) {
-          sl.won = true; win();
-          stage.querySelector('.st-slot').classList.add('is-win');
-          hint.innerHTML = `<strong>JACKPOT! 🎰💰</strong>${res[0].info ? `<br><span class="st-small">${res[0].info}</span>` : ''}`;
-          finish(); btn.disabled = true; btn.textContent = 'Gewonnen! 🏆';
-          return;
-        }
-        hint.innerHTML = two ? '<strong>Knapp! Zwei gleiche 😬</strong>' : pick1(['Niete – nochmal! 🙃', 'Leider nichts. 🫠', 'Die Bank gewinnt immer. 🏦']);
-        if (left() <= 0) { hint.innerHTML += '<br>Kein Jackpot – aber du hast ja den besten Job. 😉'; finish(); }
+        sl.spins++;
+        const box = stage.querySelector('.st-slot');
+        box.classList.remove('is-win'); void box.offsetWidth; box.classList.add('is-win');
+        if (prize.rank === 1) win();
+        hint.innerHTML = prize.text;
+        finish();
         label();
-      }, 1200 + 2 * 500 + 150);
+      }, 2350);
     });
     return;
   }
@@ -5430,7 +5461,7 @@ function showStorySlide(i) {
   });
   const prev = story.el.querySelector('.st-prev'), next = story.el.querySelector('.st-next');
   if (prev) prev.disabled = i === 0;
-  if (next) next.hidden = i === story.slides.length - 1;
+  if (next) next.disabled = i === story.slides.length - 1;
   story.el.classList.toggle('is-interactive', !!(sl.game || sl.quiz));
   if (sl.game) initStoryGame(stage, sl);
   const done = stage.querySelector('.st-done');
@@ -5457,13 +5488,9 @@ function showStorySlide(i) {
     const em = stage.querySelector('.st-q-emoji');
     if (em) { em.textContent = ok ? '🥳' : '🫣'; em.style.animation = 'none'; void em.offsetWidth; em.style.animation = ''; }
     if (ok) stage.insertAdjacentHTML('afterbegin', storyFxHtml({ fx: 'confetti' }));
-    // Antwort noch kurz zeigen, dann weiter
-    sl.ms = 4500;
-    const bar = story.el.querySelectorAll('.st-progress span')[story.i].querySelector('i');
-    bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; bar.style.animationDuration = '4500ms';
-    story.el.classList.remove('is-quiz');
-    story.elapsed = 0;
-    scheduleStoryNext();
+    // weiter nur über den Knopf
+    const bar = story.el.querySelectorAll('.st-progress span')[story.i];
+    if (bar) bar.classList.add('done');
   }));
   // schon beantwortete Frage (zurückgeblättert): Ergebnis direkt zeigen
   if (sl.quiz && sl.answered) {
@@ -5495,9 +5522,8 @@ function scheduleStoryNext() {
   story.el.classList.remove('paused');
   if (story.i === story.slides.length - 1) return; // letzte Folie bleibt stehen
   const cur = story.slides[story.i];
-  story.el.classList.toggle('is-quiz', !!((cur.quiz && !cur.answered) || cur.game));
-  if (cur.quiz && !cur.answered) return; // Quiz wartet auf die Antwort
-  if (cur.game) return;                    // Spiele: weiter nur per Knopf
+  story.el.classList.toggle('is-quiz', !!(cur.quiz || cur.game));
+  if (cur.quiz || cur.game) return; // Quiz und Spiele: weiter nur per Knopf
   const ms = story.slides[story.i].ms || STORY_SLIDE_MS;
   story.timer = setTimeout(() => showStorySlide(story.i + 1), Math.max(0, ms - story.elapsed));
 }
@@ -5517,30 +5543,10 @@ function resumeStory() {
 }
 
 function bindStoryGestures(el) {
-  let x0 = 0, y0 = 0, t0 = 0, holdTimer = 0, held = false;
+  // Geblättert wird nur über die Knöpfe unten – Tippen oder Wischen auf der Folie schaltet nie weiter.
   el.querySelector('.st-close').addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
-  const ignore = (e) => !story || e.target.closest('button, canvas, .st-game, .st-nav') || story.el.classList.contains('is-interactive');
-  let armed = false;
   el.querySelector('.st-prev').addEventListener('click', (e) => { e.stopPropagation(); if (story) showStorySlide(story.i - 1); });
   el.querySelector('.st-next').addEventListener('click', (e) => { e.stopPropagation(); if (story) showStorySlide(story.i + 1); });
-  el.addEventListener('pointerdown', (e) => {
-    armed = !ignore(e);
-    if (!armed) return;
-    x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); held = false;
-    holdTimer = setTimeout(() => { held = true; pauseStory(); }, 250);
-  });
-  el.addEventListener('pointerup', (e) => {
-    if (!armed || ignore(e)) { armed = false; return; }
-    armed = false;
-    clearTimeout(holdTimer);
-    const dy = e.clientY - y0, dx = e.clientX - x0;
-    if (held) { resumeStory(); return; }
-    if (dy > 90 && Math.abs(dx) < 80) { closeStory(); return; }           // nach unten wischen
-    if (Math.abs(dx) > 60) { showStorySlide(story.i + (dx < 0 ? 1 : -1)); return; } // seitlich wischen
-    if (Date.now() - t0 > 600) return;
-    showStorySlide(story.i + (e.clientX < window.innerWidth * 0.3 ? -1 : 1));
-  });
-  el.addEventListener('pointercancel', () => { clearTimeout(holdTimer); resumeStory(); });
   const onKey = (e) => {
     if (!story) { document.removeEventListener('keydown', onKey); return; }
     if (e.key === 'Escape') closeStory();
@@ -5566,7 +5572,10 @@ function reviewsEntryHtml() {
       <button type="button" class="rv-year is-month" data-story="month" data-y="${my}" data-m="${mm}">
         <span class="rv-year-k">Monat</span><span class="rv-year-t">${MONTHS_DE[mm]}</span><span class="rv-play" aria-hidden="true">▶</span></button>
     </div>
-    ${more ? '<button type="button" class="rv-all" data-rv-all>Alle Rückblicke <span aria-hidden="true">›</span></button>' : ''}
+    <div class="rv-row">
+      <button type="button" class="rv-all rv-alltime" data-story="all"><span aria-hidden="true">∞</span> All-Time</button>
+      ${more ? '<button type="button" class="rv-all" data-rv-all>Alle Rückblicke <span aria-hidden="true">›</span></button>' : ''}
+    </div>
   </section>`;
 }
 
@@ -5575,7 +5584,7 @@ function openReviewsDialog() {
   const box = document.getElementById('reviews-body');
   if (!box) return;
   const months = reviewMonthsWithData();
-  box.innerHTML = reviewYearsWithData().map((y) => `<div class="rv-group">
+  box.innerHTML = `<button type="button" class="rv-group-year rv-group-all" data-story="all"><span>∞ All-Time-Rückblick</span><span class="rv-play" aria-hidden="true">▶</span></button>` + reviewYearsWithData().map((y) => `<div class="rv-group">
     <button type="button" class="rv-group-year" data-story="year" data-y="${y}"><span>Jahresrückblick ${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>
     <div class="rv-group-months">${months.filter(([yy]) => yy === y).sort((a, b) => a[1] - b[1]).map(([yy, m]) =>
       `<button type="button" class="rv-month" data-story="month" data-y="${yy}" data-m="${m}"><span>${MONTHS_DE[m].slice(0, 3)}</span></button>`).join('')}</div>

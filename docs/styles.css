@@ -3149,3 +3149,18 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .st-guess-thumb { position: absolute; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: #fff; box-shadow: 0 3px 10px rgba(0, 0, 0, .35); }
 .st-guess-real { position: absolute; top: -12px; width: 4px; height: 38px; margin-left: -2px; border-radius: 2px; background: #ffd60a; box-shadow: 0 0 10px #ffd60a; animation: st-pop .5s var(--ease-ios); }
 .st-guess-l { display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; font-weight: 700; opacity: .8; }
+
+/* Story-Navigation v2: X zwischen Zurück und Weiter */
+.st-nav { align-items: center; }
+.st-nav .st-close { position: static; flex: none; width: 46px; min-width: 0; height: 46px; padding: 0; border-radius: 50%; background: rgba(0, 0, 0, .28); font-size: 17px; }
+.st-nav .st-prev, .st-nav .st-next { flex: 1; min-width: 0; max-width: 150px; }
+.st-nav .st-next { margin-left: 0; }
+.st-nav .st-next:disabled { opacity: .35; }
+.st-stage { padding-top: 56px; }
+
+/* Einstieg: All-Time */
+.rv-row { display: flex; gap: 10px; }
+.rv-row .rv-all { flex: 1; }
+.rv-alltime { background: linear-gradient(140deg, #1a1446, #5e2bd6 70%, #bf5af2); color: #fff; }
+.rv-alltime span { font-size: 18px; font-weight: 800; }
+.rv-group-all { margin-bottom: 18px; background: linear-gradient(140deg, #1a1446, #5e2bd6 70%, #bf5af2); }
