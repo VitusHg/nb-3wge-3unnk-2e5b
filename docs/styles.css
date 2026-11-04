@@ -3510,3 +3510,6 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .srch-person-t b { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srch-person-t small { font-size: 13px; color: var(--text2); }
 .srch-person-c { color: var(--text3); font-size: 20px; }
+.hm-inc-btns { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.hm-bell { width: 40px; height: 40px; border: none; border-radius: 50%; background: var(--fill); font-size: 18px; display: inline-flex; align-items: center; justify-content: center; }
+.hm-bell:active { transform: scale(.93); }

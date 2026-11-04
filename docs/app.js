@@ -3107,7 +3107,7 @@ function homeActiveCardHtml(svc, now) {
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
-      <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
+      <span class="hm-inc-btns"><button type="button" class="hm-bell" data-quick-push aria-label="„Neuer Einsatz?“-Mitteilung bereitlegen" title="Mitteilung bereitlegen">🔔</button><button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button></span>
     </div>
     ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
     ${incs.length > shown.length ? `<button type="button" class="hm-more" data-open-svc="${escHtml(svc.id)}">Alle ${incs.length} Einsätze anzeigen</button>` : ''}
@@ -3459,7 +3459,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 74;
+const APP_VERSION = 76;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7206,12 +7206,26 @@ async function quickNotifications() {
   try { const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.getNotifications ? await reg.getNotifications({ tag: 'etb-quick' }) : []; } catch (_) { return []; }
 }
 /** Liegt keine „Neuer Einsatz?“-Mitteilung bereit, eine anzeigen (lokal, ohne Server). */
-async function quickPushArm() {
-  if (!quickPushEnabled() || typeof Notification === 'undefined' || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return;
+/** Zum Ausprobieren: Schnell-Einsatz-Mitteilung sofort zeigen (2 Minuten gültig). */
+async function quickPushTest() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) throw new Error('Service Worker nicht bereit – App neu laden.');
+  (await quickNotifications()).forEach((n) => n.close());
+  const silent = quickPushSilent();
+  await reg.showNotification('🚑 Neuer Einsatz? (Test)', {
+    body: silent ? 'Diese Mitteilung sollte ohne Ton/Vibration kommen.' : 'Diese Mitteilung kommt mit Ton.',
+    tag: 'etb-quick', icon: './icons/icon-192.png', badge: './icons/icon-192.png',
+    silent, data: { url: './#neu-einsatz-push', until: Date.now() + 2 * 60e3, silent },
+  });
+}
+
+async function quickPushArm(force = false) {
+  if ((!quickPushEnabled() && !force) || typeof Notification === 'undefined' || Notification.permission !== 'granted' || !('serviceWorker' in navigator)) return false;
   const svc = runningService();
   const shown = await quickNotifications();
-  if (!svc) { shown.forEach((n) => n.close()); return; } // Dienst vorbei → aufräumen
-  if (shown.length) return;
+  if (!svc) { shown.forEach((n) => n.close()); return false; } // Dienst vorbei → aufräumen
+  if (shown.length && !force) return true;
+  shown.forEach((n) => n.close());
   const end = parseLocalDt(svc.endAt);
   const until = end ? end.getTime() : Date.now() + 3600e3;
   try {
@@ -7222,13 +7236,31 @@ async function quickPushArm() {
         tag: 'etb-quick', icon: './icons/icon-192.png', badge: './icons/icon-192.png',
         silent: quickPushSilent(), data: { url: './#neu-einsatz-push', until, silent: quickPushSilent() },
       });
-      return;
+      return true;
     }
   } catch (_) {}
   // Rückfall: über den Worker schicken
   const endpoint = lsGet(PUSH_ENDPOINT_KEY);
-  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', keepalive: true, body: { endpoint, send: { title: svc.vehicle || 'Dienst', until } } }).catch(() => {});
+  if (endpoint && dpConfigured()) { workerApi('/push/quick', { method: 'POST', keepalive: true, body: { endpoint, send: { title: svc.vehicle || 'Dienst', until } } }).catch(() => {}); return true; }
+  return false;
 }
+
+/** Knopf auf der Startkarte: Mitteilung jetzt bereitlegen. */
+async function quickPushManual() {
+  if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) { toast('Mitteilungen werden auf diesem Gerät nicht unterstützt.', 'error'); return; }
+  if (Notification.permission !== 'granted') {
+    const r = await Notification.requestPermission().catch(() => 'denied');
+    if (r !== 'granted') { toast('Mitteilungen sind nicht erlaubt (iOS-Einstellungen → Mitteilungen).', 'error', 5000); return; }
+  }
+  const ok = await quickPushArm(true);
+  toast(ok ? '🔔 „Neuer Einsatz?“ liegt im Sperrbildschirm bereit.' : 'Gerade läuft kein Dienst.', ok ? 'success' : 'info', 3000);
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-quick-push]');
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  quickPushManual();
+});
 
 function pushSupport() {
   const ios = isIOSDevice();
@@ -7298,7 +7330,8 @@ async function renderPushSettings(host) {
              <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz lautlos</span><span class="set-row-sub">Ohne Ton und Vibration – soweit iOS das zulässt.</span></span>
              <input type="checkbox" class="set-switch" id="push-quick-silent" ${quickPushSilent() ? 'checked' : ''}>
            </label>
-           <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text set-row-title">Testmitteilung senden</span></button>
+           <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text"><span class="set-row-title">Testmitteilung senden</span><span class="set-row-sub">Wie eine Dienstplan-Änderung – mit Ton</span></span></button>
+           <button type="button" class="set-row set-action" id="btn-push-quicktest"><span class="set-row-text"><span class="set-row-title">Schnell-Einsatz testen</span><span class="set-row-sub">Kommt nach 8 Sekunden – iPhone gleich sperren, dann hörst du, ob sie lautlos ist</span></span></button>
            <button type="button" class="set-row set-destructive" id="btn-push-off"><span class="set-row-text set-row-title">Benachrichtigungen ausschalten</span></button>`
         : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
     </div>
@@ -7332,6 +7365,18 @@ async function renderPushSettings(host) {
     lsSet(QUICK_SOUND_KEY, qs.checked ? '0' : '1');
     (await quickNotifications()).forEach((n) => n.close()); // mit neuer Einstellung neu anlegen
     try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, sound: !qs.checked } }); } catch (_) {}
+  });
+  const qt = host.querySelector('#btn-push-quicktest');
+  if (qt) qt.addEventListener('click', async () => {
+    qt.disabled = true;
+    try {
+      await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, test: true, delay: 8, send: { title: 'Test', until: Date.now() + 2 * 60e3 } } });
+      toast('Kommt in 8 Sekunden – jetzt iPhone sperren.', 'info', 6000);
+    } catch (err) {
+      // älterer Worker: sofort lokal zeigen
+      quickPushTest().then(() => toast('Test-Mitteilung angezeigt (Worker kann noch nicht verzögern).', 'info', 5000)).catch((e2) => toast(e2.message, 'error', 5000));
+    }
+    setTimeout(() => { qt.disabled = false; }, 8000);
   });
   const test = host.querySelector('#btn-push-test');
   if (test) test.addEventListener('click', async () => {
