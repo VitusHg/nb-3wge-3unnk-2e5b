@@ -3107,7 +3107,7 @@ function homeActiveCardHtml(svc, now) {
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
-      <span class="hm-inc-btns"><button type="button" class="hm-bell" data-quick-push aria-label="„Neuer Einsatz?“-Mitteilung bereitlegen" title="Mitteilung bereitlegen">🔔</button><button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button></span>
+      <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
     </div>
     ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
     ${incs.length > shown.length ? `<button type="button" class="hm-more" data-open-svc="${escHtml(svc.id)}">Alle ${incs.length} Einsätze anzeigen</button>` : ''}
@@ -3459,7 +3459,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 77;
+const APP_VERSION = 78;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6829,6 +6829,7 @@ function init() {
   initIosNavigation();
   initAppLifecycle();
   restoreUiState();
+  updateQuickBell();
 
   // PWA service worker
   if ('serviceWorker' in navigator) {
@@ -7296,7 +7297,39 @@ async function quickPushArm(force = false) {
   return false;
 }
 
-/** Knopf auf der Startkarte: Mitteilung jetzt bereitlegen. */
+async function setQuickPushEnabled(on) {
+  lsSet(QUICK_PUSH_KEY, on ? '1' : '0');
+  if (!on) (await quickNotifications()).forEach((n) => n.close());
+  updateQuickBell();
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', body: { endpoint, enabled: on } }).catch(() => {});
+}
+async function setQuickPushSilent(silent) {
+  lsSet(QUICK_SOUND_KEY, silent ? '0' : '1');
+  (await quickNotifications()).forEach((n) => n.close());
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', body: { endpoint, sound: !silent } }).catch(() => {});
+}
+function updateQuickBell() {
+  const b = document.getElementById('btn-quick-bell');
+  if (b) b.classList.toggle('is-off', !quickPushEnabled());
+}
+/** Glocke neben „Start“: Schnell-Nachrichten steuern und für den laufenden Dienst auslösen. */
+function openQuickBellSheet() {
+  const svc = runningService();
+  const on = quickPushEnabled(), silent = quickPushSilent();
+  showActionSheet({
+    title: 'Schnell-Nachricht „Neuer Einsatz?“',
+    message: svc ? `Laufender Dienst: ${svc.vehicle || 'Dienst'}` : 'Gerade läuft kein Dienst.',
+    actions: [
+      ...(svc ? [{ icon: '🔔', label: 'Jetzt bereitlegen', sub: 'Mitteilung im Sperrbildschirm', run: () => quickPushManual() }] : []),
+      { icon: on ? '🔕' : '🔔', label: on ? 'Schnell-Nachrichten ausschalten' : 'Schnell-Nachrichten einschalten', sub: on ? 'Keine automatischen Mitteilungen im Dienst' : 'Im Dienst liegt immer eine Mitteilung bereit', run: () => { setQuickPushEnabled(!on); toast(on ? 'Schnell-Nachrichten aus.' : 'Schnell-Nachrichten an.', 'success', 1500); } },
+      { icon: silent ? '🔊' : '🤫', label: silent ? 'Mit Ton' : 'Lautlos', sub: silent ? 'Derzeit lautlos' : 'Derzeit mit Ton', run: () => { setQuickPushSilent(!silent); toast(silent ? 'Schnell-Nachrichten mit Ton.' : 'Schnell-Nachrichten lautlos.', 'success', 1500); } },
+    ],
+  });
+}
+
+/** Mitteilung jetzt bereitlegen. */
 async function quickPushManual() {
   if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) { toast('Mitteilungen werden auf diesem Gerät nicht unterstützt.', 'error'); return; }
   if (Notification.permission !== 'granted') {
@@ -7307,10 +7340,10 @@ async function quickPushManual() {
   toast(ok ? '🔔 „Neuer Einsatz?“ liegt im Sperrbildschirm bereit.' : 'Gerade läuft kein Dienst.', ok ? 'success' : 'info', 3000);
 }
 document.addEventListener('click', (e) => {
-  const b = e.target.closest && e.target.closest('[data-quick-push]');
+  const b = e.target.closest && e.target.closest('#btn-quick-bell');
   if (!b) return;
   e.preventDefault(); e.stopPropagation();
-  quickPushManual();
+  openQuickBellSheet();
 });
 
 function pushSupport() {
@@ -7407,6 +7440,7 @@ async function renderPushSettings(host) {
   if (quick) quick.addEventListener('change', async () => {
     const on = quick.checked;
     lsSet(QUICK_PUSH_KEY, on ? '1' : '0');
+    updateQuickBell();
     if (!on) (await quickNotifications()).forEach((n) => n.close());
     try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: on } }); toast(on ? 'Schnell-Einsatz aktiv.' : 'Schnell-Einsatz aus.', 'success', 1500); }
     catch (err) { toast(err.code === 'not_found' ? 'Bitte den Worker aktualisieren, damit das auch für Dienstplan-Dienste gilt.' : err.message, 'info', 5000); }
@@ -7794,7 +7828,7 @@ function runShortcut(hash) {
   const now = new Date();
   if (hash === '#neu-einsatz') {
     const svc = runningService(now);
-    switchTab(svc ? 'dienste' : 'home');
+    switchTab('home');
     setTimeout(() => {
       if (svc) openIncidentDialog(svc.id, null);
       else { toast('Gerade läuft kein Dienst – lege zuerst einen an.', 'info', 2600); openServiceDialog(null); }
