@@ -1169,6 +1169,20 @@ function renderIncidentView() {
     if (selectedServiceId === svc.id && activeTab === 'dienste') return;
     setTimeout(() => openServiceDetail(svc.id), 280);
   };
+  if (!svc.isSeg) {
+    body.insertAdjacentHTML('beforeend', `<div class="iv-group iv-actions">
+      <div class="iv-card">
+        <button type="button" class="iv-jump" id="btn-iv-dup">Einsatz duplizieren<span aria-hidden="true">›</span></button>
+        <button type="button" class="iv-jump" id="btn-iv-move">In anderen Dienst verschieben<span aria-hidden="true">›</span></button>
+      </div>
+    </div>`);
+    document.getElementById('btn-iv-dup').onclick = () => {
+      closeDialog('dialog-incident-view');
+      const copy = { ...inc, pzc: { ...(inc.pzc || {}) }, extraVehicles: [...(inc.extraVehicles || [])], note: '', favorite: false };
+      setTimeout(() => openIncidentDialog(svc.id, null, { prefill: copy }), 280);
+    };
+    document.getElementById('btn-iv-move').onclick = () => openMoveIncident(svc.id, inc.id);
+  }
   const favBtn = document.getElementById('btn-iv-fav');
   if (favBtn) favBtn.onclick = () => toggleFavorite(svc.id, inc.id);
 }
@@ -1586,6 +1600,8 @@ let segChips = null;
 function openIncidentDialog(serviceId, incidentId, opts = {}) {
   const svc = serviceId ? state.services.find((s) => s.id === serviceId) : null;
   const inc = incidentId && svc ? (svc.incidents || []).find((i) => i.id === incidentId) : null;
+  // Vorlage (z. B. „Duplizieren“): Felder füllen, aber als neuen Einsatz speichern
+  const src = inc || opts.prefill || null;
   incDialogSegMode = !!(opts.newSeg || (svc && svc.isSeg));
   incDialogServiceId = svc ? svc.id : null;
   incDialogIncidentId = inc ? inc.id : null;
@@ -1617,20 +1633,21 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
     });
   }
 
-  incLights = inc ? !!inc.lights : false;
-  incExtraVehicles = inc ? [...(inc.extraVehicles || [])] : [];
+  incLights = src ? !!src.lights : false;
+  incExtraVehicles = src ? [...(src.extraVehicles || [])] : [];
   updateLightsBtn();
   renderIncExtraVehicles();
 
-  document.getElementById('inc-keyword').value = inc ? (inc.alarmCode || '') : '';
-  document.getElementById('pzc-diag').value = inc && inc.pzc ? (inc.pzc.diag || '') : '';
-  document.getElementById('pzc-age').value = inc && inc.pzc ? (inc.pzc.age || '') : '';
-  document.getElementById('pzc-prio').value = inc && inc.pzc ? (inc.pzc.prio || '') : '';
+  document.getElementById('inc-keyword').value = src ? (src.alarmCode || '') : '';
+  document.getElementById('pzc-diag').value = src && src.pzc ? (src.pzc.diag || '') : '';
+  document.getElementById('pzc-age').value = src && src.pzc ? (src.pzc.age || '') : '';
+  document.getElementById('pzc-prio').value = src && src.pzc ? (src.pzc.prio || '') : '';
   document.getElementById('inc-note').value = inc ? (inc.note || '') : '';
-  setupKennzahlField('einsatzart', EINSATZART_MAP, EINSATZART_CODES, inc ? inc.einsatzart : '');
-  setupKennzahlField('statkz', STATKZ_MAP, STATKZ_CODES, inc ? inc.statKz : '');
+  setupKennzahlField('einsatzart', EINSATZART_MAP, EINSATZART_CODES, src ? src.einsatzart : '');
+  setupKennzahlField('statkz', STATKZ_MAP, STATKZ_CODES, src ? src.statKz : '');
   setupPzcField();
-  setupNacaField(inc && inc.naca !== null && inc.naca !== undefined ? String(inc.naca) : '');
+  setupNacaField(src && src.naca !== null && src.naca !== undefined ? String(src.naca) : '');
+  if (opts.prefill && !inc) document.getElementById('dialog-incident-title').textContent = 'Neuer Einsatz (Kopie)';
 
   const deleteBtn = document.getElementById('btn-inc-delete');
   if (deleteBtn) deleteBtn.style.display = inc ? '' : 'none';
@@ -2165,6 +2182,7 @@ function renderStats() {
     statsEinsatzarten.length + statsStatKz.length;
 
   container.innerHTML = `
+    ${reviewsEntryHtml()}
     <div class="stats-filter-bar">
       <button class="stats-filter-bar-btn" id="btn-open-stats-filter">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="sf-icon"><path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> Filter${activeFilterCount > 0 ? ` <span class="stats-filter-bar-badge">${activeFilterCount}</span>` : ''}
@@ -2172,7 +2190,7 @@ function renderStats() {
       ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
     </div>
     <div class="stats-facts">
-      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze${segInc ? ` <span class="fact-tile-sub">· ${segInc} SEG</span>` : ''}</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze${segInc ? `<span class="fact-tile-sub">davon ${segInc} SEG</span>` : ''}</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${totalSvcs}</div><div class="fact-tile-label">Dienste</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${Math.round(totalHours)}</div><div class="fact-tile-label">Stunden</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${String(avgInc).replace('.', ',')}</div><div class="fact-tile-label">Ø pro Dienst</div></div>
@@ -2898,6 +2916,7 @@ function buildHomeHtml({ now, currentSvc, lastEnded, upcoming, icsLoading }) {
   const dateLine = now.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' });
   return `${backupReminderHtml()}
   <div class="hm-date">${escHtml(dateLine)}</div>
+  ${storyBannerHtml(now)}
   <div class="hm-grid">
     <div class="hm-col">
       ${hero}
@@ -4418,6 +4437,375 @@ async function vehicleIconCacheStatus() {
   return { total: wanted.length, cached: wanted.filter((u) => have.has(u)).length };
 }
 
+// ── Einsatz in einen anderen Dienst verschieben ───────────────────────────
+let moveRef = null;
+let moveFilter = '';
+function openMoveIncident(svcId, incId) {
+  moveRef = { svcId, incId };
+  moveFilter = '';
+  renderMoveList();
+  openDialog('dialog-move');
+}
+
+function renderMoveList() {
+  const body = document.getElementById('move-body');
+  if (!body || !moveRef) return;
+  const from = state.services.find((x) => x.id === moveRef.svcId);
+  const inc = from && (from.incidents || []).find((i) => i.id === moveRef.incId);
+  if (!inc) { closeDialog('dialog-move'); return; }
+  const ref = parseLocalDt(from.startAt) || new Date();
+  const q = moveFilter.trim().toLowerCase();
+  const list = state.services
+    .filter((x) => !x.isSeg && x.id !== from.id && x.startAt)
+    .filter((x) => !q || [x.vehicle, x.location, svcWhenText(x)].join(' ').toLowerCase().includes(q))
+    .sort((a, b) => Math.abs(parseLocalDt(a.startAt) - ref) - Math.abs(parseLocalDt(b.startAt) - ref))
+    .slice(0, 40);
+  body.innerHTML = `<p class="inbox-hint">„${escHtml(inc.alarmCode || 'Einsatz')}“ aus ${escHtml(from.vehicle || 'Dienst')} · ${escHtml(svcWhenText(from))} verschieben nach:</p>
+    <input type="search" id="move-filter" class="settings-filter-input" placeholder="Fahrzeug, Ort, Datum …" value="${escHtml(moveFilter)}">
+    <div class="ics-pick-list move-list">${list.map((x) => `<button type="button" class="ics-pick-row move-row" data-move-to="${escHtml(x.id)}">
+        ${shiftCodeHtml(x.startAt, 'is-small')}
+        <span class="ics-pick-main"><span class="ics-pick-title">${escHtml(x.vehicle || 'Dienst')}</span><span class="ics-pick-sub">${escHtml([svcWhenText(x), x.location].filter(Boolean).join(' · '))}</span></span>
+        <span class="ics-pick-n">${(x.incidents || []).length}</span>
+      </button>`).join('') || '<div class="code-empty">Kein passender Dienst.</div>'}</div>`;
+  const f = body.querySelector('#move-filter');
+  f.addEventListener('input', () => { moveFilter = f.value; const pos = f.selectionStart; renderMoveList(); const nf = document.getElementById('move-filter'); nf.focus(); try { nf.setSelectionRange(pos, pos); } catch (_) {} });
+  body.querySelectorAll('[data-move-to]').forEach((b) => b.addEventListener('click', () => moveIncidentTo(b.dataset.moveTo)));
+}
+
+function moveIncidentTo(targetId) {
+  const from = state.services.find((x) => x.id === moveRef.svcId);
+  const to = state.services.find((x) => x.id === targetId);
+  if (!from || !to) return;
+  const idx = (from.incidents || []).findIndex((i) => i.id === moveRef.incId);
+  if (idx < 0) return;
+  const [inc] = from.incidents.splice(idx, 1);
+  (to.incidents = to.incidents || []).push(inc);
+  saveState();
+  closeDialog('dialog-move');
+  closeDialog('dialog-incident-view');
+  renderServiceList(); if (selectedServiceId) renderServiceDetail();
+  if (activeTab === 'home') renderHome().catch(() => {});
+  if (activeTab === 'favoriten') renderFavorites();
+  toast(`Verschoben nach ${to.vehicle || 'Dienst'} · ${svcWhenText(to).split(' · ')[0]}`, 'success', 2500);
+  moveRef = null;
+}
+
+// ── Rückblick im Story-Stil (Jahr und Monate) ──────────────────────────────
+// Vollbild-Folien wie bei bekannten Jahresrückblicken: antippen rechts = weiter,
+// links = zurück, gedrückt halten = Pause, nach unten wischen = schließen.
+const MONTHS_DE = ['Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const STORY_SLIDE_MS = 6500;
+
+function reviewPeriod(kind, year, month) {
+  if (kind === 'year') return { kind, year, from: `${year}-01-01`, to: `${year}-12-31`, label: String(year), title: `Dein Dienstjahr ${year}` };
+  const mm = String(month + 1).padStart(2, '0');
+  const last = new Date(year, month + 1, 0).getDate();
+  return { kind, year, month, from: `${year}-${mm}-01`, to: `${year}-${mm}-${last}`, label: `${MONTHS_DE[month]} ${year}`, title: `Dein ${MONTHS_DE[month]}` };
+}
+
+function countTop(values, n = 3) {
+  const m = new Map();
+  values.forEach((v) => { if (v) m.set(v, (m.get(v) || 0) + 1); });
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))).slice(0, n);
+}
+
+/** Zahlen für einen Zeitraum; null, wenn darin nichts erfasst ist. */
+function computeReview(period) {
+  const list = servicesInRange(period.from, period.to);
+  if (!list.length) return null;
+  const duty = list.filter((x) => !x.isSeg);
+  const segs = list.filter((x) => x.isSeg);
+  const incs = list.flatMap((x) => (x.incidents || []).map((inc) => ({ inc, svc: x })));
+  const hours = duty.reduce((n, x) => n + +serviceDurationHours(x), 0);
+  const nights = duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length;
+  const lights = incs.filter((x) => x.inc.lights).length;
+  const busiest = duty.slice().sort((a, b) => (b.incidents || []).length - (a.incidents || []).length)[0];
+  const longest = duty.slice().sort((a, b) => +serviceDurationHours(b) - +serviceDurationHours(a))[0];
+  const ages = incs.map((x) => parseInt(x.inc.pzc && x.inc.pzc.age, 10)).filter((a) => a >= 0 && a < 120);
+  const naca = Array.from({ length: 8 }, (_, n) => incs.filter((x) => String(x.inc.naca) === String(n)).length);
+  const weekdays = Array.from({ length: 7 }, () => 0);
+  duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) weekdays[d.getDay()]++; });
+  const perMonth = Array.from({ length: 12 }, () => 0);
+  incs.forEach((x) => { const d = parseLocalDt(x.svc.startAt); if (d) perMonth[d.getMonth()]++; });
+  const svcPerMonth = Array.from({ length: 12 }, () => 0);
+  duty.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) svcPerMonth[d.getMonth()]++; });
+  // Vergleich mit dem Zeitraum davor
+  const prev = period.kind === 'year' ? reviewPeriod('year', period.year - 1) : reviewPeriod('month', period.month === 0 ? period.year - 1 : period.year, (period.month + 11) % 12);
+  const prevList = servicesInRange(prev.from, prev.to);
+  const prevInc = prevList.reduce((n, x) => n + (x.incidents || []).length, 0);
+  return {
+    period, list, duty, segs, incs, hours, nights, lights, busiest, longest,
+    avgAge: ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null,
+    naca, weekdays, perMonth, svcPerMonth,
+    topKeywords: countTop(incs.map((x) => x.inc.alarmCode)),
+    topEinsatzart: countTop(incs.map((x) => x.inc.einsatzart && EINSATZART_MAP.get(String(x.inc.einsatzart))), 1)[0] || null,
+    topStatKz: countTop(incs.map((x) => x.inc.statKz && STATKZ_MAP.get(String(x.inc.statKz))), 1)[0] || null,
+    topVehicle: countTop(duty.map((x) => x.vehicle), 1)[0] || null,
+    topCrew: countTop(duty.flatMap((x) => x.colleagues || []), 3),
+    favorites: incs.filter((x) => x.inc.favorite).length,
+    prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0 },
+  };
+}
+
+/** Monate (neueste zuerst) mit erfassten Diensten. */
+function reviewMonthsWithData() {
+  const set = new Set();
+  state.services.forEach((x) => { const d = parseLocalDt(x.startAt); if (d) set.add(`${d.getFullYear()}-${d.getMonth()}`); });
+  return [...set].map((k) => k.split('-').map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+}
+
+function reviewYearsWithData() {
+  return [...new Set(reviewMonthsWithData().map(([y]) => y))];
+}
+
+function fmtNum(n) { return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 1 }); }
+
+function buildStorySlides(r) {
+  const p = r.period;
+  const isYear = p.kind === 'year';
+  const slides = [];
+  const big = (n, cls = '') => `<div class="st-big ${cls}" data-count="${n}">0</div>`;
+  const diff = (a, b, what) => {
+    if (!r.prev.has) return '';
+    const d = a - b;
+    if (!d) return `<div class="st-chip">genauso viele ${what} wie ${escHtml(r.prev.label)}</div>`;
+    return `<div class="st-chip">${d > 0 ? '▲ ' + d + ' mehr' : '▼ ' + Math.abs(d) + ' weniger'} als ${escHtml(r.prev.label)}</div>`;
+  };
+  const fmtDay = (svc) => { const d = parseLocalDt(svc.startAt); return d ? d.toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' }) : ''; };
+
+  slides.push({ bg: 'st-bg-1', html: `<div class="st-emoji">🚑</div><div class="st-kicker">${isYear ? 'Rückblick' : 'Monatsrückblick'}</div><h2 class="st-title">${escHtml(p.title)}</h2><p class="st-text">${isYear ? 'Ein Jahr voller Dienste, Einsätze und Kaffee. Bereit?' : 'Schauen wir, was in diesem Monat los war.'}</p><div class="st-hint">Tippen zum Weiterblättern</div>` });
+
+  const days = r.hours / 24;
+  slides.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Im Dienst</div>${big(r.duty.length)}<p class="st-lead">${r.duty.length === 1 ? 'Dienst' : 'Dienste'}</p>
+    <p class="st-text"><strong>${fmtNum(Math.round(r.hours))} Stunden</strong> – das sind ${days >= 1 ? `<strong>${fmtNum(Math.round(days * 10) / 10)} Tage</strong> am Stück` : 'einige Stunden'}.</p>
+    ${r.nights ? `<p class="st-text">Davon <strong>${r.nights} ${r.nights === 1 ? 'Nacht' : 'Nächte'}</strong> 🌙</p>` : ''}
+    ${r.segs.length ? `<p class="st-text">Dazu <strong>${r.segs.length} SEG-${r.segs.length === 1 ? 'Einsatz' : 'Einsätze'}</strong> ⚡</p>` : ''}
+    ${diff(r.duty.length, r.prev.services, 'Dienste')}` });
+
+  if (r.incs.length) {
+    const avg = r.duty.length ? Math.round((r.incs.length / r.duty.length) * 10) / 10 : 0;
+    slides.push({ bg: 'st-bg-3', html: `<div class="st-kicker">Einsätze</div>${big(r.incs.length)}<p class="st-lead">${r.incs.length === 1 ? 'Einsatz' : 'Einsätze'}</p>
+      ${avg ? `<p class="st-text">Im Schnitt <strong>${fmtNum(avg)}</strong> pro Dienst.</p>` : ''}
+      ${diff(r.incs.length, r.prev.incidents, 'Einsätze')}` });
+
+    const pct = Math.round((r.lights / r.incs.length) * 100);
+    slides.push({ bg: 'st-bg-4', html: `<div class="st-kicker">Sonderrechte</div><div class="st-big"><span data-count="${pct}">0</span>%</div><p class="st-lead">mit Blaulicht 🔵</p>
+      <div class="st-bar"><span style="width:${pct}%"></span></div>
+      <p class="st-text">${r.lights} mit, ${r.incs.length - r.lights} ohne Sonderrechte.</p>` });
+  }
+
+  if (r.topKeywords.length) {
+    slides.push({ bg: 'st-bg-5', html: `<div class="st-kicker">Deine Top-Stichwörter</div>
+      <ol class="st-rank">${r.topKeywords.map(([k, n], i) => `<li style="--i:${i}"><span class="st-rank-n">${i + 1}</span><span class="st-rank-t">${escHtml(k)}</span><span class="st-rank-c">${n}×</span></li>`).join('')}</ol>
+      ${r.topEinsatzart ? `<p class="st-text">Häufigste Einsatzart: <strong>${escHtml(r.topEinsatzart[0])}</strong></p>` : ''}
+      ${r.topStatKz ? `<p class="st-text">Häufigste Statistikkennzahl: <strong>${escHtml(r.topStatKz[0])}</strong></p>` : ''}` });
+  }
+
+  if (r.busiest && (r.busiest.incidents || []).length > 1) {
+    slides.push({ bg: 'st-bg-6', html: `<div class="st-kicker">Dein wildester Dienst</div><div class="st-emoji">🔥</div>
+      <div class="st-big" data-count="${r.busiest.incidents.length}">0</div><p class="st-lead">Einsätze in einem Dienst</p>
+      <p class="st-text"><strong>${escHtml(fmtDay(r.busiest))}</strong><br>${escHtml(r.busiest.vehicle || 'Dienst')}${r.busiest.location ? ' · ' + escHtml(r.busiest.location) : ''}</p>` });
+  }
+
+  if (r.topVehicle) {
+    const icon = vehicleIconSrc(r.topVehicle[0], true);
+    slides.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Dein Lieblingsfahrzeug</div>
+      ${icon ? `<img class="st-veh" src="${escHtml(icon)}" alt="">` : '<div class="st-emoji">🚐</div>'}
+      <h2 class="st-title">${escHtml(r.topVehicle[0])}</h2><p class="st-text"><strong>${r.topVehicle[1]}</strong> ${r.topVehicle[1] === 1 ? 'Dienst' : 'Dienste'} gemeinsam</p>` });
+  }
+
+  if (r.topCrew.length) {
+    slides.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Am öftesten mit dir unterwegs</div><div class="st-emoji">🤝</div>
+      <ol class="st-rank">${r.topCrew.map(([k, n], i) => `<li style="--i:${i}"><span class="st-rank-n">${i + 1}</span><span class="st-rank-t">${escHtml(k)}</span><span class="st-rank-c">${n}×</span></li>`).join('')}</ol>` });
+  }
+
+  const nacaTotal = r.naca.reduce((a, b) => a + b, 0);
+  if (nacaTotal || r.avgAge !== null) {
+    const max = Math.max(1, ...r.naca);
+    slides.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Deine Patient:innen</div>
+      ${r.avgAge !== null ? `<div class="st-big" data-count="${r.avgAge}">0</div><p class="st-lead">Jahre im Schnitt</p>` : ''}
+      ${nacaTotal ? `<div class="st-naca">${r.naca.map((n, i) => `<div class="st-naca-col"><span class="st-naca-bar naca-${i}" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-naca-l">${i}</span></div>`).join('')}</div><p class="st-text st-small">NACA-Verteilung</p>` : ''}` });
+  }
+
+  const wd = r.weekdays.indexOf(Math.max(...r.weekdays));
+  const dayShifts = r.duty.length - r.nights;
+  if (r.duty.length >= 2) {
+    slides.push({ bg: 'st-bg-10', html: `<div class="st-kicker">Dein Rhythmus</div><div class="st-emoji">${r.nights > dayShifts ? '🌙' : '☀️'}</div>
+      <h2 class="st-title">${r.nights > dayShifts ? 'Nachteule' : r.nights === dayShifts ? 'Tag & Nacht' : 'Frühaufsteher:in'}</h2>
+      <p class="st-text">${dayShifts} Tag- und ${r.nights} Nachtdienste.</p>
+      <p class="st-text">Am liebsten im Dienst: <strong>${WEEKDAY_LONG[wd]}</strong></p>
+      ${r.longest ? `<p class="st-text">Längster Dienst: <strong>${fmtNum(+serviceDurationHours(r.longest))} h</strong></p>` : ''}` });
+  }
+
+  if (isYear) {
+    const max = Math.max(1, ...r.perMonth);
+    const best = r.perMonth.indexOf(Math.max(...r.perMonth));
+    slides.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Dein Jahr in Monaten</div>
+      <div class="st-months">${r.perMonth.map((n, i) => `<div class="st-month${i === best && n ? ' is-best' : ''}"><span class="st-month-bar" style="height:${Math.round((n / max) * 100)}%"></span><span class="st-month-l">${MONTHS_DE[i].slice(0, 1)}</span></div>`).join('')}</div>
+      ${r.perMonth[best] ? `<p class="st-text">Stärkster Monat: <strong>${MONTHS_DE[best]}</strong> mit ${r.perMonth[best]} Einsätzen</p>` : ''}` });
+  }
+
+  slides.push({ bg: 'st-bg-1', html: `<div class="st-kicker">${escHtml(p.label)} in Zahlen</div>
+    <div class="st-sum">
+      <div><span>${r.duty.length}</span>Dienste</div>
+      <div><span>${fmtNum(Math.round(r.hours))}</span>Stunden</div>
+      <div><span>${r.incs.length}</span>Einsätze</div>
+      <div><span>${r.lights}</span>Blaulicht</div>
+    </div>
+    <p class="st-text">Danke für deinen Einsatz ❤️</p>
+    <button type="button" class="st-done">Fertig</button>` });
+  return slides;
+}
+
+let story = null;
+function openStory(kind, year, month) {
+  const period = reviewPeriod(kind, year, month);
+  const r = computeReview(period);
+  if (!r) { toast('Für diesen Zeitraum ist nichts erfasst.', 'info'); return; }
+  const slides = buildStorySlides(r);
+  closeStory();
+  const el = document.createElement('div');
+  el.className = 'story';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', period.title);
+  el.innerHTML = `<div class="st-progress">${slides.map(() => '<span><i></i></span>').join('')}</div>
+    <button type="button" class="st-close" aria-label="Schließen">✕</button>
+    <div class="st-stage"></div>`;
+  document.body.appendChild(el);
+  story = { el, slides, i: 0, timer: 0, started: 0, elapsed: 0, paused: false };
+  showStorySlide(0);
+  bindStoryGestures(el);
+  // Monatsrückblick gesehen → Hinweis auf Start ausblenden
+  lsSet('etb_story_seen_' + period.label, '1');
+}
+
+function closeStory() {
+  if (!story) return;
+  clearTimeout(story.timer);
+  const el = story.el;
+  el.classList.add('closing');
+  setTimeout(() => el.remove(), 250);
+  story = null;
+  if (activeTab === 'home') renderHome().catch(() => {});
+}
+
+function showStorySlide(i) {
+  if (!story) return;
+  if (i < 0) i = 0;
+  if (i >= story.slides.length) { closeStory(); return; }
+  story.i = i;
+  const sl = story.slides[i];
+  const stage = story.el.querySelector('.st-stage');
+  stage.className = 'st-stage ' + sl.bg;
+  stage.innerHTML = `<div class="st-slide">${sl.html}</div>`;
+  story.el.querySelectorAll('.st-progress span').forEach((b, k) => {
+    b.classList.toggle('done', k < i);
+    b.classList.toggle('active', k === i);
+    const bar = b.querySelector('i');
+    bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = '';
+  });
+  // Zahlen hochzählen
+  stage.querySelectorAll('[data-count]').forEach((n) => {
+    const target = +n.dataset.count;
+    const t0 = performance.now();
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / 900);
+      n.textContent = fmtNum(Math.round(target * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && story) requestAnimationFrame(step);
+    };
+    if (prefersReducedMotion()) n.textContent = fmtNum(target); else requestAnimationFrame(step);
+  });
+  const done = stage.querySelector('.st-done');
+  if (done) done.addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
+  story.elapsed = 0;
+  scheduleStoryNext();
+}
+
+function scheduleStoryNext() {
+  if (!story) return;
+  clearTimeout(story.timer);
+  story.started = Date.now();
+  story.el.classList.remove('paused');
+  if (story.i === story.slides.length - 1) return; // letzte Folie bleibt stehen
+  story.timer = setTimeout(() => showStorySlide(story.i + 1), STORY_SLIDE_MS - story.elapsed);
+}
+
+function pauseStory() {
+  if (!story || story.paused) return;
+  story.paused = true;
+  clearTimeout(story.timer);
+  story.elapsed += Date.now() - story.started;
+  story.el.classList.add('paused');
+}
+
+function resumeStory() {
+  if (!story || !story.paused) return;
+  story.paused = false;
+  scheduleStoryNext();
+}
+
+function bindStoryGestures(el) {
+  let x0 = 0, y0 = 0, t0 = 0, holdTimer = 0, held = false;
+  el.querySelector('.st-close').addEventListener('click', (e) => { e.stopPropagation(); closeStory(); });
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.st-close, .st-done')) return;
+    x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); held = false;
+    holdTimer = setTimeout(() => { held = true; pauseStory(); }, 250);
+  });
+  el.addEventListener('pointerup', (e) => {
+    if (e.target.closest('.st-close, .st-done')) return;
+    clearTimeout(holdTimer);
+    const dy = e.clientY - y0, dx = e.clientX - x0;
+    if (held) { resumeStory(); return; }
+    if (dy > 90 && Math.abs(dx) < 80) { closeStory(); return; }           // nach unten wischen
+    if (Math.abs(dx) > 60) { showStorySlide(story.i + (dx < 0 ? 1 : -1)); return; } // seitlich wischen
+    if (Date.now() - t0 > 600) return;
+    showStorySlide(story.i + (e.clientX < window.innerWidth * 0.3 ? -1 : 1));
+  });
+  el.addEventListener('pointercancel', () => { clearTimeout(holdTimer); resumeStory(); });
+  const onKey = (e) => {
+    if (!story) { document.removeEventListener('keydown', onKey); return; }
+    if (e.key === 'Escape') closeStory();
+    if (e.key === 'ArrowRight') showStorySlide(story.i + 1);
+    if (e.key === 'ArrowLeft') showStorySlide(story.i - 1);
+  };
+  document.addEventListener('keydown', onKey);
+}
+
+/** Einstieg in der Statistik: Jahreskarte + Monate als Kacheln. */
+function reviewsEntryHtml() {
+  const years = reviewYearsWithData();
+  if (!years.length) return '';
+  const months = reviewMonthsWithData().slice(0, 12);
+  return `<section class="rv-entry">
+    <div class="rv-years">${years.slice(0, 3).map((y, i) => `<button type="button" class="rv-year${i ? ' is-small' : ''}" data-story="year" data-y="${y}">
+      <span class="rv-year-k">Rückblick</span><span class="rv-year-t">${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>`).join('')}</div>
+    <div class="rv-months" role="list">${months.map(([y, m]) => `<button type="button" class="rv-month" role="listitem" data-story="month" data-y="${y}" data-m="${m}"><span>${MONTHS_DE[m].slice(0, 3)}</span><small>${y}</small></button>`).join('')}</div>
+  </section>`;
+}
+
+/** Hinweis auf Start: zu Monatsbeginn der Vormonat, zum Jahreswechsel das Jahr. */
+function storyBannerHtml(now) {
+  const d = now.getDate(), m = now.getMonth(), y = now.getFullYear();
+  let kind = null, yy, mm;
+  if ((m === 11 && d >= 15) || (m === 0 && d <= 31)) { kind = 'year'; yy = m === 11 ? y : y - 1; }
+  if (!kind && d <= 10) { kind = 'month'; yy = m === 0 ? y - 1 : y; mm = (m + 11) % 12; }
+  if (!kind) return '';
+  const period = reviewPeriod(kind, yy, mm);
+  if (lsGet('etb_story_seen_' + period.label) || !servicesInRange(period.from, period.to).length) return '';
+  return `<button type="button" class="rv-banner" data-story="${kind}" data-y="${yy}" ${kind === 'month' ? `data-m="${mm}"` : ''}>
+    <span class="rv-banner-emoji" aria-hidden="true">✨</span>
+    <span class="rv-banner-text"><strong>${kind === 'year' ? `Dein Dienstjahr ${yy}` : `Dein ${MONTHS_DE[mm]}-Rückblick`}</strong><span>ist da – jetzt ansehen</span></span>
+    <span class="rv-play" aria-hidden="true">▶</span>
+  </button>`;
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-story]');
+  if (!b) return;
+  openStory(b.dataset.story, +b.dataset.y, b.dataset.m !== undefined ? +b.dataset.m : undefined);
+});
+
 // ── Datei speichern: auf iPhone/iPad über das Teilen-Menü ─────────────────
 // (In Dateien sichern, iCloud Drive, AirDrop …); sonst normaler Download.
 // Liefert true, wenn gespeichert/geteilt wurde, false bei Abbruch.
@@ -5207,6 +5595,28 @@ function updateDpInboxBadge() {
   badge.hidden = !n;
   const btn = document.getElementById('btn-dp-inbox');
   if (btn) btn.setAttribute('aria-label', n ? `Änderungen (${n} ungelesen)` : 'Änderungen');
+  syncAppBadge(dpConfigured() ? groupDpChanges(recentDpChanges()).filter((g) => g.unread).map((g) => g.key) : []);
+}
+
+// ── Zahl am App-Symbol (ungelesene Dienstplan-Änderungen) ─────────────────
+// Die App schreibt die ungelesenen Dienste in einen kleinen Cache-Eintrag;
+// der Service Worker zählt bei eingehenden Mitteilungen dort weiter.
+const BADGE_CACHE = 'etb-meta';
+let lastBadgeSig = '';
+async function syncAppBadge(keys) {
+  const sig = keys.slice().sort().join('|');
+  if (sig === lastBadgeSig) return;
+  lastBadgeSig = sig;
+  try {
+    if ('caches' in window) {
+      const c = await caches.open(BADGE_CACHE);
+      await c.put('./__badge', new Response(JSON.stringify({ keys, at: Date.now() }), { headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (navigator.setAppBadge) {
+      if (keys.length) await navigator.setAppBadge(keys.length);
+      else if (navigator.clearAppBadge) await navigator.clearAppBadge();
+    }
+  } catch (_) { /* Badge ist nur ein Zusatz */ }
 }
 
 function dpInboxRowsHtml(items) {

@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v45';
+const CACHE_NAME = CACHE_PREFIX + 'v47';
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -110,14 +110,33 @@ self.addEventListener('push', (event) => {
   let msg = {};
   try { msg = event.data ? event.data.json() : {}; } catch (_) { msg = { body: event.data ? event.data.text() : '' }; }
   const title = msg.title || 'Dienstplan geändert';
-  event.waitUntil(self.registration.showNotification(title, {
+  event.waitUntil(Promise.all([bumpBadge(msg), self.registration.showNotification(title, {
     body: msg.body || '',
     tag: msg.tag || undefined,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
     data: { url: msg.url || './#dienstplan' },
-  }));
+  })]));
 });
+
+// Zahl am App-Symbol: ungelesene Dienste (die App schreibt den genauen Stand,
+// bei eingehenden Mitteilungen zählt der Service Worker weiter).
+async function bumpBadge(msg) {
+  try {
+    const tag = String(msg.tag || '');
+    if (tag === 'etb-test') return;
+    const keys = Array.isArray(msg.keys) ? msg.keys.map(String)
+      : tag.startsWith('etb-') && tag !== 'etb-summary' ? [tag.slice(4)] : ['summary-' + Date.now()];
+    const cache = await caches.open('etb-meta');
+    const hit = await cache.match('./__badge');
+    const cur = hit ? await hit.json() : { keys: [] };
+    const set = new Set(cur.keys || []);
+    keys.forEach((k) => set.add(k));
+    const all = [...set];
+    await cache.put('./__badge', new Response(JSON.stringify({ keys: all, at: Date.now() }), { headers: { 'Content-Type': 'application/json' } }));
+    if (self.navigator.setAppBadge) await self.navigator.setAppBadge(all.length);
+  } catch (_) { /* nur ein Zusatz */ }
+}
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
