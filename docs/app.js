@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 56;
+const APP_VERSION = 57;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4448,6 +4448,27 @@ function vehicleIconUrls() {
   }));
   return [...set];
 }
+
+/**
+ * Quadratische Fahrzeuggrafiken (z. B. 200×200 mit viel transparentem Rand)
+ * würden in den breiten Icon-Feldern winzig wirken. Sie bekommen die Klasse
+ * „veh-sq“ und werden per CSS auf den Fahrzeugstreifen in der Mitte zugeschnitten.
+ */
+function isVehicleIconImg(img) {
+  const src = img.currentSrc || img.src || '';
+  return (state.vehicleCategories || []).some((c) => [c.iconNormal, c.iconSoSi].some((u) => {
+    if (!u) return false;
+    if (u === src) return true;
+    try { return new URL(u, location.href).href === src; } catch (_) { return false; }
+  }));
+}
+function tagSquareVehicleIcon(img) {
+  if (!img.naturalWidth || !img.naturalHeight) return;
+  const sq = img.naturalWidth / img.naturalHeight < 1.25;
+  if (sq && isVehicleIconImg(img)) img.classList.add('veh-sq');
+  else img.classList.remove('veh-sq');
+}
+document.addEventListener('load', (e) => { if (e.target && e.target.tagName === 'IMG') tagSquareVehicleIcon(e.target); }, true);
 
 async function fetchIconForCache(url) {
   try {

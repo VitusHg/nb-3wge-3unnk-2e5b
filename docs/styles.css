@@ -3164,3 +3164,7 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 .rv-alltime { background: linear-gradient(140deg, #1a1446, #5e2bd6 70%, #bf5af2); color: #fff; }
 .rv-alltime span { font-size: 18px; font-weight: 800; }
 .rv-group-all { margin-bottom: 18px; background: linear-gradient(140deg, #1a1446, #5e2bd6 70%, #bf5af2); }
+
+/* Quadratische Fahrzeuggrafiken (200×200 mit Rand): mittleren Streifen zeigen */
+:where(img.veh-sq) { width: 100%; height: auto; aspect-ratio: 9 / 5; }
+img.veh-sq { object-fit: cover !important; object-position: 50% 55%; }
