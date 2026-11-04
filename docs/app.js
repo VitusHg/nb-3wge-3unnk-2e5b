@@ -3131,7 +3131,9 @@ function refreshPzcList() {
 // ── Einstellungen (Aufbau nach Vorbild RKTel) ─────────────────────────────
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
-const APP_VERSION = '2026.11';
+// Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
+const APP_VERSION = 48;
+const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -3476,13 +3478,26 @@ function settingsPageUeber(el, title) {
     <div class="set-about">
       <img src="icons/icon-192.png" alt="">
       <h3>Einsatztagebuch</h3>
-      <p>Version ${APP_VERSION} · Progressive Web App</p>
+      <p>Version ${APP_VERSION} · ${APP_VERSION_DATE}</p>
+    </div>
+    <div class="set-group">
+      <div class="set-row"><span class="set-row-text set-row-title">Version</span><span class="set-row-value">${APP_VERSION}</span></div>
+      <div class="set-row"><span class="set-row-text set-row-title">Stand</span><span class="set-row-value">${APP_VERSION_DATE}</span></div>
+      <div class="set-row"><span class="set-row-text set-row-title">Offline gespeichert</span><span class="set-row-value" id="about-sw">…</span></div>
     </div>
     <div class="set-group">
       <div class="set-row"><span class="set-row-text set-row-title">Als App installiert</span><span class="set-row-value">${standalone ? 'Ja' : 'Nein'}</span></div>
       <div class="set-row"><span class="set-row-text set-row-title">Dauerhafter Speicher</span><span class="set-row-value" id="about-persist">…</span></div>
     </div>
     <p class="set-group-footer">${standalone ? '' : 'Tipp: In Safari „Teilen → Zum Home-Bildschirm“ wählen, dann startet das Tagebuch wie eine App. '}Privates Eigenprojekt – kein Angebot des ÖRK.</p>`;
+  // Welche Version liegt offline auf dem Gerät (Service-Worker-Cache)?
+  const swEl = el.querySelector('#about-sw');
+  if ('caches' in window) {
+    caches.keys().then((keys) => {
+      const v = keys.map((k) => (/^etb-cache-v(\d+)$/.exec(k) || [])[1]).filter(Boolean).map(Number).sort((a, b) => b - a)[0];
+      swEl.textContent = !v ? '—' : v === APP_VERSION ? `Version ${v} ✓` : v < APP_VERSION ? `Version ${v} · Update wird geladen` : `Version ${v}`;
+    }).catch(() => { swEl.textContent = '—'; });
+  } else swEl.textContent = '—';
   const persistEl = el.querySelector('#about-persist');
   if (navigator.storage && navigator.storage.persisted) {
     navigator.storage.persisted().then((p) => { persistEl.textContent = p ? 'Ja' : 'Nein'; }).catch(() => { persistEl.textContent = '—'; });
