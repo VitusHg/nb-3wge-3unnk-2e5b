@@ -3168,3 +3168,6 @@ mark { background: rgba(255, 214, 10, .35); color: inherit; border-radius: 3px; 
 /* Quadratische Fahrzeuggrafiken (200×200 mit Rand): mittleren Streifen zeigen */
 :where(img.veh-sq) { width: 100%; height: auto; aspect-ratio: 9 / 5; }
 img.veh-sq { object-fit: cover !important; object-position: 50% 55%; }
+
+/* Story: kein Auto-Weiter – aktueller Abschnitt sofort gefüllt */
+.st-progress span.active i { animation: none !important; width: 100%; }

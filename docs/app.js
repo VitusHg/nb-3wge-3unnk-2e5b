@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5545,8 +5545,7 @@ function scheduleStoryNext() {
   const cur = story.slides[story.i];
   story.el.classList.toggle('is-quiz', !!(cur.quiz || cur.game));
   if (cur.quiz || cur.game) return; // Quiz und Spiele: weiter nur per Knopf
-  const ms = story.slides[story.i].ms || STORY_SLIDE_MS;
-  story.timer = setTimeout(() => showStorySlide(story.i + 1), Math.max(0, ms - story.elapsed));
+  // kein automatisches Weiterblättern – nur über die Knöpfe
 }
 
 function pauseStory() {
