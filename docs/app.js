@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 60;
+const APP_VERSION = 61;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4864,9 +4864,26 @@ function pzcQuip(t, n) {
   return q ? q[1] : `Dein PZC-Liebling – ${n}× gewählt.`;
 }
 
+/** Wie „ergiebig“ ist ein Einsatz? Kennzahlen zählen, eine Notiz und Favorit deutlich mehr. */
+function incRichness(inc) {
+  const p = inc.pzc || {};
+  const has = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+  return [inc.naca, inc.einsatzart, inc.statKz, p.diag, p.age, p.prio].filter(has).length
+    + ((inc.extraVehicles || []).length ? 1 : 0) + (has(inc.note) ? 4 : 0) + (inc.favorite ? 2 : 0) + (inc.lights ? 0.5 : 0);
+}
+/** Zufällig, aber Einsätze mit mehr Daten werden deutlich öfter gezogen. Erwartet [{inc, svc}]. */
+function pickRich(list) {
+  if (!list.length) return null;
+  const w = list.map((x) => Math.pow(1 + incRichness(x.inc), 1.6));
+  let t = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < list.length; i++) { t -= w[i]; if (t <= 0) return list[i]; }
+  return list[list.length - 1];
+}
+
 function buildStorySlides(r) {
   const p = r.period;
   const isAll = p.kind === 'all';
+  const full = !!p.full; // alle Module, keine Auswahl
   const isYear = p.kind !== 'month'; // All-Time verhält sich wie ein (langes) Jahr
   const zr = isAll ? 'insgesamt' : isYear ? 'dieses Jahr' : 'diesen Monat';
   const big = (n, cls = '') => `<div class="st-big ${cls}" data-count="${n}">0</div>`;
@@ -5001,7 +5018,7 @@ function buildStorySlides(r) {
         ${exot ? `<p class="st-text">Der Exot: <strong>${escHtml(exot)}</strong> ${escHtml(pzcDiagnosis(exot))} – nur 1× ${zr}. 🦄</p>` : ''}` });
     }
     // höchstens zwei PZC-Folien pro Story, damit es abwechslungsreich bleibt
-    shuffle(pzcSlides).slice(0, 2).forEach((x) => pool.push(x));
+    shuffle(pzcSlides).slice(0, full ? 99 : 2).forEach((x) => pool.push(x));
   }
 
   // Zufällige Statistikkennzahl
@@ -5032,7 +5049,7 @@ function buildStorySlides(r) {
 
   // Ein Favorit aus dem Zeitraum
   if (r.favList.length) {
-    const f = pick(r.favList);
+    const f = pickRich(r.favList);
     const ea = f.inc.einsatzart ? EINSATZART_MAP.get(String(f.inc.einsatzart)) : '';
     pool.push({ bg: 'st-bg-8', html: `<div class="st-kicker">Aus deinen Favoriten</div><div class="st-emoji">⭐</div>
       <h2 class="st-title">${escHtml(f.inc.alarmCode || 'Einsatz')}</h2>
@@ -5044,7 +5061,7 @@ function buildStorySlides(r) {
 
   // Zufälliges Zitat aus den Notizen
   if (r.notes.length >= 2) {
-    const n = pick(r.notes);
+    const n = pickRich(r.notes);
     pool.push({ bg: 'st-bg-2', html: `<div class="st-kicker">Zitat ${isAll ? 'für die Ewigkeit' : isYear ? 'des Jahres' : 'des Monats'}</div><div class="st-emoji">💬</div>
       <p class="st-quote st-quote-big">„${escHtml(n.inc.note)}“</p><p class="st-text st-small">${escHtml(n.inc.alarmCode || '')} · ${escHtml(fmtDay(n.svc))}</p>` });
   }
@@ -5272,7 +5289,7 @@ function buildStorySlides(r) {
   const nacaRows = r.naca.map((n, i) => ['NACA ' + i, n]).filter(([, n]) => n).sort((x, y) => y[1] - x[1]);
   if (uniqueTop(nacaRows)) choice('Welcher NACA-Wert kam am häufigsten vor?', nacaRows, ([k, n]) => ({ html: `<span>${k}</span>`, sub: `${n}×` }), `${nacaRows[0][0]} – ${nacaRows[0][1]}×`);
   // bis zu zwei verschiedene Fragen pro Story
-  const qs = shuffle(quizzes).slice(0, quizzes.length >= 4 ? 2 : 1);
+  const qs = shuffle(quizzes).slice(0, full ? 99 : quizzes.length >= 4 ? 2 : 1);
   qs.forEach((qz, qi) => {
     pool.push({ bg: qi ? 'st-bg-3' : 'st-bg-7', quiz: true, html: `<div class="st-kicker">Quiz<!--qn--></div><div class="st-emoji st-q-emoji">🤔</div>
       <h2 class="st-title st-title-sm">${qz.q}</h2>
@@ -5285,7 +5302,7 @@ function buildStorySlides(r) {
   const games = [];
   // Rubbellos: verdeckt einen zufälligen Einsatz aus dem Zeitraum
   if (r.incs.length) {
-    const x = pick(r.incs);
+    const x = pickRich(r.incs);
     const ic = vehicleIconSrc(x.svc.vehicle, !!x.inc.lights);
     games.push({ bg: 'st-bg-8', game: 'scratch', html: `<div class="st-kicker">Rubbellos</div>
       <h2 class="st-title st-title-sm">Rubbel deinen Zufalls-Einsatz frei!</h2>
@@ -5343,11 +5360,47 @@ function buildStorySlides(r) {
         <p class="st-text st-g-hint">Regler ziehen</p>` });
     }
   }
-  const gameCount = Math.min(games.length, isYear ? 2 : 1 + Math.round(Math.random()));
+  // Memory mit Fahrzeugen und Rettungsdienst-Symbolen
+  {
+    const seen = new Set(), syms = [];
+    r.vehStats.forEach((v) => { const src = vehicleIconSrc(v.name, true); if (src && !seen.has(src) && syms.length < 3) { seen.add(src); syms.push(`<img class="st-vimg" src="${escHtml(src)}" alt="">`); } });
+    shuffle(['🚑', '🚨', '🩺', '💉', '☕', '📟', '🦺', '🧯', '❤️‍🩹']).forEach((e) => { if (syms.length < 6) syms.push(`<span class="st-mem-e">${e}</span>`); });
+    games.push({ bg: 'st-bg-10', game: 'memory', data: { syms }, html: `<div class="st-kicker">Memory</div>
+      <h2 class="st-title st-title-sm">Finde die Paare!</h2>
+      <div class="st-memory st-game"></div>
+      <p class="st-text st-g-hint">Züge: 0</p>` });
+  }
+  // Höher oder tiefer mit den eigenen Stichwörtern
+  {
+    const kws = countTop(r.incs.map((x) => x.inc.alarmCode), 12);
+    if (kws.length >= 4) games.push({ bg: 'st-bg-3', game: 'hilo', data: { kws }, html: `<div class="st-kicker">Öfter oder seltener?</div>
+      <div class="st-hilo st-game"></div>
+      <p class="st-text st-g-hint"></p>` });
+  }
+  // Reanimations-Takt: 100–120 pro Minute
+  games.push({ bg: 'st-bg-1', game: 'cpr', html: `<div class="st-kicker">Drück im Takt!</div>
+    <h2 class="st-title st-title-sm">Herzdruckmassage: 100–120 pro Minute</h2>
+    <button type="button" class="st-cpr st-game"><span class="st-cpr-h">❤️</span><span class="st-cpr-v">Tippen zum Starten</span></button>
+    <p class="st-text st-g-hint">15× im Takt tippen</p>` });
+  // Glücksrad: dreht über deine Top-Stichwörter und zieht einen Einsatz
+  {
+    const kws = countTop(r.incs.map((x) => x.inc.alarmCode), 6);
+    if (kws.length >= 3) {
+      const byKw = {};
+      kws.forEach(([k]) => { byKw[k] = r.incs.filter((x) => x.inc.alarmCode === k); });
+      const segs = kws.map(([k, n]) => ({ k, n }));
+      games.push({ bg: 'st-bg-8', game: 'wheel', data: { segs, byKw, fmt: (x) => fmtDay(x.svc) }, html: `<div class="st-kicker">Glücksrad</div>
+        <div class="st-wheel-wrap st-game"><div class="st-wheel-pin">▼</div><div class="st-wheel"></div></div>
+        <button type="button" class="st-spin">Drehen 🎡</button>
+        <div class="st-wheel-res"></div>
+        <p class="st-text st-g-hint">Das Rad wählt ein Stichwort – und einen Einsatz dazu.</p>` });
+    }
+  }
+  const gameCount = full ? games.length : Math.min(games.length, isYear ? 2 : 1 + Math.round(Math.random()));
   const chosenGames = shuffle(games).slice(0, gameCount);
 
   // Auswahl: jedes Mal anders gemischt, nicht immer alle Module
-  const body = shuffle(pool).slice(0, (isYear ? 11 : 9) - chosenGames.length);
+  const body = full ? shuffle(pool) : shuffle(pool).slice(0, (isYear ? 11 : 9) - chosenGames.length);
   // Spiele an zufälligen Stellen einstreuen (nicht direkt hintereinander)
   chosenGames.forEach((g, gi) => {
     const lo = Math.floor((gi * body.length) / chosenGames.length), hi = Math.floor(((gi + 1) * body.length) / chosenGames.length);
@@ -5371,8 +5424,9 @@ function buildStorySlides(r) {
 }
 
 let story = null;
-function openStory(kind, year, month) {
+function openStory(kind, year, month, full = false) {
   const period = reviewPeriod(kind, year, month);
+  if (full) { period.full = true; period.label = 'All-Time komplett'; period.title += ' – komplett'; }
   const r = computeReview(period);
   if (!r) { toast('Für diesen Zeitraum ist nichts erfasst.', 'info'); return; }
   const slides = buildStorySlides(r);
@@ -5515,6 +5569,130 @@ function initStoryGame(stage, sl) {
         finish();
         label();
       }, 2350);
+    });
+    return;
+  }
+
+  if (sl.game === 'memory') {
+    const grid = stage.querySelector('.st-memory');
+    if (!sl.deck) sl.deck = [...sl.data.syms, ...sl.data.syms].map((h, i) => ({ h, k: sl.data.syms.indexOf(h), i })).sort(() => Math.random() - 0.5);
+    sl.found = sl.found || [];
+    let open = [], moves = sl.moves || 0, busy = false;
+    grid.innerHTML = sl.deck.map((c, i) => `<button type="button" class="st-mc${sl.found.includes(c.k) ? ' is-open is-done' : ''}" data-i="${i}" style="--i:${i}"><span class="st-mc-b">?</span><span class="st-mc-f">${c.h}</span></button>`).join('');
+    const upd = () => { hint.innerHTML = sl.found.length === sl.data.syms.length ? `<strong>Alle Paare in ${moves} Zügen! ${moves <= 9 ? '🧠 Gedächtnis wie ein Elefant.' : moves <= 13 ? '👍 Solide.' : '☕ Mehr Kaffee!'}</strong>` : `Züge: ${moves}`; };
+    upd();
+    grid.addEventListener('click', (e) => {
+      const b = e.target.closest('.st-mc');
+      if (!b || busy || b.classList.contains('is-open')) return;
+      e.stopPropagation();
+      b.classList.add('is-open'); open.push(b);
+      if (open.length < 2) return;
+      moves++; sl.moves = moves;
+      const [a, c] = open; open = [];
+      const ka = sl.deck[+a.dataset.i].k, kc = sl.deck[+c.dataset.i].k;
+      if (ka === kc) {
+        a.classList.add('is-done'); c.classList.add('is-done'); sl.found.push(ka);
+        if (sl.found.length === sl.data.syms.length) { win(); finish(); }
+        upd();
+      } else {
+        busy = true; upd();
+        setTimeout(() => { a.classList.remove('is-open'); c.classList.remove('is-open'); busy = false; }, 800);
+      }
+    });
+    return;
+  }
+
+  if (sl.game === 'hilo') {
+    const box = stage.querySelector('.st-hilo');
+    const kws = sl.data.kws;
+    const order = sl.order || (sl.order = [...kws].sort(() => Math.random() - 0.5).slice(0, 6));
+    let round = sl.round || 0, score = sl.score || 0;
+    const draw = () => {
+      if (round >= order.length - 1) {
+        box.innerHTML = `<div class="st-hilo-end"><div class="st-big st-big-sm">${score}/${order.length - 1}</div><p class="st-lead">richtig</p></div>`;
+        hint.innerHTML = score === order.length - 1 ? '<strong>Perfekt! Du kennst deine Einsätze. 🏆</strong>' : score >= (order.length - 1) / 2 ? '<strong>Gar nicht schlecht! 👍</strong>' : '<strong>Das Tagebuch weiß es besser. 📓</strong>';
+        finish(); return;
+      }
+      const [a, an] = order[round], [b] = order[round + 1];
+      box.innerHTML = `<div class="st-hilo-card is-known"><b>${escHtml(a)}</b><span>${an}×</span></div>
+        <div class="st-hilo-vs">Hattest du …</div>
+        <div class="st-hilo-card is-new"><b>${escHtml(b)}</b><span class="st-hilo-q">?</span></div>
+        <div class="st-hilo-btns"><button type="button" class="st-q" data-hl="up">▲ öfter</button><button type="button" class="st-q" data-hl="down">▼ seltener</button></div>`;
+      hint.textContent = `Runde ${round + 1} von ${order.length - 1} · ${score} richtig`;
+    };
+    draw();
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-hl]');
+      if (!btn || box.classList.contains('busy')) return;
+      e.stopPropagation();
+      const an = order[round][1], bn = order[round + 1][1];
+      const ok = bn === an || (btn.dataset.hl === 'up' ? bn > an : bn < an);
+      box.classList.add('busy');
+      const q = box.querySelector('.st-hilo-q'); q.textContent = bn + '×'; q.classList.add(ok ? 'ok' : 'no');
+      btn.classList.add(ok ? 'is-ok' : 'is-no');
+      if (ok) score++;
+      sl.score = score;
+      setTimeout(() => { round++; sl.round = round; box.classList.remove('busy'); draw(); }, 1100);
+    });
+    return;
+  }
+
+  if (sl.game === 'cpr') {
+    const btn = stage.querySelector('.st-cpr'), v = btn.querySelector('.st-cpr-v');
+    let taps = [];
+    btn.addEventListener('pointerdown', (e) => {
+      e.stopPropagation(); e.preventDefault();
+      const now = performance.now();
+      if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+      taps.push(now);
+      btn.classList.remove('beat'); void btn.offsetWidth; btn.classList.add('beat');
+      if (taps.length < 3) { v.textContent = `${taps.length} / 15`; return; }
+      const iv = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      const bpm = Math.round(60000 / iv);
+      v.innerHTML = `${bpm}<small>/min · ${taps.length} / 15</small>`;
+      btn.classList.toggle('is-good', bpm >= 100 && bpm <= 120);
+      if (taps.length >= 15) {
+        const q = bpm >= 100 && bpm <= 120 ? '<strong>Leitliniengerecht! 💪 Staying alive …</strong>' : bpm < 100 ? '<strong>Zu langsam 🐢</strong> – mehr Tempo, 100–120!' : '<strong>Zu schnell 🐇</strong> – nicht übertreiben!';
+        hint.innerHTML = `${q}<br><span class="st-small">Nochmal tippen für einen neuen Versuch</span>`;
+        if (bpm >= 100 && bpm <= 120) win();
+        sl.best = bpm; finish(); taps = [];
+      }
+    });
+    btn.addEventListener('click', (e) => e.stopPropagation());
+    return;
+  }
+
+  if (sl.game === 'wheel') {
+    const { segs, byKw } = sl.data;
+    const wheel = stage.querySelector('.st-wheel'), btn = stage.querySelector('.st-spin'), res = stage.querySelector('.st-wheel-res');
+    const cols = ['#ff453a', '#0a84ff', '#30d158', '#ffd60a', '#bf5af2', '#ff9f0a'];
+    const n = segs.length, step = 360 / n;
+    wheel.style.background = `conic-gradient(${segs.map((x, i) => `${cols[i % cols.length]} ${i * step}deg ${(i + 1) * step}deg`).join(',')})`;
+    wheel.innerHTML = segs.map((x, i) => `<span class="st-wheel-l" style="transform:rotate(${i * step + step / 2}deg);--lr:${i * step + step / 2 < 180 ? -90 : 90}deg"><b>${escHtml(x.k.length > 14 ? x.k.slice(0, 13) + '…' : x.k)}</b></span>`).join('');
+    let rot = sl.rot || 0, spinning = false;
+    wheel.style.transform = `rotate(${rot}deg)`;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (spinning) return;
+      spinning = true; btn.disabled = true; res.innerHTML = '';
+      // Stichwort nach Häufigkeit gewichtet
+      let t = Math.random() * segs.reduce((a, x) => a + x.n, 0), idx = 0;
+      for (let i = 0; i < n; i++) { t -= segs[i].n; if (t <= 0) { idx = i; break; } }
+      const target = 360 - (idx * step + step / 2) + (Math.random() - 0.5) * step * 0.6;
+      rot = rot - (rot % 360) + 360 * 5 + target;
+      sl.rot = rot;
+      wheel.style.transition = 'transform 3.2s cubic-bezier(.12,.7,.2,1)';
+      wheel.style.transform = `rotate(${rot}deg)`;
+      setTimeout(() => {
+        spinning = false; btn.disabled = false; btn.textContent = 'Nochmal drehen 🎡';
+        const kw = segs[idx].k;
+        const x = pickRich(byKw[kw]);
+        if (x) res.innerHTML = `<button type="button" class="st-fl st-wheel-hit" data-st-inc="${escHtml(x.inc.id)}" data-st-svc="${escHtml(x.svc.id)}"><small>${escHtml(kw)} · ${segs[idx].n}×</small><b>${escHtml(x.inc.alarmCode || 'Einsatz')}</b><span>${escHtml(sl.data.fmt(x))}${x.svc.vehicle ? ' · ' + escHtml(x.svc.vehicle) : ''} – antippen ›</span></button>`;
+        const hitBtn = res.querySelector('[data-st-inc]');
+        if (hitBtn) hitBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openStoryIncCard(hitBtn.dataset.stSvc, hitBtn.dataset.stInc); });
+        hint.innerHTML = '<strong>Das Rad hat entschieden! 🎡</strong>';
+        finish();
+      }, 3300);
     });
     return;
   }
@@ -5684,7 +5862,7 @@ function showStorySlide(i) {
   if (again) again.addEventListener('click', (e) => {
     e.stopPropagation();
     const per = story.period;
-    openStory(per.kind, per.year, per.month);
+    openStory(per.kind, per.year, per.month, !!per.full);
   });
   stage.querySelectorAll('[data-quiz]').forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -5795,7 +5973,8 @@ function openReviewsDialog() {
   const box = document.getElementById('reviews-body');
   if (!box) return;
   const months = reviewMonthsWithData();
-  box.innerHTML = `<button type="button" class="rv-group-year rv-group-all" data-story="all"><span>∞ All-Time-Rückblick</span><span class="rv-play" aria-hidden="true">▶</span></button>` + reviewYearsWithData().map((y) => `<div class="rv-group">
+  box.innerHTML = `<div class="rv-group-allrow"><button type="button" class="rv-group-year rv-group-all" data-story="all" data-full="0"><span>🔀 All-Time gemischt</span><span class="rv-play" aria-hidden="true">▶</span></button>
+    <button type="button" class="rv-group-year rv-group-all is-full" data-story="all" data-full="1"><span>∞ All-Time komplett</span><span class="rv-play" aria-hidden="true">▶</span></button></div>` + reviewYearsWithData().map((y) => `<div class="rv-group">
     <button type="button" class="rv-group-year" data-story="year" data-y="${y}"><span>Jahresrückblick ${y}</span><span class="rv-play" aria-hidden="true">▶</span></button>
     <div class="rv-group-months">${months.filter(([yy]) => yy === y).sort((a, b) => a[1] - b[1]).map(([yy, m]) =>
       `<button type="button" class="rv-month" data-story="month" data-y="${yy}" data-m="${m}"><span>${MONTHS_DE[m].slice(0, 3)}</span></button>`).join('')}</div>
@@ -5827,7 +6006,14 @@ document.addEventListener('click', (e) => {
   }
   const dlg = document.getElementById('dialog-reviews');
   if (dlg && dlg.contains(b)) closeDialog('dialog-reviews');
-  openStory(b.dataset.story, +b.dataset.y, b.dataset.m !== undefined ? +b.dataset.m : undefined);
+  if (b.dataset.story === 'all' && b.dataset.full === undefined && !(dlg && dlg.contains(b))) {
+    showActionSheet({ title: 'All-Time-Rückblick', actions: [
+      { icon: '🔀', label: 'Gemischt', sub: 'eine zufällige Auswahl der Module', run: () => openStory('all') },
+      { icon: '∞', label: 'Komplett', sub: 'wirklich alle Module, Quizfragen und Spiele', run: () => openStory('all', undefined, undefined, true) },
+    ] });
+    return;
+  }
+  openStory(b.dataset.story, +b.dataset.y, b.dataset.m !== undefined ? +b.dataset.m : undefined, b.dataset.full === '1');
 });
 
 // ── Datei speichern: auf iPhone/iPad über das Teilen-Menü ─────────────────

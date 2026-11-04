@@ -3219,3 +3219,52 @@ img.veh-sq { object-fit: cover !important; object-position: 50% 55%; }
 .peek-note { white-space: pre-wrap; }
 .peek-sub { margin: 14px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text2); }
 .peek-open { width: 100%; margin-top: 14px; }
+
+/* Memory */
+.st-memory { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0 6px; perspective: 800px; }
+.st-mc { position: relative; aspect-ratio: 3 / 4; border: none; padding: 0; background: none; transform-style: preserve-3d; transition: transform .4s var(--ease-ios); animation: st-popin .35s var(--ease-ios) backwards; animation-delay: calc(var(--i) * 30ms); }
+.st-mc.is-open { transform: rotateY(180deg); }
+.st-mc-b, .st-mc-f { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.st-mc-b { background: linear-gradient(140deg, rgba(255, 255, 255, .35), rgba(255, 255, 255, .12)); border: 2px solid rgba(255, 255, 255, .5); color: #fff; font-size: 26px; font-weight: 900; }
+.st-mc-f { background: #fff; transform: rotateY(180deg); }
+.st-mc-f .st-vimg { width: 92%; height: 70%; }
+.st-mem-e { font-size: 34px; }
+.st-mc.is-done .st-mc-f { box-shadow: 0 0 0 3px #30d158, 0 0 16px rgba(48, 209, 88, .7); }
+
+/* Höher/Tiefer */
+.st-hilo { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.st-hilo-card { display: flex; flex-direction: column; gap: 4px; padding: 16px; border-radius: 18px; background: rgba(255, 255, 255, .18); animation: st-slide .4s var(--ease-ios) both; }
+.st-hilo-card.is-new { animation-delay: .12s; background: rgba(255, 255, 255, .28); }
+.st-hilo-card b { font-size: 22px; overflow-wrap: anywhere; }
+.st-hilo-card span { font-size: 30px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.st-hilo-q.ok { color: #30d158; animation: st-pop .4s var(--ease-ios); }
+.st-hilo-q.no { color: #ff453a; animation: st-shake .4s; }
+.st-hilo-vs { font-size: 15px; font-weight: 700; opacity: .85; }
+.st-hilo-btns { display: flex; gap: 8px; }
+.st-hilo-btns .st-q { justify-content: center; text-align: center; }
+.st-hilo-btns .st-q.is-ok { border-color: #30d158; background: rgba(48, 209, 88, .7); }
+.st-hilo-btns .st-q.is-no { border-color: #ff453a; background: rgba(255, 69, 58, .7); }
+.st-hilo-end { padding: 20px 0; }
+
+/* Reanimations-Takt */
+.st-cpr { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 210px; height: 210px; margin: 16px auto 8px; border: 6px solid rgba(255, 255, 255, .5); border-radius: 50%; background: rgba(0, 0, 0, .25); color: #fff; font: inherit; touch-action: manipulation; }
+.st-cpr-h { font-size: 64px; line-height: 1; }
+.st-cpr-v { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: center; }
+.st-cpr-v small { font-size: 13px; font-weight: 600; opacity: .85; }
+.st-cpr.beat .st-cpr-h { animation: st-cpr-beat .25s ease-out; }
+@keyframes st-cpr-beat { 30% { transform: scale(1.35); } }
+.st-cpr.is-good { border-color: #30d158; box-shadow: 0 0 30px rgba(48, 209, 88, .6); }
+
+/* Glücksrad */
+.st-wheel-wrap { position: relative; width: 250px; height: 250px; margin: 10px auto 4px; }
+.st-wheel { width: 100%; height: 100%; border-radius: 50%; border: 6px solid #fff; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); position: relative; }
+.st-wheel-l { position: absolute; left: 50%; top: 0; width: 0; height: 50%; transform-origin: 50% 100%; }
+.st-wheel-l b { position: absolute; left: 50%; top: 14px; transform: translateX(-50%) rotate(var(--lr, 90deg)); transform-origin: 50% 50%; display: block; width: 92px; margin-top: 34px; font-size: 11px; font-weight: 800; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); text-align: center; white-space: nowrap; }
+.st-wheel-pin { position: absolute; z-index: 2; left: 50%; top: -18px; transform: translateX(-50%); font-size: 30px; color: #fff; text-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
+.st-wheel-res { min-height: 10px; margin-top: 8px; }
+.st-wheel-hit { animation: st-pop .45s var(--ease-ios); }
+
+/* Komplett-Variante im Popup */
+.rv-group-allrow { display: flex; gap: 8px; margin-bottom: 18px; }
+.rv-group-allrow .rv-group-all { flex: 1; margin-bottom: 0; font-size: 15px; }
+.rv-group-all.is-full { background: linear-gradient(140deg, #ff375f, #5e2bd6); }
