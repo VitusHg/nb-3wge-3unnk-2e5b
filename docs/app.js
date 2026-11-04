@@ -2053,24 +2053,39 @@ function renderPieSvg(items) {
   return `<div class="pie-wrap"><svg viewBox="0 0 120 120" class="pie-svg">${paths}</svg><div class="pie-legend">${legend}</div></div>`;
 }
 
-function showListPopup(title, items) {
+/** Vollständige Rangliste als Popup – mit Podest-Medaillen, Anteil und Suche. */
+function showListPopup(title, items, meta = {}) {
+  const color = meta.color || 'var(--accent)';
+  const total = items.reduce((n, [, c]) => n + c, 0);
   const max = items.length ? items[0][1] : 1;
-  const rows = items.map(([label, count], i) => `
-    <li class="rank-item">
-      <span class="rank-num">${i + 1}.</span>
-      <span class="rank-label">${escHtml(String(label))}</span>
-      <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(count/max*100)}%"></div></div>
-      <span class="rank-count">${count}</span>
-    </li>`).join('');
+  const medal = ['🥇', '🥈', '🥉'];
+  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}">
+      <span class="lp-n">${i < 3 ? medal[i] : i + 1}</span>
+      ${meta.lead ? meta.lead(label) : ''}
+      <span class="lp-main"><span class="lp-l">${escHtml(String(label))}</span>
+        <span class="lp-bar"><span style="width:${Math.max(4, Math.round((count / max) * 100))}%"></span></span></span>
+      <span class="lp-c"><b>${count}</b><small>${total ? Math.round((count / total) * 100) : 0} %</small></span>
+    </li>`;
   const ov = document.createElement('div');
-  ov.className = 'dialog-overlay';
+  ov.className = 'dialog-overlay lp-ov';
   ov.style.zIndex = '2000';
-  ov.innerHTML = `<div class="dialog-box" style="max-height:80vh;display:flex;flex-direction:column">
-    <div class="dialog-header"><h3>${escHtml(title)}</h3><button class="dialog-close">✕</button></div>
-    <div class="dialog-body" style="overflow-y:auto"><ul class="rank-list">${rows}</ul></div>
+  ov.innerHTML = `<div class="dialog-box lp-box" style="--mc:${color}">
+    <div class="lp-head">
+      <span class="lp-ic">${meta.icon || '📋'}</span>
+      <div class="lp-head-t"><h3>${escHtml(title)}</h3><span>${items.length} Einträge · ${total} ${escHtml(meta.unit || 'gesamt')}</span></div>
+      <button class="dialog-close lp-x" aria-label="Schließen">✕</button>
+    </div>
+    ${items.length > 8 ? '<div class="lp-search"><input type="search" placeholder="Suchen …" aria-label="Suchen"></div>' : ''}
+    <div class="dialog-body lp-body"><ol class="lp-list">${items.map(row).join('') || '<li class="lp-empty">Keine Daten</li>'}</ol></div>
   </div>`;
-  ov.querySelector('.dialog-close').addEventListener('click', () => ov.remove());
-  ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').addEventListener('click', close);
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  const q = ov.querySelector('.lp-search input');
+  if (q) q.addEventListener('input', () => {
+    const v = q.value.trim().toLowerCase();
+    ov.querySelectorAll('.lp-row').forEach((li) => { li.hidden = !!v && !li.dataset.q.includes(v); });
+  });
   document.body.appendChild(ov);
 }
 
@@ -2165,6 +2180,102 @@ function renderStats() {
     ? `<div class="naca-avg stats-age">Ø Patientenalter: <strong>${avgAge} Jahre</strong><span class="stats-age-range">${Math.min(...ages)}–${Math.max(...ages)} J. · ${ages.length} ${ages.length === 1 ? 'Einsatz' : 'Einsätze'}</span></div>`
     : '<div class="naca-avg stats-age">Ø Patientenalter: <strong>—</strong><span class="stats-age-range">kein Alter im PZC erfasst</span></div>';
 
+  if (statsStyle() === 'classic') {
+  function statsCard(title, allItems, withPie, meta, footerHtml = '') {
+    const total = allItems.length;
+    const moreBtn = total > 5 ? `<button class="btn-show-all" data-title="${escHtml(title)}">Alle (${total})</button>` : '';
+    const pie = withPie && allItems.length > 0 ? renderPieSvg(allItems.slice(0, 8)) : '';
+    const metaHtml = meta ? `<span class="stats-coverage">${escHtml(meta)}</span>` : '';
+    return `<div class="stats-rank-section">
+      <div class="stats-section-head"><h4>${escHtml(title)}</h4><div class="stats-head-right">${metaHtml}${moreBtn}</div></div>
+      <ul class="rank-list">${renderRankList(allItems, 5)}</ul>
+      ${pie}
+      ${footerHtml}
+    </div>`;
+  }
+
+  function nacaSection() {
+    const filled = allInc.filter((i) => i.naca !== null && i.naca !== undefined && i.naca !== '').length;
+    const counts = Array(8).fill(0);
+    let sum = 0;
+    allInc.forEach((i) => {
+      const n = parseInt(i.naca, 10);
+      if (!isNaN(n) && n >= 0 && n <= 7) { counts[n]++; sum += n; }
+    });
+    const maxCount = Math.max(...counts, 1);
+    const avg = filled ? Math.round(sum / filled) : null;
+    const items = counts.map((count, n) => {
+      const pct = Math.round(count / maxCount * 100);
+      return `<li class="rank-item">
+        <span class="rank-num">${n}</span>
+        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%"></div></div>
+        <span class="rank-label">${escHtml(NACA_LABELS[n])}</span>
+        <span class="rank-count">${count || ''}</span>
+      </li>`;
+    }).join('');
+    return `<div class="stats-rank-section">
+      <div class="stats-section-head">
+        <h4>NACA-Skala</h4>
+        <span class="stats-coverage">${filled}/${totalInc} Einsätze</span>
+      </div>
+      <ul class="rank-list">${items}</ul>
+      ${avg !== null ? `<div class="naca-avg">Ø NACA: <strong>${avg}</strong></div>` : ''}
+    </div>`;
+  }
+
+  const activeFilterCount = (statsFromDate ? 1 : 0) + (statsToDate ? 1 : 0) +
+    statsVehicles.length + statsLocations.length + statsColleagues.length +
+    statsKeywords.length + statsPzcs.length + statsNacaValues.length +
+    statsEinsatzarten.length + statsStatKz.length;
+
+  container.innerHTML = `
+    ${reviewsEntryHtml()}
+    <div class="stats-filter-bar">
+      <button class="stats-filter-bar-btn" id="btn-open-stats-filter">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="sf-icon"><path d="M4 6h16M7 12h10M10 18h4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> Filter${activeFilterCount > 0 ? ` <span class="stats-filter-bar-badge">${activeFilterCount}</span>` : ''}
+      </button>
+      ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
+    </div>
+    <div class="stats-facts">
+      <div class="fact-tile"><div class="fact-tile-value">${totalInc}</div><div class="fact-tile-label">Einsätze${segInc ? `<span class="fact-tile-sub">davon ${segInc} SEG</span>` : ''}</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${totalSvcs}</div><div class="fact-tile-label">Dienste</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${Math.round(totalHours)}</div><div class="fact-tile-label">Stunden</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${String(avgInc).replace('.', ',')}</div><div class="fact-tile-label">Ø pro Dienst</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
+      <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
+    </div>
+    <div class="stats-grid">
+      ${statsCard('Top Einsätze', allAlarm, true)}
+      ${statsCard('Top Kolleg:innen', allColleagues, true)}
+      ${statsCard('Top Fahrzeug', allVehicle, true)}
+      ${statsCard('Top Dienststelle', allLocation, true)}
+      <div class="stats-group-title">Kennzahlen &amp; Patient</div>
+      ${statsCard('Einsatzart', allEinsatzart, true, `${eaFilled}/${totalInc} Einsätze`)}
+      ${statsCard('Statistikkennzahl', allStatKz, true, `${kzFilled}/${totalInc} Einsätze`)}
+      ${statsCard('Top PZC', allPzc, false, `${pzcFilled}/${totalInc} Einsätze`, ageInfo)}
+      ${nacaSection()}
+    </div>
+    <div id="heatmap-section">
+      <div id="heatmap-header">
+        <span class="section-title">Aktivität</span>
+        <div id="heatmap-year-nav"></div>
+      </div>
+      <div id="heatmap-body">
+        <div id="heatmap-container"></div>
+        <div class="heatmap-legend">
+          <div class="hm-legend-item"><span class="heatmap-cell hm-none"></span>Kein Dienst</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-empty"></span>Dienst, 0 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-1"></span>1–2 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-2"></span>3–4 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-3"></span>5–6 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-4"></span>7–8 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-5"></span>9–10 Einsätze</div>
+          <div class="hm-legend-item"><span class="heatmap-cell hm-6"></span>11+ Einsätze</div>
+        </div>
+      </div>
+    </div>`;
+
+  } else {
   // ── Bausteine für die Module ──────────────────────────────────────────
   const pctOf = (n, t) => (t ? Math.round((n / t) * 100) : 0);
   const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
@@ -2328,6 +2439,8 @@ function renderStats() {
       </div>
     </div>`;
 
+  }
+
   // Build popup data map keyed by title
   const popupData = {
     'Top Einsätze': allAlarm,
@@ -2338,8 +2451,19 @@ function renderStats() {
     'Top Fahrzeug': allVehicle,
     'Top Dienststelle': allLocation,
   };
+  const popupVeh = (name) => { const src = vehicleIconSrc(name); return src ? `<img class="lp-veh" src="${escHtml(src)}" alt="">` : ''; };
+  const popupAv = (name) => `<span class="sx-av lp-av" style="--h:${[...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)}">${escHtml(String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase())}</span>`;
+  const popupMeta = {
+    'Top Einsätze': { icon: '🚨', color: '#ff453a', unit: 'Einsätze' },
+    'Top PZC': { icon: '🏥', color: '#bf5af2', unit: 'Einsätze' },
+    'Einsatzart': { icon: '🧭', color: '#0a84ff', unit: 'Einsätze' },
+    'Statistikkennzahl': { icon: '📊', color: '#30d158', unit: 'Einsätze' },
+    'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv },
+    'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh },
+    'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste' },
+  };
   container.querySelectorAll('.btn-show-all').forEach((btn) => {
-    btn.addEventListener('click', () => showListPopup(btn.dataset.title, popupData[btn.dataset.title] || []));
+    btn.addEventListener('click', () => showListPopup(btn.dataset.title, popupData[btn.dataset.title] || [], popupMeta[btn.dataset.title]));
   });
 
   document.getElementById('btn-open-stats-filter').addEventListener('click', () => {
@@ -2406,45 +2530,46 @@ function openStatsFilterPopup() {
   const body = dlg.querySelector('.dialog-body');
   body.innerHTML = `
     <div class="sf-section">
-      <div class="sf-section-title">Zeitraum</div>
+      <div class="sf-section-title"><span class="sf-ic">📅</span>Zeitraum</div>
+      <div class="sf-presets">${[['month', 'Dieser Monat'], ['last30', 'Letzte 30 Tage'], ['year', 'Dieses Jahr'], ['lastyear', 'Letztes Jahr'], ['all', 'Alles']].map(([k, l]) => `<button type="button" class="sf-preset" data-preset="${k}">${l}</button>`).join('')}</div>
       <div class="sf-date-row">
         <label>Von<input type="date" id="sf-from" value="${statsFromDate || ''}"></label>
         <label>Bis<input type="date" id="sf-to" value="${statsToDate || ''}"></label>
       </div>
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Fahrzeug</div>
+      <div class="sf-section-title"><span class="sf-ic">🚑</span>Fahrzeug</div>
       <div class="sf-chip-group">${chipHtml(allVehicleOpts, statsVehicles, 'vehicles')}</div>
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Dienststelle</div>
+      <div class="sf-section-title"><span class="sf-ic">🏠</span>Dienststelle</div>
       <div class="sf-chip-group">${chipHtml(allLocationOpts, statsLocations, 'locations')}</div>
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Kolleg:innen</div>
+      <div class="sf-section-title"><span class="sf-ic">🤝</span>Kolleg:innen</div>
       ${tagInputHtml('sf-colleague', 'Name')}
       ${tagsHtml(statsColleagues, 'colleagues')}
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Einsatzstichwort</div>
+      <div class="sf-section-title"><span class="sf-ic">🚨</span>Einsatzstichwort</div>
       ${tagInputHtml('sf-keyword', 'Stichwort')}
       ${tagsHtml(statsKeywords, 'keywords')}
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">PZC</div>
+      <div class="sf-section-title"><span class="sf-ic">🏥</span>PZC</div>
       ${tagInputHtml('sf-pzc', 'PZC-Code')}
       ${tagsHtml(statsPzcs, 'pzcs')}
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">NACA-Score</div>
+      <div class="sf-section-title"><span class="sf-ic">🩺</span>NACA-Score</div>
       <div class="sf-chip-group">${nacaChipsHtml()}</div>
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Einsatzart</div>
+      <div class="sf-section-title"><span class="sf-ic">🧭</span>Einsatzart</div>
       <div class="sf-chip-group">${kennzahlChipsHtml('einsatzart', EINSATZART_MAP, statsEinsatzarten, 'einsatzart')}</div>
     </div>
     <div class="sf-section">
-      <div class="sf-section-title">Statistikkennzahl</div>
+      <div class="sf-section-title"><span class="sf-ic">📊</span>Statistikkennzahl</div>
       <div class="sf-chip-group">${kennzahlChipsHtml('statKz', STATKZ_MAP, statsStatKz, 'statkz')}</div>
     </div>`;
 
@@ -2481,6 +2606,15 @@ function openStatsFilterPopup() {
     });
   }
   bindTagDels();
+
+  // Schnellauswahl Zeitraum
+  body.querySelectorAll('.sf-preset').forEach((b) => b.addEventListener('click', () => {
+    const d = new Date(), y = d.getFullYear(), pad = (n) => String(n).padStart(2, '0'), iso = (x) => `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+    const r = { month: [new Date(y, d.getMonth(), 1), new Date(y, d.getMonth() + 1, 0)], last30: [new Date(Date.now() - 29 * 864e5), d], year: [new Date(y, 0, 1), new Date(y, 11, 31)], lastyear: [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)], all: [null, null] }[b.dataset.preset];
+    body.querySelector('#sf-from').value = r[0] ? iso(r[0]) : '';
+    body.querySelector('#sf-to').value = r[1] ? iso(r[1]) : '';
+    body.querySelectorAll('.sf-preset').forEach((x) => x.classList.toggle('active', x === b));
+  }));
 
   // All chip clicks (vehicles, locations, naca)
   body.addEventListener('click', (e) => {
@@ -3238,7 +3372,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 62;
+const APP_VERSION = 63;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3397,6 +3531,8 @@ function settingsPageProfil(el, title) {
 }
 
 // — Darstellung —————————————————————————————————————————————————————————
+function statsStyle() { return lsGet('etb_stats_style') === 'classic' ? 'classic' : 'dynamic'; }
+
 function settingsPageDarstellung(el, title) {
   const cur = currentTheme();
   const opt = (val, label, sub) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${cur === val}" data-theme-choice="${val}">
@@ -3410,7 +3546,23 @@ function settingsPageDarstellung(el, title) {
       ${opt('light', 'Hell', '')}
       ${opt('dark', 'Dunkel', 'Angenehm im Nachtdienst')}
     </div>
-    <p class="set-group-footer">Bedienung und Funktionen sind in allen Designs gleich.</p>`;
+    <p class="set-group-footer">Bedienung und Funktionen sind in allen Designs gleich.</p>
+    <div class="set-group-header">Statistik</div>
+    <div class="set-group" role="radiogroup" aria-label="Statistik">
+      ${['dynamic', 'classic'].map((v) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${statsStyle() === v}" data-stats-choice="${v}">
+        <span class="set-row-text"><span class="set-row-title">${v === 'dynamic' ? 'Dynamisch' : 'Klassisch'}</span><span class="set-row-sub">${v === 'dynamic' ? 'Podest, Anteilsbalken, Tageszeit-Raster und Farbe' : 'Schlichte Ranglisten mit Kreisdiagrammen'}</span></span>
+        <span class="set-check">${SET_ICONS.check}</span>
+      </button>`).join('')}
+    </div>
+    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>`;
+  el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      lsSet('etb_stats_style', btn.dataset.statsChoice);
+      el.querySelectorAll('[data-stats-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
+      renderStats();
+      toast(btn.dataset.statsChoice === 'classic' ? 'Klassische Statistik aktiv.' : 'Dynamische Statistik aktiv.', 'success', 1500);
+    });
+  });
   el.querySelectorAll('[data-theme-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
       applyTheme(btn.dataset.themeChoice);
