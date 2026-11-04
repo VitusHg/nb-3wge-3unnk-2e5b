@@ -3037,8 +3037,8 @@ function homeVehIconHtml(vehicle, cls) {
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
   if (!cat || !cat.iconNormal) return '';
   return `<div class="hm-veh ${cls || ''}">
-    <img src="${escHtml(cat.iconNormal)}" class="hm-veh-img hm-veh-normal" alt="" />
-    ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="hm-veh-img hm-veh-sosi" alt="" />` : ''}
+    <img src="${escHtml(cat.iconNormal)}" class="hm-veh-img hm-veh-normal${vehSquareSrcs.has(cat.iconNormal) ? ' veh-sq' : ''}" alt="" />
+    ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="hm-veh-img hm-veh-sosi${vehSquareSrcs.has(cat.iconSoSi) ? ' veh-sq' : ''}" alt="" style="animation-delay:-${Date.now() % 1200}ms" />` : ''}
   </div>`;
 }
 
@@ -3069,6 +3069,26 @@ function homeIncRowHtml(inc, svc, showDate) {
   </button>`;
 }
 
+/** Laufende Dienstkarte nur in den Zeitangaben aktualisieren (Animation & Bilder bleiben). */
+function patchHomeActiveCard() {
+  const card = document.querySelector('#home-container .hm-hero.is-active');
+  const svc = runningService();
+  if (!card || !svc || card.dataset.svc !== svc.id || card.dataset.end !== svc.endAt) return false;
+  const now = new Date(), start = parseLocalDt(svc.startAt), end = parseLocalDt(svc.endAt);
+  if (!start || !end) return false;
+  const pct = Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100));
+  const fill = card.querySelector('.hm-progress-fill'), p = card.querySelector('.hm-progress-pct'), left = card.querySelector('.hm-progress-left');
+  if (fill) fill.style.width = pct.toFixed(1) + '%';
+  if (p) p.textContent = Math.floor(pct) + ' %';
+  if (left) left.textContent = homeRemainingText(end - now);
+  return true;
+}
+function homeRemainingText(ms) {
+  const min = Math.max(0, Math.round(ms / 60000));
+  const h = Math.floor(min / 60), m = min % 60;
+  return 'noch ' + (h ? `${h} h${m ? ' ' + m + ' min' : ''}` : `${m} min`);
+}
+
 function homeActiveCardHtml(svc, now) {
   const start = parseLocalDt(svc.startAt);
   const end = parseLocalDt(svc.endAt);
@@ -3077,12 +3097,11 @@ function homeActiveCardHtml(svc, now) {
   const lights = incs.filter((i) => i.lights).length;
   const shown = incs.slice().reverse().slice(0, 4);
   const crew = (svc.colleagues || []).filter(Boolean);
-  return `<section class="hm-card hm-hero is-active">
+  return `<section class="hm-card hm-hero is-active" data-svc="${escHtml(svc.id)}" data-end="${escHtml(svc.endAt || '')}">
     <button type="button" class="hm-hero-open" data-open-svc="${escHtml(svc.id)}" aria-label="Dienst öffnen">
       <div class="hm-hero-top">
         <span class="hm-live"><span class="home-active-pulse"></span>Im Dienst</span>
         ${shiftCodeHtml(svc.startAt, 'is-small')}
-        <span class="hm-hero-right">${end ? 'endet ' + escHtml(formatRelativeTime(end)) : ''}</span>
       </div>
       <div class="hm-hero-body">
         ${homeVehIconHtml(svc.vehicle, 'is-active')}
@@ -3097,16 +3116,11 @@ function homeActiveCardHtml(svc, now) {
         <span class="hm-progress-track"><span class="hm-progress-fill" style="width:${pct.toFixed(1)}%"></span></span>
         <span class="hm-progress-time">${end ? formatTimeHM(end) : '?'}</span>
       </div>
-      ${start && end && end > start ? (() => {
-        const h1 = (x) => String(Math.round(x * 10) / 10).replace('.', ',');
-        const tot = (end - start) / 3600000;
-        const done = Math.max(0, Math.min(tot, (now - start) / 3600000));
-        return `<div class="hm-progress-meta"><span class="hm-progress-pct">${Math.floor(pct)} %</span><span>${h1(done)} h von ${h1(tot)} h</span><span>noch ${h1(tot - done)} h</span></div>`;
-      })() : ''}
+      ${start && end && end > start ? `<div class="hm-progress-meta"><span class="hm-progress-pct">${Math.floor(pct)} %</span><span class="hm-progress-left">${homeRemainingText(end - now)}</span></div>` : ''}
       ${crew.length ? `<div class="hm-crew">👥 ${crew.map((c) => `<span class="crew-link" role="button" data-colleague="${escHtml(c)}">${escHtml(c)}</span>`).join(' · ')}</div>` : ''}
     </button>
     <div class="hm-hero-incs-hd">
-      <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">${lights} mit Blaulicht</span>` : ''}</span>
+      <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">🔵 ${lights}</span>` : ''}</span>
       <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
     </div>
     ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
@@ -3459,7 +3473,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 78;
+const APP_VERSION = 79;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4976,12 +4990,23 @@ function isVehicleIconImg(img) {
     try { return new URL(u, location.href).href === src; } catch (_) { return false; }
   }));
 }
+const vehSquareSrcs = new Set();
 function tagSquareVehicleIcon(img) {
   if (!img.naturalWidth || !img.naturalHeight) return;
   const sq = img.naturalWidth / img.naturalHeight < 1.25;
-  if (sq && isVehicleIconImg(img)) img.classList.add('veh-sq');
-  else img.classList.remove('veh-sq');
+  const src = img.getAttribute('src') || '';
+  if (sq && isVehicleIconImg(img)) { img.classList.add('veh-sq'); vehSquareSrcs.add(src); }
+  else { img.classList.remove('veh-sq'); vehSquareSrcs.delete(src); }
 }
+// Bereits bekannte quadratische Grafiken schon vor dem ersten Zeichnen markieren
+new MutationObserver((muts) => {
+  if (!vehSquareSrcs.size) return;
+  for (const m of muts) for (const n of m.addedNodes) {
+    if (n.nodeType !== 1) continue;
+    const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll ? n.querySelectorAll('img') : [];
+    imgs.forEach((im) => { if (vehSquareSrcs.has(im.getAttribute('src') || '')) im.classList.add('veh-sq'); });
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
 document.addEventListener('load', (e) => { if (e.target && e.target.tagName === 'IMG') tagSquareVehicleIcon(e.target); }, true);
 
 async function fetchIconForCache(url) {
@@ -8395,6 +8420,7 @@ function isTypingSomewhere() {
 function refreshActiveView(reason) {
   if (document.hidden || navAnimating || isTypingSomewhere() || topVisibleOverlay()) return;
   if (activeTab === 'home') {
+    if (reason === 'tick' && patchHomeActiveCard()) return;
     renderHome().catch(() => {});
   } else if (activeTab === 'dienste' && reason !== 'tick') { renderServiceList(); renderServiceDetail(); }
   else if (activeTab === 'dienstplan' && reason === 'resume') loadDpShifts().catch(() => {});

@@ -3517,3 +3517,7 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 #btn-quick-bell .bell-slash { display: none; }
 #btn-quick-bell.is-off { color: var(--text3); }
 #btn-quick-bell.is-off .bell-slash { display: inline; }
+/* Blaulicht am laufenden Dienst: klarer Wechsel statt verschwommenem Überblenden */
+.hm-veh.is-active .hm-veh-sosi { animation: hm-sosi-flash 1.2s linear infinite; will-change: opacity; }
+@keyframes hm-sosi-flash { 0%, 42% { opacity: 1; } 50%, 92% { opacity: 0; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hm-veh.is-active .hm-veh-sosi { animation: none; opacity: 1; } }
