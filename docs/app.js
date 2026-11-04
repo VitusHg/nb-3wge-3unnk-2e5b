@@ -3169,7 +3169,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 50;
+const APP_VERSION = 51;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4604,6 +4604,7 @@ function computeReview(period) {
     minAge: ages.length ? Math.min(...ages) : null,
     maxAge: ages.length ? Math.max(...ages) : null,
     topPzc: countTop(incs.map((x) => x.inc.pzc && x.inc.pzc.diag), 1).filter(([, n]) => n >= 2)[0] || null,
+    pzcList: countTop(incs.map((x) => x.inc.pzc && x.inc.pzc.diag), 999),
     statKzList: countTop(incs.map((x) => x.inc.statKz && STATKZ_MAP.get(String(x.inc.statKz))), 10).filter(([, n]) => n >= 2),
     einsatzartList: countTop(incs.map((x) => x.inc.einsatzart && EINSATZART_MAP.get(String(x.inc.einsatzart))), 10),
     topVehicles: countTop(duty.map((x) => x.vehicle), 3),
@@ -4627,6 +4628,56 @@ function reviewYearsWithData() {
 }
 
 function fmtNum(n) { return Number(n).toLocaleString('de-AT', { maximumFractionDigits: 1 }); }
+
+/** Grobe PZC-Gruppe nach der Hunderterstelle (keine Codeliste). */
+function pzcGroup(code) {
+  const c = String(code || '').trim();
+  return /^[1-9]\d\d$/.test(c) ? c[0] + 'xx' : '';
+}
+const PZC_GROUP_TEXT = {
+  '1xx': 'Reanimation – Respekt. ❤️',
+  '2xx': 'Trauma & Chirurgie – du bist Unfall-Profi. 🦴',
+  '3xx': 'Internistisch – du bist eigentlich Internist:in. 🩺',
+  '4xx': 'Neuro & Psych – Kopfsache. 🧠',
+  '5xx': 'Kinder, Gyn & Geburt – Storch-Express. 🍼',
+  '7xx': 'Uro, Augen, HNO & Co – die bunte Ecke. 🎨',
+};
+
+/** Spruch zum häufigsten PZC – sucht nur nach Wörtern im Diagnosetext. */
+function pzcQuip(t, n) {
+  const q = [
+    [/katheter/, 'Du bist offiziell das <strong>Katheter-Taxi</strong> 🚕💧'],
+    [/sonstige internist/, 'Diagnosen stellen? Machen andere – du fährst unter „sonstige internistische“. Bist ja kein Doktor. 🩺😉'],
+    [/^\S+\s+sonstige/, 'Diagnose: „sonstige“. Präzise wie ein Wetterbericht. 🌦️'],
+    [/harnverhalt/, 'Wasser marsch! 🚰'],
+    [/hypoglyk/, 'Der Zuckerlieferant deines Vertrauens. 🍬'],
+    [/hyperglyk/, 'Zu süß für diese Welt. 🍭'],
+    [/synkope|kollaps/, 'Umfall-Expert:in – die Leute liegen dir zu Füßen. 🫠'],
+    [/schenkelhals/, 'Hüft-Express für die Generation Rollator. 🦴'],
+    [/exsikkose/, 'Wasserträger:in – trinkt mehr, Leute! 💧'],
+    [/alkoholintox|mischintox/, 'Prost Mahlzeit. 🍻'],
+    [/intox|vergift/, 'Giftnotruf auf Rädern. ☠️'],
+    [/psychiatr|ubg|suizid/, 'Seelentröster:in im Einsatz. 🫂'],
+    [/schwindel/, 'Alles dreht sich um dich. 🌀'],
+    [/verwirrt/, 'Wo bin ich, wer bin ich? – du weißt es wenigstens. 🧭'],
+    [/insult|tia/, 'Time is brain – und du bist schnell. 🧠⚡'],
+    [/krampf/, 'Ruhe bewahren, wenn alles zuckt. ⚡'],
+    [/reanimation/, 'Lebensretter:in. Mehr gibt’s nicht zu sagen. ❤️'],
+    [/herzinfarkt|koronar|kardial/, 'Herzensangelegenheiten. ❤️‍🩹'],
+    [/atemnot|asthma|copd|respirator/, 'Durchatmen – für dich und andere. 🌬️'],
+    [/fieber|infekt/, 'Fieberthermometer im Dauereinsatz. 🌡️'],
+    [/übelkeit|erbrechen/, 'Speibsackerl-Service. 🤢'],
+    [/durchfall/, 'Lieber nicht nachfragen. 🚽'],
+    [/prellung|verstauchung|zerrung/, 'Kühlpack-Kurier. 🧊'],
+    [/fraktur/, 'Knochenarbeit. 🦴'],
+    [/wunde/, 'Pflasterkönig:in. 🩹'],
+    [/nasenbluten/, 'Taschentuch-Taxi. 🤧'],
+    [/geburt|entbindung|schwanger/, 'Storch-Assistenz. 🍼'],
+    [/covid/, 'Schutzanzug-Saison. 😷'],
+    [/polytrauma|sht/, 'Schwere Kost. Pass auf dich auf. ❤️'],
+  ].find(([re]) => re.test(t));
+  return q ? q[1] : `Dein PZC-Liebling – ${n}× gewählt.`;
+}
 
 function buildStorySlides(r) {
   const p = r.period;
@@ -4725,23 +4776,45 @@ function buildStorySlides(r) {
       <p class="st-text">${r.avgAge >= 70 ? 'Dein Publikum hat Lebenserfahrung. 👵👴' : r.avgAge >= 45 ? 'Bunt gemischt quer durch die Generationen.' : 'Erstaunlich junges Publikum! 🧒'}</p>` });
   }
 
-  // PZC-Analyse mit Augenzwinkern
-  if (r.topPzc) {
-    const [code, n] = r.topPzc;
-    const dx = pzcDiagnosis(code);
-    const t = `${code} ${dx}`.toLowerCase();
-    const quip = /katheter/.test(t) ? `Du bist offiziell das <strong>Katheter-Taxi</strong> 🚕💧`
-      : code === '320' || /sonst/.test(t) ? `Diagnosen stellen? Machen andere – du fährst unter „sonst“. Bist ja kein Doktor. 🩺😉`
-      : /psych/.test(t) ? 'Seelentröster:in im Einsatz. 🫂'
-      : /alkohol|intox|vergift/.test(t) ? 'Prost Mahlzeit. 🍻'
-      : /sturz|fall/.test(t) ? 'Die Schwerkraft hat dir viel Arbeit gemacht. 🍂'
-      : /atem|dyspn/.test(t) ? 'Durchatmen – für dich und andere. 🌬️'
-      : /brust|herz|kardi/.test(t) ? 'Herzensangelegenheiten. ❤️‍🩹'
-      : /geburt|schwanger/.test(t) ? 'Storch-Assistenz. 🍼'
-      : `Dein PZC-Liebling – ${n}× gewählt.`;
-    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">PZC-Analyse</div>
-      <div class="st-big st-big-sm">${escHtml(code)}</div><p class="st-lead">${escHtml(dx || 'PZC ' + code)}</p>
-      <p class="st-text"><strong>${n}×</strong> ${zr}.</p><p class="st-text">${quip}</p>` });
+  // PZC-Analyse mit Augenzwinkern – die Diagnosetexte kommen aus der
+  // importierten PZC-Liste auf dem Gerät, der Code selbst enthält keine Liste.
+  if (r.pzcList.length) {
+    const pzcTotal = r.pzcList.reduce((n, [, c]) => n + c, 0);
+    const label = (code) => pzcDiagnosis(code) || 'PZC ' + code;
+    const pzcSlides = [];
+    if (r.topPzc) {
+      const [code, n] = r.topPzc;
+      const quip = pzcQuip(`${code} ${pzcDiagnosis(code)}`.toLowerCase(), n);
+      const others = r.pzcList.slice(1, 3).filter(([, c]) => c >= 2);
+      pzcSlides.push({ bg: 'st-bg-11', html: `<div class="st-kicker">PZC-Analyse</div>
+        <div class="st-big st-big-sm">${escHtml(code)}</div><p class="st-lead">${escHtml(label(code))}</p>
+        <p class="st-text"><strong>${n}×</strong> ${zr} – ${Math.round((n / pzcTotal) * 100)} % aller vergebenen PZCs.</p>
+        <p class="st-text">${quip}</p>
+        ${others.length ? `<p class="st-text st-small">Dahinter: ${others.map(([c, k]) => `${escHtml(c)} ${escHtml(pzcDiagnosis(c))} (${k}×)`).join(' · ')}</p>` : ''}` });
+    }
+    // Fachgebiete nach Hunderterstelle
+    const groups = {};
+    r.pzcList.forEach(([code, n]) => { const g = pzcGroup(code); if (g) groups[g] = (groups[g] || 0) + n; });
+    const gl = Object.entries(groups).sort((x, y) => y[1] - x[1]);
+    if (gl.length >= 2 && pzcTotal >= 4) {
+      const [topG, topN] = gl[0];
+      const pct = Math.round((topN / pzcTotal) * 100);
+      pzcSlides.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Dein Fachgebiets-Mix</div>
+        <div class="st-big st-big-sm"><span data-count="${pct}">0</span>%</div><p class="st-lead">${escHtml(PZC_GROUP_TEXT[topG] || topG)}</p>
+        <div class="st-naca-list">${gl.slice(0, 5).map(([g, n], i) => `<div class="st-naca-row" style="--i:${i}"><span class="st-grp">${escHtml(g)}</span><span class="st-naca-track"><span style="width:${Math.round((n / topN) * 100)}%"></span></span><span class="st-naca-n">${Math.round((n / pzcTotal) * 100)}%</span></div>`).join('')}</div>
+        <p class="st-text st-small">nach PZC-Gruppen, ${pzcTotal} Einsätze mit PZC</p>` });
+    }
+    // Vielfalt und Exot
+    const singles = r.pzcList.filter(([, n]) => n === 1);
+    if (r.pzcList.length >= 3) {
+      const exot = singles.length ? pick(singles)[0] : null;
+      pzcSlides.push({ bg: 'st-bg-10', html: `<div class="st-kicker">PZC-Vielfalt</div><div class="st-emoji">🎲</div>
+        ${big(r.pzcList.length)}<p class="st-lead">verschiedene PZCs</p>
+        <p class="st-text">${r.pzcList.length >= 25 ? 'Du hast den Katalog quasi durchgespielt. 📚' : r.pzcList.length >= 10 ? 'Ordentlich Abwechslung im Patientenzustand.' : 'Überschaubar – du weißt, was kommt.'}</p>
+        ${exot ? `<p class="st-text">Der Exot: <strong>${escHtml(exot)}</strong> ${escHtml(pzcDiagnosis(exot))} – nur 1× ${zr}. 🦄</p>` : ''}` });
+    }
+    // höchstens zwei PZC-Folien pro Story, damit es abwechslungsreich bleibt
+    shuffle(pzcSlides).slice(0, 2).forEach((x) => pool.push(x));
   }
 
   // Zufällige Statistikkennzahl
