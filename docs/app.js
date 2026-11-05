@@ -3474,7 +3474,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 80;
+const APP_VERSION = 81;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5037,6 +5037,60 @@ async function setIconsOffline(on) {
   } catch (_) {}
 }
 
+// ── Fahrzeuggrafiken über den Worker: zuschneiden & mit echter Größe speichern ──
+async function fetchIconViaWorker(url) {
+  const base = workerBase();
+  if (!base || !dpConfigured()) throw new Error('kein Worker');
+  const res = await fetch(base + '/img?u=' + encodeURIComponent(url), { headers: { Authorization: 'Bearer ' + dpConfig().token }, cache: 'no-store' });
+  if (!res.ok) { const e = new Error('Worker ' + res.status); e.status = res.status; throw e; }
+  return res.blob();
+}
+/** Sichtbarer Bereich (Alpha > Schwelle) eines Bildes. */
+function alphaBox(bmp) {
+  const c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+    if (d[(y * c.width + x) * 4 + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  return x1 < 0 ? null : { x0, y0, x1, y1 };
+}
+function cropBlob(bmp, box) {
+  const w = box.x1 - box.x0 + 1, h = box.y1 - box.y0 + 1;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(bmp, box.x0, box.y0, w, h, 0, 0, w, h);
+  return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob'))), 'image/png'));
+}
+/** Normal- und SoSi-Grafik einer Kategorie mit gemeinsamem Ausschnitt zuschneiden (Blinken bleibt deckungsgleich). */
+async function processIconPair(urls) {
+  const blobs = await Promise.all(urls.map(fetchIconViaWorker));
+  const bmps = await Promise.all(blobs.map((b) => createImageBitmap(b)));
+  const sameSize = bmps.every((b) => b.width === bmps[0].width && b.height === bmps[0].height);
+  let box = null;
+  bmps.forEach((b) => {
+    const bb = alphaBox(b);
+    if (!bb) return;
+    box = !box ? bb : { x0: Math.min(box.x0, bb.x0), y0: Math.min(box.y0, bb.y0), x1: Math.max(box.x1, bb.x1), y1: Math.max(box.y1, bb.y1) };
+  });
+  const out = [];
+  for (let i = 0; i < bmps.length; i++) {
+    const bmp = bmps[i];
+    let blob = blobs[i], cropped = false;
+    if (box && sameSize) {
+      const pad = 2;
+      const bx = { x0: Math.max(0, box.x0 - pad), y0: Math.max(0, box.y0 - pad), x1: Math.min(bmp.width - 1, box.x1 + pad), y1: Math.min(bmp.height - 1, box.y1 + pad) };
+      const area = (bx.x1 - bx.x0 + 1) * (bx.y1 - bx.y0 + 1);
+      if (area < bmp.width * bmp.height * 0.92) { blob = await cropBlob(bmp, bx); cropped = true; }
+    }
+    out.push(new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png', 'Content-Length': String(blob.size), 'X-Etb-Orig-Size': String(blobs[i].size), 'X-Etb-Cropped': cropped ? '1' : '0' } }));
+  }
+  return out;
+}
+
 function syncVehicleIcons({ force = false } = {}) {
   if (!('caches' in window)) return Promise.resolve({ total: 0, cached: 0, failed: 0 });
   if (!iconsOfflineEnabled()) return caches.delete(ICON_CACHE).then(() => ({ total: 0, cached: 0, failed: 0, off: true }));
@@ -5045,11 +5099,32 @@ function syncVehicleIcons({ force = false } = {}) {
     const cache = await caches.open(ICON_CACHE);
     const wanted = vehicleIconUrls();
     const keys = await cache.keys();
-    const have = new Set(keys.map((r) => r.url));
     await Promise.all(keys.filter((r) => !wanted.includes(r.url)).map((r) => cache.delete(r)));
-    let failed = 0;
+    // bereits über den Worker aufbereitet?
+    const done = new Set();
+    for (const r of await cache.keys()) { const res = await cache.match(r); if (res && res.type !== 'opaque' && res.headers.get('X-Etb-Cropped') !== null) done.add(r.url); else if (res) done.add('raw:' + r.url); }
+    const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
+    let failed = 0, viaWorker = true;
+    const handled = new Set();
+    // 1) je Kategorie Normal + SoSi gemeinsam über den Worker
+    if (dpConfigured()) {
+      for (const c of state.vehicleCategories || []) {
+        const urls = [c.iconNormal, c.iconSoSi].filter((u) => u && /^https?:\/\//i.test(u)).map(abs);
+        if (!urls.length || !viaWorker) continue;
+        if (!force && urls.every((u) => done.has(u))) { urls.forEach((u) => handled.add(u)); continue; }
+        try {
+          const resps = await processIconPair(urls);
+          await Promise.all(urls.map((u, i) => cache.put(u, resps[i])));
+          urls.forEach((u) => handled.add(u));
+        } catch (err) {
+          if (err && (err.status === 404 || err.message === 'kein Worker')) viaWorker = false; // älterer Worker → wie bisher
+        }
+      }
+    }
+    // 2) Rest wie bisher direkt (undurchsichtig, ohne Zuschnitt)
     for (const url of wanted) {
-      if (have.has(url) && !force) continue;
+      if (handled.has(url)) continue;
+      if (!force && (done.has(url) || done.has('raw:' + url))) continue;
       try { await cache.put(url, await fetchIconForCache(url)); } catch (_) { failed++; }
     }
     return { total: wanted.length, cached: wanted.length - failed, failed };
