@@ -3612,3 +3612,14 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .inc-sec.is-open .inc-sec-body { display: block; }
 .inc-sec.is-collapsible .route-field input, .inc-sec.is-collapsible .link-add input { background: var(--card); }
 .inc-sec.is-collapsible .place-chip { background: var(--card); }
+
+/* Fenster dürfen nie seitlich verrutschen (iOS: Inhalt minimal breiter → seitliches Scrollen) */
+.dialog-box { overflow-x: hidden !important; overscroll-behavior-x: none; touch-action: pan-y; }
+.dialog-body { overflow-x: hidden; max-width: 100%; }
+.dialog-body > * { max-width: 100%; }
+.it-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.it-step { min-width: 0; overflow: hidden; }
+.it-l { font-size: 10px; letter-spacing: -.1px; }
+.it-v { font-size: 16px; }
+@media (max-width: 360px) { .it-l { font-size: 9px; } .it-v { font-size: 14px; } }
+.code-grid, .einsatzmittel-row, .route-grid, .link-add, .inc-sec { max-width: 100%; min-width: 0; }
