@@ -4,7 +4,7 @@
 // ── Constants ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'einsatzTagebuchV4';
 // Einsatz-Zeiten (früh definiert, da normalizeState sie beim Laden braucht)
-const INC_TIME_STEPS = [['erhalten', 'Erhalten', '📟'], ['bestaetigt', 'Bestätigt', '✅'], ['anfahrt', 'Anfahrt', '🚑'], ['ort', 'Am Einsatzort', '📍'],
+const INC_TIME_STEPS = [['erhalten', 'Erhalten', '📟'], ['anfahrt', 'Anfahrt', '🚑'], ['ort', 'Am Einsatzort', '📍'],
   ['transport', 'Transport', '🛏️'], ['ziel', 'Am Ziel', '🏥'], ['beendet', 'Beendet', '🏁']];
 // frühere Schlüssel (Version 82–84) → neue Status
 const INC_TIME_LEGACY = { alarm: 'erhalten', ab: 'anfahrt', an: 'ort', frei: 'beendet' };
@@ -577,7 +577,7 @@ function incTimeSummary(times) {
     ['Anfahrt', hmDiff(t.anfahrt || t.erhalten, t.ort)],
     ['Vor Ort', hmDiff(t.ort, t.transport || t.beendet)],
     ['Transport', hmDiff(t.transport, t.ziel)],
-    ['Gesamt', hmDiff(t.erhalten || t.bestaetigt || t.anfahrt, t.beendet || t.ziel)],
+    ['Gesamt', hmDiff(t.erhalten || t.anfahrt, t.beendet || t.ziel)],
   ].filter(([, m]) => m !== null && m < 12 * 60); // über 12 h ist eher ein Tippfehler
   return parts;
 }
@@ -3741,7 +3741,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 85;
+const APP_VERSION = 86;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

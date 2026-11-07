@@ -3650,3 +3650,4 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .tt-tile small { font-size: 12px; font-weight: 600; color: var(--text2); }
 .tt-tile b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tt-tile span { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.it-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
