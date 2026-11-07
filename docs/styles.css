@@ -3562,7 +3562,9 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .route-swap { position: absolute; z-index: 2; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border: none; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 16px; font-weight: 700; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
 .place-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .place-chip { padding: 6px 11px; border: 1px solid var(--border, transparent); border-radius: 999px; background: var(--fill); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
-.place-chip.is-add { background: transparent; border-style: dashed; color: var(--accent); }
+.route-save { position: absolute; z-index: 2; right: 42px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-size: 19px; font-weight: 600; line-height: 28px; text-align: center; }
+.route-field.has-save input { padding-right: 76px; }
 .inc-links { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .inc-links:empty { display: none; }
 .link-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 6px 8px 6px 9px; border-radius: 12px; background: var(--fill); }
@@ -3595,6 +3597,8 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .iv-route span { display: flex; align-items: center; gap: 10px; font-size: 15px; }
 .inc-links.is-view { padding: 10px 12px; margin: 0; }
 .place-add-row input { flex: 1; min-width: 0; }
+.place-row .place-edit { flex: 1; min-width: 0; padding: 4px 0; border: none; background: transparent; box-shadow: none; color: var(--text); font: inherit; font-size: 16px; }
+.place-row .place-edit:focus { outline: none; border-bottom: 1.5px solid var(--accent); }
 
 /* Zeiten v2: Knöpfe + eigene Feinjustierung (kein natives Zeitfeld) */
 .it-step { border: none; font: inherit; color: inherit; cursor: pointer; transition: background .15s, box-shadow .15s; }
