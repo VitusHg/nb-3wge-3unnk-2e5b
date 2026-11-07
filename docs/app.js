@@ -3743,7 +3743,7 @@ function refreshPzcList() {
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
 const APP_VERSION = 87;
-const APP_VERSION_DATE = '04.11.2026';
+const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
