@@ -61,10 +61,6 @@
           <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path class="ni-line" d="M3.5 10h17M8 3v4M16 3v4"/><path class="ni-line" d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17h2M11 17h2"/></svg></span>
           <span>Dienstplan</span>
         </button>
-        <button class="nav-btn" data-tab="telefon">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 3.8h2.6l1.4 4.2-2 1.5a11 11 0 0 0 5.8 5.8l1.5-2 4.2 1.4v2.6a2 2 0 0 1-2.1 2A16.2 16.2 0 0 1 4.8 5.9a2 2 0 0 1 2-2.1z" stroke-linejoin="round"/></svg></span>
-          <span>Telefon</span>
-        </button>
         <button class="nav-btn" data-tab="statistik">
           <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="ni-line" d="M5 20v-7M10 20V5M15 20v-10M20 20V8" stroke-width="2.6"/></svg></span>
           <span>Statistik</span>
@@ -127,23 +123,6 @@
         <div id="tab-favoriten" class="tab-panel">
           <h1 class="large-title">Favoriten</h1>
           <div id="favoriten-container"></div>
-        </div>
-
-        <!-- Tab: Telefonbuch (Aufbau wie RKTel: Liste + Kontakt als Unterseite) -->
-        <div id="tab-telefon" class="tab-panel">
-          <div id="pb-root" class="settings-pane">
-            <div class="dp-titlebar">
-              <h1 class="large-title">Telefonbuch</h1>
-              <div class="dp-head-actions">
-                <button id="btn-pb-add" class="icon-round" type="button" aria-label="Kontakt anlegen" title="Kontakt anlegen">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-                </button>
-              </div>
-            </div>
-            <div class="pb-search"><input type="search" id="pb-search" placeholder="Name, Nummer oder Dienststelle" autocomplete="off" enterkeyhint="search" aria-label="Telefonbuch durchsuchen"></div>
-            <div id="pb-body"></div>
-          </div>
-          <div id="pb-sub" class="settings-pane"><h2 class="set-page-title" id="pb-sub-title">Kontakt</h2><div id="pb-sub-body"></div></div>
         </div>
 
         <!-- Tab: Statistik -->
@@ -344,14 +323,6 @@
     <div class="dialog-box dialog-box-wide">
       <div class="dialog-header"><h3 id="colleague-title">Kolleg:in</h3><button class="dialog-close" data-close="dialog-colleague" aria-label="Schließen">✕</button></div>
       <div class="dialog-body" id="colleague-body"></div>
-    </div>
-  </div>
-
-  <!-- Kontakt (als Blatt außerhalb des Telefonbuch-Tabs) -->
-  <div id="dialog-contact" class="dialog-overlay" style="display:none;z-index:2150">
-    <div class="dialog-box">
-      <div class="dialog-header"><h3 id="contact-title">Kontakt</h3><button class="dialog-close" data-close="dialog-contact" aria-label="Schließen">✕</button></div>
-      <div class="dialog-body" id="contact-body"></div>
     </div>
   </div>
 
@@ -662,12 +633,6 @@
             <input type="checkbox" id="exp-settings" checked />
             <span class="export-check-icon">⚙️</span>
             <span class="export-check-label">App-Einstellungen</span>
-          </label>
-          <label class="export-check-row">
-            <input type="checkbox" id="exp-contacts" checked />
-            <span class="export-check-icon">📞</span>
-            <span class="export-check-label">Telefonbuch</span>
-            <span class="export-check-count" id="exp-contacts-count"></span>
           </label>
           <label class="export-check-row">
             <input type="checkbox" id="exp-calendar" checked />
