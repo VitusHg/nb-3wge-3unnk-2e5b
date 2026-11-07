@@ -3667,13 +3667,11 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .tt-tile span { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .it-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
-/* Postfach: Schnell-Nachricht „Neuer Einsatz?“ */
+/* Postfach: Verweis auf die Benachrichtigungs-Einstellungen */
 #inbox-quick:empty { display: none; }
-.iq-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; background: var(--fill); margin-bottom: 12px; }
-.iq-hd { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-.iq-row { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between; gap: 12px; padding: 6px 0; margin: 0; cursor: pointer; text-align: left; }
-.iq-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-.iq-row b { font-size: 15px; font-weight: 600; color: var(--text); }
-.iq-row small { font-size: 12px; color: var(--text2); }
-.iq-now { margin-top: 6px; }
+.iq-link { display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 12px; padding: 11px 14px; border: none; border-radius: 14px; background: var(--fill); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.iq-ic { font-size: 18px; }
+.iq-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.iq-t b { font-size: 15px; font-weight: 600; }
+.iq-t small { font-size: 12px; color: var(--text2); }
 #dp-inbox-body-wrap { display: block; }

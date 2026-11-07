@@ -3803,7 +3803,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 95;
+const APP_VERSION = 96;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3811,6 +3811,7 @@ const SETTINGS_PAGES = {
   dienstplan: 'Dienstplan',
   bedienung: 'Bedienung',
   orte: 'Orte & Ziele',
+  benachrichtigungen: 'Benachrichtigungen',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
   ueber: 'Über',
@@ -3823,6 +3824,7 @@ const SET_ICONS = {
   pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
   hand: '<svg viewBox="0 0 24 24"><path d="M8.5 12V5.5a1.5 1.5 0 0 1 3 0V11M11.5 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14.5 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.6 6.5-6 6.5-2.4 0-4-1.2-5.2-3.3L4.6 13.4a1.5 1.5 0 0 1 2.5-1.6l1.4 1.7"/></svg>',
   disk: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg>',
+  bell: '<svg viewBox="0 0 24 24"><path d="M6.5 16V11a5.5 5.5 0 0 1 11 0v5l1.5 1.5h-14z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
   car: '<svg viewBox="0 0 24 24"><path d="M3.5 16.5V9.5a2 2 0 0 1 2-2h8l4.5 4h1a1.5 1.5 0 0 1 1.5 1.5v3.5"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/><path d="M9.5 11.5h-3M8 10v3"/></svg>',
   siren: '<svg viewBox="0 0 24 24"><path d="M7 17v-5a5 5 0 0 1 10 0v5"/><path d="M5 17.5h14v2.5H5zM12 3v2M4.5 6l1.5 1.5M19.5 6 18 7.5"/></svg>',
@@ -3892,7 +3894,8 @@ function renderSettings() {
 
     <div class="set-group-header">Dienstplan</div>
     <div class="set-group">
-      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Mitteilungen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
+      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Abteilungen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
+      ${setRow({ icon: 'bell', color: 'red', title: 'Benachrichtigungen', sub: 'Neuer Einsatz?, Dienstplan-Änderungen', value: quickPushEnabled() ? 'An' : 'Aus', push: 'benachrichtigungen' })}
     </div>
 
     <div class="set-group-header">Stammdaten</div>
@@ -3954,6 +3957,7 @@ function renderSettingsPage() {
     darstellung: settingsPageDarstellung,
     bedienung: settingsPageBedienung,
     orte: settingsPageOrte,
+    benachrichtigungen: settingsPageBenachrichtigungen,
     speicher: settingsPageSpeicher,
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
@@ -4025,6 +4029,28 @@ function settingsPageDarstellung(el, title) {
 }
 
 // — Dienstplan ——————————————————————————————————————————————————————————
+function settingsPageBenachrichtigungen(el, title) {
+  const svc = runningService();
+  el.innerHTML = `${title}
+    <div class="set-group-header">Schnell-Nachricht „Neuer Einsatz?“</div>
+    <div class="set-group">
+      <label class="set-row set-row-switch">
+        <span class="set-row-text"><span class="set-row-title">Im Dienst bereitlegen</span><span class="set-row-sub">Während eines laufenden Dienstes liegt „🚑 Neuer Einsatz?“ im Sperrbildschirm – antippen öffnet sofort die Einsatzerfassung.</span></span>
+        <input type="checkbox" class="set-switch" id="nb-quick" ${quickPushEnabled() ? 'checked' : ''}>
+      </label>
+      <button type="button" class="set-row set-action" id="nb-quick-now" ${svc ? '' : 'disabled'}><span class="set-row-text"><span class="set-row-title">Jetzt bereitlegen</span><span class="set-row-sub">${svc ? escHtml(svc.vehicle || 'Laufender Dienst') : 'Gerade läuft kein Dienst'}</span></span></button>
+    </div>
+    <p class="set-group-footer">Die Schnell-Nachricht kommt immer lautlos – ohne Ton und Vibration.</p>
+    <div id="push-settings"></div>`;
+  el.querySelector('#nb-quick').addEventListener('change', async (e) => {
+    await setQuickPushEnabled(e.target.checked);
+    toast(e.target.checked ? 'Schnell-Nachricht an.' : 'Schnell-Nachricht aus.', 'success', 1500);
+    renderSettings();
+  });
+  el.querySelector('#nb-quick-now').addEventListener('click', () => quickPushManual());
+  renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
+}
+
 function settingsPageDienstplan(el, title) {
   const cfg = dpConfig();
   const legacy = lsGet(LEGACY_ICS_KEY);
@@ -4051,7 +4077,6 @@ function settingsPageDienstplan(el, title) {
       ${dpConfigured() ? '<button type="button" class="set-row set-destructive" id="btn-dp-remove"><span class="set-row-text set-row-title">Verbindung entfernen</span></button>' : ''}
     </div>
     <p class="set-group-footer" id="ics-status">${escHtml(status)}</p>
-    <div id="push-settings"></div>
 
     ${legacy ? `
     <div class="set-group-header">Alte Kalender-URL</div>
@@ -4067,7 +4092,6 @@ function settingsPageDienstplan(el, title) {
     </div>
     <p class="set-group-footer">Verknüpft den Abteilungsnamen eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag. Ob Links in Safari oder in der App aufgehen, stellst du unter <strong>Einstellungen → Bedienung</strong> ein.</p>`;
   el.querySelector('#btn-dp-open-abt').addEventListener('click', openAbteilungenPopup);
-  renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
 
   const urlEl = el.querySelector('#dp-worker-url');
   const tokEl = el.querySelector('#dp-worker-token');
@@ -7763,7 +7787,14 @@ async function workerApi(path, { method = 'GET', body, keepalive = false } = {})
 const QUICK_PUSH_KEY = 'etb_quick_push';
 const QUICK_SOUND_KEY = 'etb_quick_sound';
 function quickPushEnabled() { return lsGet(QUICK_PUSH_KEY) !== '0'; }
-function quickPushSilent() { return lsGet(QUICK_SOUND_KEY) !== '1'; }
+function quickPushSilent() { return true; } // „Neuer Einsatz?“ kommt immer ohne Ton/Vibration
+// Früher mit Ton eingestellt? Einmalig beim Worker auf lautlos umstellen.
+setTimeout(() => {
+  if (lsGet(QUICK_SOUND_KEY) !== '1') return;
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (!endpoint || !dpConfigured()) { lsSet(QUICK_SOUND_KEY, '0'); return; }
+  workerApi('/push/quick', { method: 'POST', body: { endpoint, sound: false } }).then(() => lsSet(QUICK_SOUND_KEY, '0')).catch(() => {});
+}, 4000);
 async function quickNotifications() {
   try { const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.getNotifications ? await reg.getNotifications({ tag: 'etb-quick' }) : []; } catch (_) { return []; }
 }
@@ -7812,7 +7843,7 @@ async function setQuickPushEnabled(on) {
   if (!on) (await quickNotifications()).forEach((n) => n.close());
   updateQuickBell();
   const endpoint = lsGet(PUSH_ENDPOINT_KEY);
-  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', body: { endpoint, enabled: on } }).catch(() => {});
+  if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', body: { endpoint, enabled: on, sound: false } }).catch(() => {});
 }
 async function setQuickPushSilent(silent) {
   lsSet(QUICK_SOUND_KEY, silent ? '0' : '1');
@@ -7824,20 +7855,15 @@ function updateQuickBell() {
   // Glocke ersetzt durch das Postfach (Schnell-Nachricht-Einstellungen stehen dort)
   if (document.getElementById('dialog-dp-inbox')?.style.display === 'flex') renderInboxQuick();
 }
-/** Postfach oben: Schnell-Nachricht „Neuer Einsatz?“ steuern. */
+/** Postfach oben: Verweis auf Einstellungen → Benachrichtigungen. */
 function renderInboxQuick() {
   const box = document.getElementById('inbox-quick');
   if (!box) return;
-  const svc = runningService();
-  box.innerHTML = `<div class="iq-card">
-    <div class="iq-hd">🔔 Schnell-Nachricht „Neuer Einsatz?“</div>
-    <label class="iq-row"><span><b>Im Dienst bereitlegen</b><small>Mitteilung im Sperrbildschirm öffnet „Neuer Einsatz“</small></span><input type="checkbox" class="set-switch" id="iq-on" ${quickPushEnabled() ? 'checked' : ''}></label>
-    <label class="iq-row"><span><b>Lautlos</b><small>ohne Ton und Vibration</small></span><input type="checkbox" class="set-switch" id="iq-silent" ${quickPushSilent() ? 'checked' : ''}></label>
-    <button type="button" class="btn-secondary iq-now" id="iq-now" ${svc ? '' : 'disabled'}>${svc ? `Jetzt bereitlegen · ${escHtml(svc.vehicle || 'Dienst')}` : 'Jetzt bereitlegen – gerade kein Dienst'}</button>
-  </div>`;
-  box.querySelector('#iq-on').onchange = (e) => { setQuickPushEnabled(e.target.checked); toast(e.target.checked ? 'Schnell-Nachrichten an.' : 'Schnell-Nachrichten aus.', 'success', 1500); };
-  box.querySelector('#iq-silent').onchange = (e) => { setQuickPushSilent(e.target.checked); toast(e.target.checked ? 'Schnell-Nachrichten lautlos.' : 'Schnell-Nachrichten mit Ton.', 'success', 1500); };
-  box.querySelector('#iq-now').onclick = () => quickPushManual();
+  box.innerHTML = `<button type="button" class="iq-link" id="iq-settings"><span class="iq-ic">🔔</span><span class="iq-t"><b>Benachrichtigungen</b><small>„Neuer Einsatz?“ ${quickPushEnabled() ? 'an' : 'aus'} · Dienstplan-Änderungen</small></span><span class="set-row-chev">›</span></button>`;
+  box.querySelector('#iq-settings').onclick = () => {
+    closeDialog('dialog-dp-inbox');
+    setTimeout(() => { switchTab('einstellungen'); if (settingsSub !== 'benachrichtigungen') openSettingsPage('benachrichtigungen'); }, 200);
+  };
 }
 /** Glocke neben „Start“: Schnell-Nachrichten steuern und für den laufenden Dienst auslösen. */
 function openQuickBellSheet() {
@@ -7849,7 +7875,6 @@ function openQuickBellSheet() {
     actions: [
       ...(svc ? [{ icon: '🔔', label: 'Jetzt bereitlegen', sub: 'Mitteilung im Sperrbildschirm', run: () => quickPushManual() }] : []),
       { icon: on ? '🔕' : '🔔', label: on ? 'Schnell-Nachrichten ausschalten' : 'Schnell-Nachrichten einschalten', sub: on ? 'Keine automatischen Mitteilungen im Dienst' : 'Im Dienst liegt immer eine Mitteilung bereit', run: () => { setQuickPushEnabled(!on); toast(on ? 'Schnell-Nachrichten aus.' : 'Schnell-Nachrichten an.', 'success', 1500); } },
-      { icon: silent ? '🔊' : '🤫', label: silent ? 'Mit Ton' : 'Lautlos', sub: silent ? 'Derzeit lautlos' : 'Derzeit mit Ton', run: () => { setQuickPushSilent(!silent); toast(silent ? 'Schnell-Nachrichten mit Ton.' : 'Schnell-Nachrichten lautlos.', 'success', 1500); } },
     ],
   });
 }
@@ -7910,6 +7935,8 @@ async function enablePush() {
   const label = isIOSDevice() ? 'iPhone' : (navigator.userAgentData && navigator.userAgentData.platform) || 'Gerät';
   await workerApi('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), label } });
   lsSet(PUSH_ENDPOINT_KEY, sub.endpoint);
+  // Schnell-Nachricht beim Worker: Stand übernehmen, immer lautlos
+  workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: quickPushEnabled(), sound: false } }).catch(() => {});
 }
 
 async function disablePush() {
@@ -7923,25 +7950,17 @@ async function disablePush() {
 /** Baut die Gruppe „Benachrichtigungen“ in Einstellungen → Dienstplan auf. */
 async function renderPushSettings(host) {
   if (!host) return;
-  if (!dpConfigured()) { host.innerHTML = ''; return; }
+  if (!dpConfigured()) { host.innerHTML = '<div class="set-group-header">Dienstplan-Änderungen</div><div class="set-group"><button type="button" class="set-row" data-push-dp><span class="set-row-text"><span class="set-row-title">Dienstplan verbinden</span><span class="set-row-sub">Mitteilungen bei neuen, geänderten und ausgefallenen Diensten gibt es mit verbundenem Dienstplan.</span></span></button></div>'; host.querySelector('[data-push-dp]').onclick = () => { closeSettingsPage(); setTimeout(() => openSettingsPage('dienstplan'), 50); }; return; }
   const sup = pushSupport();
   const sub = await currentPushSubscription();
   const active = !!(sub && lsGet(PUSH_ENDPOINT_KEY) === sub.endpoint && Notification.permission === 'granted');
   host.innerHTML = `
-    <div class="set-group-header">Benachrichtigungen</div>
+    <div class="set-group-header">Dienstplan-Änderungen</div>
     <div class="set-group">
       ${active
         ? `<div class="set-row"><span class="set-row-text"><span class="set-row-title">Aktiv auf diesem Gerät</span><span class="set-row-sub" id="push-status">Status wird geladen…</span></span></div>
-           <label class="set-row set-row-switch">
-             <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz im Dienst</span><span class="set-row-sub">Während eines laufenden Dienstes liegt „🚑 Neuer Einsatz?“ als Mitteilung bereit – antippen öffnet sofort die Einsatzerfassung.</span></span>
-             <input type="checkbox" class="set-switch" id="push-quick" ${quickPushEnabled() ? 'checked' : ''}>
-           </label>
-           <label class="set-row set-row-switch">
-             <span class="set-row-text"><span class="set-row-title">Schnell-Einsatz lautlos</span><span class="set-row-sub">Ohne Ton und Vibration – soweit iOS das zulässt.</span></span>
-             <input type="checkbox" class="set-switch" id="push-quick-silent" ${quickPushSilent() ? 'checked' : ''}>
-           </label>
            <button type="button" class="set-row set-action" id="btn-push-test"><span class="set-row-text"><span class="set-row-title">Testmitteilung senden</span><span class="set-row-sub">Wie eine Dienstplan-Änderung – mit Ton</span></span></button>
-           <button type="button" class="set-row set-action" id="btn-push-quicktest"><span class="set-row-text"><span class="set-row-title">Schnell-Einsatz testen</span><span class="set-row-sub">Kommt nach 8 Sekunden – iPhone gleich sperren, dann hörst du, ob sie lautlos ist</span></span></button>
+           <button type="button" class="set-row set-action" id="btn-push-quicktest"><span class="set-row-text"><span class="set-row-title">Schnell-Einsatz testen</span><span class="set-row-sub">Kommt nach 8 Sekunden lautlos – iPhone gleich sperren</span></span></button>
            <button type="button" class="set-row set-destructive" id="btn-push-off"><span class="set-row-text set-row-title">Benachrichtigungen ausschalten</span></button>`
         : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
     </div>
@@ -7961,21 +7980,6 @@ async function renderPushSettings(host) {
     await disablePush();
     toast('Benachrichtigungen ausgeschaltet.', 'success');
     renderPushSettings(host);
-  });
-  const quick = host.querySelector('#push-quick');
-  if (quick) quick.addEventListener('change', async () => {
-    const on = quick.checked;
-    lsSet(QUICK_PUSH_KEY, on ? '1' : '0');
-    updateQuickBell();
-    if (!on) (await quickNotifications()).forEach((n) => n.close());
-    try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: on } }); toast(on ? 'Schnell-Einsatz aktiv.' : 'Schnell-Einsatz aus.', 'success', 1500); }
-    catch (err) { toast(err.code === 'not_found' ? 'Bitte den Worker aktualisieren, damit das auch für Dienstplan-Dienste gilt.' : err.message, 'info', 5000); }
-  });
-  const qs = host.querySelector('#push-quick-silent');
-  if (qs) qs.addEventListener('change', async () => {
-    lsSet(QUICK_SOUND_KEY, qs.checked ? '0' : '1');
-    (await quickNotifications()).forEach((n) => n.close()); // mit neuer Einstellung neu anlegen
-    try { await workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, sound: !qs.checked } }); } catch (_) {}
   });
   const qt = host.querySelector('#btn-push-quicktest');
   if (qt) qt.addEventListener('click', async () => {
@@ -8147,7 +8151,7 @@ function dpInboxRowsHtml(items) {
     return `<div class="dp-chg-row${unread ? ' is-unread' : ''}" role="button" tabindex="0" data-inbox-key="${escHtml(key)}">
       <span class="inbox-dot" aria-label="${unread ? 'ungelesen' : 'gelesen'}"></span>
       <span class="dp-chg-badge is-${type}">${label[type]}</span>
-      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}${n > 1 ? ` <span class="dp-chg-n">${n} Änderungen</span>` : ''}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${extra}</span></span>
+      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}${n > 1 ? ` <span class="dp-chg-n">${n} Änderungen</span>` : ''}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${x.l ? ' · ' + escHtml(x.l) : ''}${extra}</span></span>
       <span class="dp-chg-at">${escHtml(homeDayLabel(new Date(latest.at), new Date()))}</span>
     </div>`;
   }).join('');
