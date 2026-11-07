@@ -204,6 +204,7 @@ function defaultState() {
     vehicleAssignments: {},
     abteilungen: [],
     places: [],
+    contacts: [],
   };
 }
 
@@ -215,6 +216,14 @@ function normalizeState(s) {
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
+  s.contacts = (Array.isArray(s.contacts) ? s.contacts.filter(isObj) : []).map((c) => ({
+    id: c.id ? String(c.id) : uid(),
+    name: toDisplayName(c.name).replace(/\s+/g, ' '),
+    phones: [...new Set((Array.isArray(c.phones) ? c.phones : []).map((p) => (typeof p === 'string' || typeof p === 'number' ? String(p).trim() : '')).filter(Boolean))],
+    quellen: (Array.isArray(c.quellen) ? c.quellen.filter(isObj) : []).map((q) => ({ dienststelle: toDisplayName(q.dienststelle), datum: toDisplayName(q.datum) })).filter((q) => q.dienststelle),
+    note: toDisplayName(c.note),
+    pinned: !!c.pinned,
+  })).filter((c) => c.name);
   s.abteilungen = Array.isArray(s.abteilungen) ? s.abteilungen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? '') })) : [];
   // Einträge ohne Objektform (null, Zahlen …) verwerfen statt später abzustürzen
   s.services = objList(s.services);
@@ -3803,7 +3812,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 91;
+const APP_VERSION = 92;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3811,6 +3820,7 @@ const SETTINGS_PAGES = {
   dienstplan: 'Dienstplan',
   bedienung: 'Bedienung',
   orte: 'Orte & Ziele',
+  telefonbuch: 'Telefonbuch',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
   ueber: 'Über',
@@ -3827,6 +3837,7 @@ const SET_ICONS = {
   car: '<svg viewBox="0 0 24 24"><path d="M3.5 16.5V9.5a2 2 0 0 1 2-2h8l4.5 4h1a1.5 1.5 0 0 1 1.5 1.5v3.5"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/><path d="M9.5 11.5h-3M8 10v3"/></svg>',
   siren: '<svg viewBox="0 0 24 24"><path d="M7 17v-5a5 5 0 0 1 10 0v5"/><path d="M5 17.5h14v2.5H5zM12 3v2M4.5 6l1.5 1.5M19.5 6 18 7.5"/></svg>',
   archive: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2"/><path d="M5 9v9.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/></svg>',
+  phone: '<svg viewBox="0 0 24 24"><path d="M6.8 4h2.4l1.3 3.8-1.8 1.4a10.8 10.8 0 0 0 5.9 5.9l1.4-1.8 3.8 1.3v2.4a1.9 1.9 0 0 1-2 1.9A15.6 15.6 0 0 1 4.9 6a1.9 1.9 0 0 1 1.9-2z"/></svg>',
   info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.4"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
   building: '<svg viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M9 7.5h2M13 7.5h2M9 11h2M13 11h2M9 14.5h2M13 14.5h2M10.5 20.5v-3h3v3"/></svg>',
@@ -3887,7 +3898,7 @@ function renderSettings() {
     <div class="set-group-header">App</div>
     <div class="set-group">
       ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', sub: 'Hell/Dunkel, Statistik-Stil', value: themeLabel(currentTheme()), push: 'darstellung' })}
-      ${setRow({ icon: 'hand', color: 'teal', title: 'Bedienung', sub: 'Beim Öffnen, Links, Kurzbefehle', value: ({ '': 'Start', 'neu-einsatz': 'Neuer Einsatz', tagebuch: 'Tagebuch', dienstplan: 'Dienstplan', statistik: 'Statistik' })[lsGet('etb_launch_action') || ''] || 'Start', push: 'bedienung' })}
+      ${setRow({ icon: 'hand', color: 'teal', title: 'Bedienung', sub: 'Beim Öffnen, Links, Kurzbefehle', value: ({ '': 'Start', 'neu-einsatz': 'Neuer Einsatz', tagebuch: 'Tagebuch', dienstplan: 'Dienstplan', statistik: 'Statistik', telefonbuch: 'Telefonbuch' })[lsGet('etb_launch_action') || ''] || 'Start', push: 'bedienung' })}
     </div>
 
     <div class="set-group-header">Dienstplan</div>
@@ -3901,6 +3912,7 @@ function renderSettings() {
       ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, id: 'btn-open-codes-popup' })}
       ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-open-abt-popup' })}
       ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
+      ${setRow({ icon: 'phone', color: 'green', title: 'Telefonbuch', sub: 'Telefonliste, Kurzwahl', value: String((state.contacts || []).length), push: 'telefonbuch' })}
     </div>
 
     <div class="set-group-header">Daten</div>
@@ -3954,6 +3966,7 @@ function renderSettingsPage() {
     darstellung: settingsPageDarstellung,
     bedienung: settingsPageBedienung,
     orte: settingsPageOrte,
+    telefonbuch: settingsPageTelefonbuch,
     speicher: settingsPageSpeicher,
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
@@ -4168,7 +4181,7 @@ function settingsPageBedienung(el, title) {
   el.innerHTML = `${title}
     <div class="set-group-header">Beim Öffnen</div>
     <div class="set-group" role="radiogroup" aria-label="Beim Öffnen">
-      ${[['', 'Startseite', ''], ['neu-einsatz', 'Neuer Einsatz', 'Läuft gerade ein Dienst, öffnet sich sofort „Neuer Einsatz“ – sonst die Startseite'], ['tagebuch', 'Tagebuch', ''], ['dienstplan', 'Dienstplan', ''], ['statistik', 'Statistik', '']].map(([v, l, sub]) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${(lsGet('etb_launch_action') || '') === v}" data-launch-choice="${v}">
+      ${[['', 'Startseite', ''], ['neu-einsatz', 'Neuer Einsatz', 'Läuft gerade ein Dienst, öffnet sich sofort „Neuer Einsatz“ – sonst die Startseite'], ['tagebuch', 'Tagebuch', ''], ['dienstplan', 'Dienstplan', ''], ['statistik', 'Statistik', ''], ['telefonbuch', 'Telefonbuch', '']].map(([v, l, sub]) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${(lsGet('etb_launch_action') || '') === v}" data-launch-choice="${v}">
         <span class="set-row-text"><span class="set-row-title">${l}</span>${sub ? `<span class="set-row-sub">${sub}</span>` : ''}</span><span class="set-check">${SET_ICONS.check}</span></button>`).join('')}
     </div>
     <p class="set-group-footer">Gilt, wenn die App frisch gestartet wird oder länger als 10 Minuten im Hintergrund war.</p>
@@ -4344,6 +4357,7 @@ async function renderStorageOverview(root) {
   const listKeys = ['alarmCodes', 'pzcCodes', 'alarmBlaulicht', 'abteilungen'];
   const diary = size(state.services);
   const lists = listKeys.reduce((n, k) => n + size(state[k]), 0);
+  const phonebook = size(state.contacts || []);
   const stateTotal = ls(STORAGE_KEY);
   let dp = 0, own = 0, foreign = 0;
   try {
@@ -4355,7 +4369,7 @@ async function renderStorageOverview(root) {
       else foreign += ls(k);
     }
   } catch (_) {}
-  const other = Math.max(0, stateTotal - diary - lists) + own;
+  const other = Math.max(0, stateTotal - diary - lists - phonebook) + own;
   let app = null, icons = null;
   if ('caches' in window) {
     try {
@@ -4368,6 +4382,7 @@ async function renderStorageOverview(root) {
   const rows = [
     { t: 'Tagebuch', sub: `${state.services.length} Dienste · ${state.services.reduce((n, x) => n + (x.incidents || []).length, 0)} Einsätze`, b: diary, c: '#ff453a' },
     { t: 'Stichwörter & Listen', sub: `${(state.alarmCodes || []).length} Stichwörter · ${(state.pzcCodes || []).length} PZC`, b: lists, c: '#ff9f0a' },
+    { t: 'Telefonbuch', sub: `${(state.contacts || []).length} Kontakte`, b: phonebook, c: '#64d2ff' },
     { t: 'Dienstplan-Zwischenspeicher', sub: 'Kalender, Änderungen, Verlauf', b: dp, c: '#30d158' },
     { t: 'Einstellungen & Sonstiges', sub: 'Fahrzeuge, Profil, Merker', b: other, c: '#8e8e93' },
   ];
@@ -4689,6 +4704,7 @@ function resetSections() {
     { id: 'vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: (state.vehicleCategories || []).length, run: () => { state.vehicleCategories = []; state.vehicleAssignments = {}; } },
     { id: 'alarm', icon: '🚨', label: 'Einsatzstichwörter', count: (state.alarmCodes || []).length, run: () => { state.alarmCodes = []; state.alarmBlaulicht = {}; } },
     { id: 'pzc', icon: '🏥', label: 'PZC-Codes', count: (state.pzcCodes || []).length, run: () => { state.pzcCodes = []; } },
+    { id: 'contacts', icon: '📞', label: 'Telefonbuch', count: (state.contacts || []).length, run: () => { state.contacts = []; } },
     { id: 'appearance', icon: '🎨', label: 'Darstellung', run: () => { applyTheme('system'); } },
   ];
 }
@@ -4965,6 +4981,7 @@ function openExportDialog() {
   setCount('exp-vehicles-count', (state.vehicleCategories || []).length);
   setCount('exp-alarm-count', (state.alarmCodes || []).length);
   setCount('exp-pzc-count', (state.pzcCodes || []).length);
+  setCount('exp-contacts-count', (state.contacts || []).length);
 
   dlg.style.display = 'flex';
 
@@ -4981,6 +4998,7 @@ function openExportDialog() {
       alarm: document.getElementById('exp-alarm').checked,
       pzc: document.getElementById('exp-pzc').checked,
       settings: !!(document.getElementById('exp-settings') && document.getElementById('exp-settings').checked),
+      contacts: !!(document.getElementById('exp-contacts') && document.getElementById('exp-contacts').checked),
     };
     const payload = buildExportPayload(sel);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -4996,7 +5014,7 @@ function openExportDialog() {
 }
 
 // App-Einstellungen, die mit „Einstellungen“ gesichert und übernommen werden
-const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
+const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline', 'etb_quickdial_base'];
 function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
@@ -5010,6 +5028,7 @@ function buildExportPayload(sel) {
   }
   if (sel.alarm) { payload.alarmCodes = state.alarmCodes || []; payload.alarmBlaulicht = state.alarmBlaulicht || {}; }
   if (sel.pzc) payload.pzcCodes = state.pzcCodes || [];
+  if (sel.contacts) payload.contacts = state.contacts || [];
   if (sel.settings) {
     payload.settings = {};
     SETTINGS_EXPORT_KEYS.forEach((k) => { const v = lsGet(k); if (v !== null && v !== undefined && v !== '') payload.settings[k] = v; });
@@ -5026,6 +5045,13 @@ function openImportDialog(file) {
     try {
       const data = parseJsonText(e.target.result);
       _importPayload = data;
+      // RKTel-Sicherung (Kontaktliste) direkt ins Telefonbuch
+      if (looksLikeRktelContacts(data)) {
+        const r = mergeContacts(data);
+        saveState(); refreshPhonebookViews();
+        toast(`Telefonbuch: ${r.added} neu, ${r.merged} zusammengeführt.`, 'success', 3500);
+        return;
+      }
       // Reine Stichwort- bzw. PZC-Listen direkt übernehmen
       const kw = looksLikeKeywordList(data);
       if (kw) {
@@ -5042,6 +5068,7 @@ function openImportDialog(file) {
           { key: 'services',          id: 'imp-services', icon: '📋', label: 'Dienste & Einsätze',          count: Array.isArray(data.services) ? data.services.length : null },
           { key: 'profile',           id: 'imp-profile',  icon: '👤', label: 'Profil, Abteilungen & Orte',   count: null },
           { key: 'settings',          id: 'imp-settings', icon: '⚙️', label: 'App-Einstellungen',            count: null },
+          { key: 'contacts',          id: 'imp-contacts', icon: '📞', label: 'Telefonbuch',                  count: Array.isArray(data.contacts) ? data.contacts.length : null },
           { key: data.dienstplanWorker !== undefined ? 'dienstplanWorker' : 'calendarUrl', id: 'imp-calendar', icon: '📅', label: 'Dienstplan-Worker', count: null },
           { key: 'vehicleCategories', id: 'imp-vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: Array.isArray(data.vehicleCategories) ? data.vehicleCategories.length : null },
           { key: 'alarmCodes',        id: 'imp-alarm',    icon: '🚨', label: 'Einsatzstichwörter',           count: Array.isArray(data.alarmCodes) ? data.alarmCodes.length : null },
@@ -5102,6 +5129,10 @@ function doSelectiveImport(data, chosen) {
     if (data.settings.etb_theme) applyTheme(data.settings.etb_theme);
     if (iconsOfflineEnabled() !== iconsBefore) setIconsOffline(iconsOfflineEnabled()).catch(() => {});
     msgs.push('Einstellungen');
+  }
+  if (chosen['imp-contacts'] && Array.isArray(data.contacts)) {
+    const r = mergeContacts(data.contacts);
+    msgs.push(`${r.added + r.merged} Kontakte`);
   }
   if (chosen['imp-calendar'] && (data.dienstplanWorker !== undefined || data.calendarUrl !== undefined)) {
     if (data.dienstplanWorker) lsSet(DP_WORKER_KEY, data.dienstplanWorker);
@@ -5791,6 +5822,437 @@ const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || 
 function colleagueInitials(name) { return String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?'; }
 function colleagueHue(name) { return [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); }
 
+// ── Telefonbuch (Funktionen aus RKTel) ───────────────────────────────────────
+// Kontakte liegen in state.contacts (nur auf dem Gerät, in der Sicherung enthalten).
+const QUICKDIAL_KEY = 'etb_quickdial_base';
+const RKTEL_STORAGE_KEY = 'telefonbuchV1'; // RKTel auf derselben Domain
+const PB_SVG = {
+  phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 3.5h2.6l1.4 4.1-1.9 1.5a11.5 11.5 0 0 0 6.2 6.2l1.5-1.9 4.1 1.4v2.6a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 4.6 5.6a2 2 0 0 1 2-2.1z"/></svg>',
+  msg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 0 0-7.4 12.7L3.5 20.5l4.4-1.1A8.5 8.5 0 1 0 12 3.5z"/></svg>',
+  sms: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3.5z"/></svg>',
+};
+let pbSearch = '';
+let pbContactId = null; // geöffneter Kontakt (null = neuer Kontakt im Bearbeiten-Modus)
+let pbEditMode = false;
+
+const telHref = (p) => 'tel:' + String(p).replace(/[^\d+*#]/g, '');
+function waNumber(p) {
+  let d = String(p).replace(/[^\d+]/g, '');
+  if (d[0] === '+') d = d.slice(1);
+  else if (d.startsWith('00')) d = d.slice(2);
+  else if (d[0] === '0') d = '43' + d.slice(1);
+  return d;
+}
+const waHref = (p) => 'https://wa.me/' + waNumber(p);
+const smsHref = (p) => 'sms:' + String(p).replace(/[^\d+]/g, '');
+const pbByName = (a, b) => a.name.localeCompare(b.name, 'de');
+function pbCallBtn(phone, name, cls = '') { return `<a class="pb-btn is-call${cls}" href="${escHtml(telHref(phone))}" aria-label="${escHtml(name)} anrufen">${PB_SVG.phone}</a>`; }
+function pbWaBtn(phone, name, cls = '') { return `<a class="pb-btn is-wa${cls}" href="${escHtml(waHref(phone))}" target="_blank" rel="noopener" aria-label="WhatsApp an ${escHtml(name)}">${PB_SVG.msg}</a>`; }
+function pbAvatar(name, cls = '') { return `<span class="cp-av pb-av${cls}" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>`; }
+
+/** Kontakte zu einem Namen aus Dienstplan/Tagebuch (Reihenfolge, Titel, Umlaute egal). */
+function contactsForName(name) {
+  if (!(state.contacts || []).length || !window.RKDienstplan) return [];
+  return RKDienstplan.createContactMatcher(state.contacts)(name);
+}
+
+/** Kontakte zusammenführen (gleicher Name → Nummern und Quellen ergänzen). */
+function mergeContacts(list) {
+  state.contacts = state.contacts || [];
+  const byName = new Map(state.contacts.map((c) => [c.name.toLowerCase(), c]));
+  let added = 0, merged = 0;
+  (list || []).forEach((nc) => {
+    if (!nc || typeof nc.name !== 'string' || !nc.name.trim()) return;
+    const name = nc.name.trim();
+    const phones = (Array.isArray(nc.phones) ? nc.phones : []).map((p) => String(p || '').trim()).filter(Boolean);
+    const quellen = (Array.isArray(nc.quellen) ? nc.quellen : []).filter((q) => q && q.dienststelle);
+    const ex = byName.get(name.toLowerCase());
+    if (ex) {
+      ex.phones = [...new Set([...(ex.phones || []), ...phones])];
+      ex.quellen = ex.quellen || [];
+      quellen.forEach((q) => { if (!ex.quellen.some((e) => e.dienststelle === q.dienststelle && e.datum === q.datum)) ex.quellen.push({ dienststelle: String(q.dienststelle), datum: String(q.datum || '') }); });
+      if (nc.pinned) ex.pinned = true;
+      if (!ex.note && nc.note) ex.note = String(nc.note);
+      merged++;
+    } else {
+      const id = typeof nc.id === 'string' && nc.id && !state.contacts.some((x) => x.id === nc.id) ? nc.id : uid();
+      const c = { id, name, phones: [...new Set(phones)], quellen: quellen.map((q) => ({ dienststelle: String(q.dienststelle), datum: String(q.datum || '') })), note: String(nc.note || ''), pinned: !!nc.pinned };
+      state.contacts.push(c); byName.set(name.toLowerCase(), c); added++;
+    }
+  });
+  return { added, merged };
+}
+/** RKTel-Sicherung erkennen: Liste von { name, phones[] }. */
+function looksLikeRktelContacts(data) {
+  return Array.isArray(data) && data.length > 0 && data.every((o) => o && typeof o === 'object' && typeof o.name === 'string' && Array.isArray(o.phones));
+}
+function rktelLocalContacts() {
+  try { const d = JSON.parse(localStorage.getItem(RKTEL_STORAGE_KEY) || 'null'); return looksLikeRktelContacts(d) ? d : null; } catch (_) { return null; }
+}
+
+// — PDF-Import der Telefonliste (Online Dienstplan → Downloads → Mitarbeiter) —
+let pdfJsPromise = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfJsPromise) {
+    pdfJsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = './vendor/pdf.min.js';
+      s.onload = () => {
+        if (!window.pdfjsLib) { pdfJsPromise = null; reject(new Error('PDF-Modul fehlt')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => { pdfJsPromise = null; s.remove(); reject(new Error('PDF-Modul konnte nicht geladen werden – bitte mit Internet erneut versuchen.')); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfJsPromise;
+}
+async function extractPdfRows(pdf) {
+  const rows = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const items = content.items.map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], width: it.width || 0 })).filter((it) => it.str.trim() !== '');
+    items.sort((a, b) => b.y - a.y || a.x - b.x);
+    const lines = [];
+    let curY = null, line = [];
+    items.forEach((it) => {
+      if (curY === null || Math.abs(it.y - curY) > 3) { if (line.length) lines.push(line); line = [it]; curY = it.y; } else line.push(it);
+    });
+    if (line.length) lines.push(line);
+    lines.forEach((l) => {
+      l.sort((a, b) => a.x - b.x);
+      let text = '', prevEnd = null;
+      l.forEach((it) => {
+        const cw = it.str.length && it.width ? it.width / it.str.length : 3;
+        if (prevEnd !== null && it.x - prevEnd > cw * 0.4) text += ' ';
+        text += it.str; prevEnd = it.x + it.width;
+      });
+      rows.push(text);
+    });
+  }
+  return rows;
+}
+function pdfHeaderInfo(rows, fallbackName, fallbackDate) {
+  let dienststelle = '', datum = '';
+  rows.forEach((raw) => {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (!dienststelle) { const m = line.match(/^TELEFON\s+(.+)$/i); if (m) dienststelle = m[1].trim(); }
+    if (!datum) { const m = line.match(/Online erstellt am\s+(.+?)\.\s*Seite/i); if (m) datum = m[1].trim(); }
+  });
+  return { dienststelle: dienststelle || fallbackName, datum: datum || fallbackDate };
+}
+function parsePhoneListRows(rows, quelle) {
+  const emailRe = /[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]+/g;
+  const phoneRe = /(\+?\d[\d \-/]{4,}\d)/g;
+  const out = [];
+  rows.forEach((raw) => {
+    const line = raw.replace(/\s+/g, ' ').trim();
+    if (!line || /^TELEFON\b/i.test(line) || /^Online erstellt am/i.test(line) || /^Name\s+Mobil/i.test(line)) return;
+    let rest = line.replace(emailRe, ' '); // E-Mail-Adressen werden verworfen
+    const phones = (rest.match(phoneRe) || []).map((p) => p.replace(/[\s\-/]/g, ''));
+    if (!phones.length) return;
+    rest = rest.replace(phoneRe, ' ').replace(/\s+/g, ' ').trim();
+    const name = rest.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim(); // „(RS, SEF)“ weg
+    if (!name) return;
+    out.push({ name, phones: [...new Set(phones)], quellen: quelle.dienststelle ? [{ dienststelle: quelle.dienststelle, datum: quelle.datum }] : [], note: '' });
+  });
+  return out;
+}
+async function importPhoneListPdfs(files) {
+  files = Array.from(files || []);
+  if (!files.length) return;
+  let lib;
+  try { lib = await loadPdfJs(); } catch (e) { toast(e.message, 'error', 4000); return; }
+  toast(files.length > 1 ? 'PDFs werden gelesen …' : 'PDF wird gelesen …', 'info', 1500);
+  let total = 0, added = 0, failed = 0;
+  for (const file of files) {
+    try {
+      const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+      const rows = await extractPdfRows(pdf);
+      const d = new Date(file.lastModified || Date.now());
+      const quelle = pdfHeaderInfo(rows, file.name.replace(/\.pdf$/i, ''), d.toLocaleDateString('de-AT'));
+      const list = parsePhoneListRows(rows, quelle);
+      total += list.length;
+      added += mergeContacts(list).added;
+    } catch (_) { failed++; }
+  }
+  saveState();
+  refreshPhonebookViews();
+  if (!total && !failed) { toast('Keine Kontakte erkannt – stammt das PDF aus „Downloads → Mitarbeiter → Telefonnummern“?', 'info', 5000); return; }
+  toast(`${total} Einträge gelesen – ${added} neu, ${total - added} zusammengeführt${failed ? ` · ${failed} Datei(en) fehlgeschlagen` : ''}.`, failed ? 'info' : 'success', 4000);
+}
+function importFromRktel() {
+  const list = rktelLocalContacts();
+  if (!list) { toast('Keine RKTel-Kontakte auf diesem Gerät gefunden.', 'info'); return; }
+  const r = mergeContacts(list);
+  saveState(); refreshPhonebookViews();
+  toast(`Aus RKTel übernommen: ${r.added} neu, ${r.merged} zusammengeführt.`, 'success', 3500);
+}
+function pickPhoneListPdf() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'application/pdf,.pdf'; inp.multiple = true;
+  inp.onchange = () => importPhoneListPdfs(inp.files);
+  inp.click();
+}
+function refreshPhonebookViews() {
+  if (document.getElementById('dialog-phonebook')?.style.display === 'flex') renderPhonebook();
+  if (activeTab === 'einstellungen') { renderSettings(); }
+}
+
+// — Telefonbuch-Ansicht —
+function openPhonebook() {
+  pbSearch = '';
+  const s = document.getElementById('pb-search');
+  if (s) s.value = '';
+  renderPhonebook();
+  openDialog('dialog-phonebook');
+  const body = document.getElementById('pb-body');
+  if (body) body.scrollTop = 0;
+}
+function pbMatches(c, q) {
+  if (c.name.toLowerCase().includes(q)) return true;
+  const digits = q.replace(/[^\d]/g, '');
+  if (digits.length >= 3 && (c.phones || []).some((p) => p.replace(/[^\d]/g, '').includes(digits))) return true;
+  return (c.quellen || []).some((x) => (x.dienststelle || '').toLowerCase().includes(q));
+}
+function pbRowHtml(c) {
+  const ph = (c.phones || [])[0];
+  const sub = [...new Set((c.quellen || []).map((q) => q.dienststelle))].join(' · ');
+  return `<div class="pb-row" data-contact-id="${escHtml(c.id)}" role="button">
+    ${pbAvatar(c.name)}
+    <span class="pb-row-t"><b>${escHtml(c.name)}</b>${sub ? `<small>${escHtml(sub)}</small>` : ''}</span>
+    ${c.pinned ? '<span class="pb-star" aria-label="Favorit">★</span>' : ''}
+    ${ph ? pbCallBtn(ph, c.name) : ''}
+  </div>`;
+}
+function pbTileHtml(c, label) {
+  const ph = (c.phones || [])[0];
+  return `<div class="pb-tile" data-contact-id="${escHtml(c.id)}" role="button">
+    ${pbAvatar(c.name)}
+    <span class="pb-tile-n">${escHtml(label || c.name)}</span>
+    ${ph ? `<span class="pb-tile-a">${pbCallBtn(ph, c.name)}${pbWaBtn(ph, c.name)}</span>` : ''}
+  </div>`;
+}
+function renderPhonebook() {
+  const body = document.getElementById('pb-body');
+  if (!body) return;
+  const all = state.contacts || [];
+  const q = pbSearch.trim().toLowerCase();
+  const base = lsGet(QUICKDIAL_KEY);
+  let html = '';
+  if (!q && base) {
+    html += `<div class="pb-quick">
+      <span class="pb-quick-l"><b>Einsatzmittel</b><small>${escHtml(base)} …</small></span>
+      <input id="pb-quick-suffix" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Endnummer" aria-label="Endnummer">
+      <a class="pb-btn is-call is-disabled" id="pb-quick-call" aria-label="Einsatzmittel anrufen">${PB_SVG.phone}</a>
+    </div>`;
+  }
+  if (!all.length) {
+    const rk = rktelLocalContacts();
+    html += `<div class="pb-empty">
+      <div class="pb-empty-ic">📞</div>
+      <h4>Noch keine Kontakte</h4>
+      <p>Telefonliste im Online Dienstplan unter <b>Downloads → Mitarbeiter → Telefonnummern</b> als PDF speichern und hier importieren. Alles bleibt auf diesem Gerät.</p>
+      <button type="button" class="btn-primary" id="pb-import-pdf">Telefonliste importieren (PDF)</button>
+      ${rk ? `<button type="button" class="btn-secondary" id="pb-import-rktel">Aus RKTel übernehmen (${rk.length})</button>` : ''}
+      <button type="button" class="btn-ghost" id="pb-new-empty">Kontakt von Hand anlegen</button>
+    </div>`;
+  } else {
+    if (!q) {
+      const svc = runningService();
+      const crew = svc ? (svc.colleagues || []).map((n) => ({ n, c: contactsForName(n)[0] })).filter((x) => x.c) : [];
+      if (crew.length) html += `<div class="pb-sec">Im Dienst</div><div class="pb-tiles">${crew.map((x) => pbTileHtml(x.c, x.n)).join('')}</div>`;
+      const fav = all.filter((c) => c.pinned).sort(pbByName);
+      if (fav.length) html += `<div class="pb-sec">Favoriten</div><div class="pb-tiles">${fav.map((c) => pbTileHtml(c)).join('')}</div>`;
+    }
+    const list = (q ? all.filter((c) => pbMatches(c, q)) : all).slice().sort(pbByName);
+    if (!list.length) html += `<p class="pb-none">Kein Treffer für „${escHtml(pbSearch.trim())}“.</p>`;
+    else if (q) html += `<div class="pb-list">${list.map(pbRowHtml).join('')}</div>`;
+    else {
+      const groups = [];
+      list.forEach((c) => {
+        const L = (c.name.normalize('NFD').replace(/[̀-ͯ]/g, '')[0] || '#').toUpperCase();
+        const key = /[A-Z]/.test(L) ? L : '#';
+        if (!groups.length || groups[groups.length - 1].k !== key) groups.push({ k: key, items: [] });
+        groups[groups.length - 1].items.push(c);
+      });
+      html += groups.map((g) => `<div class="pb-letter">${g.k}</div><div class="pb-list">${g.items.map(pbRowHtml).join('')}</div>`).join('');
+      html += `<p class="pb-count">${all.length} ${all.length === 1 ? 'Kontakt' : 'Kontakte'}</p>`;
+    }
+  }
+  body.innerHTML = html;
+  const suf = body.querySelector('#pb-quick-suffix'), qc = body.querySelector('#pb-quick-call');
+  if (suf && qc) {
+    const upd = () => {
+      suf.value = suf.value.replace(/[^\d]/g, '');
+      const ok = !!suf.value;
+      qc.classList.toggle('is-disabled', !ok);
+      if (ok) qc.href = telHref(base + suf.value); else qc.removeAttribute('href');
+    };
+    suf.addEventListener('input', upd);
+    qc.addEventListener('click', (e) => { if (qc.classList.contains('is-disabled')) { e.preventDefault(); return; } setTimeout(() => { suf.value = ''; upd(); }, 400); });
+  }
+  body.querySelector('#pb-import-pdf')?.addEventListener('click', pickPhoneListPdf);
+  body.querySelector('#pb-import-rktel')?.addEventListener('click', importFromRktel);
+  body.querySelector('#pb-new-empty')?.addEventListener('click', () => openContact(null, true));
+}
+// Eingetippte Einsatzmittel-Nummer nie aufbewahren
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden') return;
+  const s = document.getElementById('pb-quick-suffix');
+  if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input')); }
+});
+document.addEventListener('click', (e) => {
+  const row = e.target.closest && e.target.closest('#pb-body [data-contact-id], #colleague-body [data-contact-id]');
+  if (!row || e.target.closest('a')) return;
+  openContact(row.dataset.contactId);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest) return;
+  if (e.target.closest('#btn-phonebook')) openPhonebook();
+  else if (e.target.closest('#btn-pb-add')) openContact(null, true);
+});
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'pb-search') { pbSearch = e.target.value; renderPhonebook(); }
+});
+
+// — Kontaktkarte —
+function openContact(id, edit = false) {
+  pbContactId = id;
+  pbEditMode = edit || !id;
+  renderContact();
+  openDialog('dialog-contact');
+}
+function contactServiceNames(c) {
+  // Namen aus Tagebuch-Diensten, die zu diesem Kontakt passen
+  const m = RKDienstplan.createContactMatcher([{ ...c, phones: c.phones && c.phones.length ? c.phones : ['-'] }]);
+  const names = new Map();
+  state.services.forEach((s) => (s.colleagues || []).forEach((n) => { if (m(n).length) names.set(n, (names.get(n) || 0) + 1); }));
+  return [...names.entries()].sort((a, b) => b[1] - a[1]);
+}
+function renderContact() {
+  const box = document.getElementById('contact-body');
+  if (!box) return;
+  const c = pbContactId ? (state.contacts || []).find((x) => x.id === pbContactId) : null;
+  if (pbContactId && !c) { closeDialog('dialog-contact'); return; }
+  const title = document.getElementById('contact-title');
+  if (pbEditMode) {
+    title.textContent = c ? 'Kontakt bearbeiten' : 'Neuer Kontakt';
+    const phones = c && c.phones.length ? c.phones : [''];
+    box.innerHTML = `<div class="fg-field"><label for="ct-name">Name</label><input type="text" id="ct-name" value="${escHtml(c ? c.name : '')}" placeholder="Nachname Vorname" autocomplete="off"></div>
+      <div class="fg-field"><label>Telefonnummern</label><div id="ct-phones">${phones.map((p) => `<div class="ct-phone"><input type="tel" class="ct-phone-in" value="${escHtml(p)}" placeholder="+43 …" autocomplete="off"><button type="button" class="ct-phone-x" aria-label="Nummer entfernen">✕</button></div>`).join('')}</div>
+        <button type="button" class="btn-ghost ct-add-phone" id="ct-add-phone">+ Nummer</button></div>
+      <div class="fg-field"><label for="ct-note">Notiz</label><textarea id="ct-note" rows="2" placeholder="optional">${escHtml(c ? c.note || '' : '')}</textarea></div>
+      <div class="ct-actions"><button type="button" class="btn-secondary" id="ct-cancel">Abbrechen</button><button type="button" class="btn-primary" id="ct-save">Speichern</button></div>`;
+    const phonesBox = box.querySelector('#ct-phones');
+    const bindX = () => phonesBox.querySelectorAll('.ct-phone-x').forEach((b) => { b.onclick = () => { if (phonesBox.children.length > 1) b.parentElement.remove(); else b.parentElement.querySelector('input').value = ''; }; });
+    bindX();
+    box.querySelector('#ct-add-phone').onclick = () => {
+      phonesBox.insertAdjacentHTML('beforeend', '<div class="ct-phone"><input type="tel" class="ct-phone-in" placeholder="+43 …" autocomplete="off"><button type="button" class="ct-phone-x" aria-label="Nummer entfernen">✕</button></div>');
+      bindX(); phonesBox.lastElementChild.querySelector('input').focus();
+    };
+    box.querySelector('#ct-cancel').onclick = () => { if (c) { pbEditMode = false; renderContact(); } else closeDialog('dialog-contact'); };
+    box.querySelector('#ct-save').onclick = () => {
+      const name = box.querySelector('#ct-name').value.trim().replace(/\s+/g, ' ');
+      if (!name) { toast('Bitte einen Namen eingeben.', 'info'); return; }
+      const ph = [...new Set([...box.querySelectorAll('.ct-phone-in')].map((i) => i.value.trim()).filter(Boolean))];
+      const note = box.querySelector('#ct-note').value.trim();
+      if (c) Object.assign(c, { name, phones: ph, note });
+      else { const n = { id: uid(), name, phones: ph, quellen: [], note, pinned: false }; state.contacts = [...(state.contacts || []), n]; pbContactId = n.id; }
+      saveState();
+      pbEditMode = false;
+      renderContact(); refreshPhonebookViews();
+      toast('Gespeichert.', 'success', 1500);
+    };
+    if (!c) setTimeout(() => box.querySelector('#ct-name')?.focus(), 300);
+    return;
+  }
+  title.textContent = 'Kontakt';
+  const ph = c.phones || [];
+  const main = ph[0];
+  const shared = contactServiceNames(c);
+  const svcCount = shared.length ? shared[0][1] : 0; // Profil zeigt diese Schreibweise
+  const sources = (c.quellen || []);
+  box.innerHTML = `<div class="cp-head">${pbAvatar(c.name)}
+      <div><h3>${escHtml(c.name)}</h3><span>${escHtml([...new Set(sources.map((q) => q.dienststelle))].join(' · ') || 'Kontakt')}</span></div></div>
+    ${main ? `<div class="ct-big">
+      <a class="ct-big-btn is-call" href="${escHtml(telHref(main))}">${PB_SVG.phone}<span>Anrufen</span></a>
+      <a class="ct-big-btn is-wa" href="${escHtml(waHref(main))}" target="_blank" rel="noopener">${PB_SVG.msg}<span>WhatsApp</span></a>
+      <a class="ct-big-btn is-sms" href="${escHtml(smsHref(main))}">${PB_SVG.sms}<span>SMS</span></a>
+    </div>` : '<p class="cp-line">Keine Telefonnummer hinterlegt.</p>'}
+    ${ph.length ? `<div class="ct-list">${ph.map((p, i) => `<div class="ct-num"><span><small>${i === 0 ? 'Mobil' : 'Weitere Nummer'}</small><b>${escHtml(p)}</b></span>${pbCallBtn(p, c.name)}${pbWaBtn(p, c.name)}</div>`).join('')}</div>` : ''}
+    ${c.note ? `<div class="cp-sub">Notiz</div><p class="cp-line ct-note">${escHtml(c.note)}</p>` : ''}
+    ${svcCount ? `<button type="button" class="ct-profile" id="ct-profile"><span>👥</span><span><b>${svcCount} ${svcCount === 1 ? 'gemeinsamer Eintrag' : 'gemeinsame Einträge'}</b><small>Profil im Tagebuch öffnen</small></span><span class="set-row-chev">›</span></button>` : ''}
+    ${sources.length ? `<div class="cp-sub">Quellen</div><div class="ct-src">${sources.map((q) => `<div><b>${escHtml(q.dienststelle)}</b>${q.datum ? `<small>Liste vom ${escHtml(q.datum)}</small>` : ''}</div>`).join('')}</div>` : ''}
+    <div class="ct-actions">
+      <button type="button" class="btn-secondary" id="ct-fav">${c.pinned ? '★ Favorit' : '☆ Zu Favoriten'}</button>
+      <button type="button" class="btn-secondary" id="ct-edit">Bearbeiten</button>
+    </div>
+    <button type="button" class="btn-ghost ct-del" id="ct-del">Kontakt löschen</button>`;
+  box.querySelector('#ct-fav').onclick = () => { c.pinned = !c.pinned; saveState(); renderContact(); refreshPhonebookViews(); };
+  box.querySelector('#ct-edit').onclick = () => { pbEditMode = true; renderContact(); };
+  box.querySelector('#ct-del').onclick = () => {
+    if (!confirm(`„${c.name}“ aus dem Telefonbuch löschen?`)) return;
+    state.contacts = state.contacts.filter((x) => x.id !== c.id);
+    saveState(); closeDialog('dialog-contact'); refreshPhonebookViews();
+  };
+  box.querySelector('#ct-profile')?.addEventListener('click', () => {
+    const name = shared[0][0];
+    closeDialog('dialog-contact');
+    setTimeout(() => openColleagueProfile(name), 200);
+  });
+  box.scrollTop = 0;
+}
+/** Anruf-Leiste im Kolleg:innen-Profil. */
+function profileContactHtml(name) {
+  const c = contactsForName(name)[0];
+  if (!c) return '';
+  const ph = (c.phones || [])[0];
+  return `<div class="cp-call" data-contact-id="${escHtml(c.id)}" role="button">
+    <span class="cp-call-t"><small>Telefonbuch</small><b>${escHtml(ph || c.name)}</b></span>
+    ${ph ? pbCallBtn(ph, c.name) + pbWaBtn(ph, c.name) : ''}
+  </div>`;
+}
+
+// — Einstellungen → Telefonbuch —
+function settingsPageTelefonbuch(el, title) {
+  const n = (state.contacts || []).length;
+  const rk = rktelLocalContacts();
+  const base = lsGet(QUICKDIAL_KEY);
+  el.innerHTML = `${title}
+    <div class="set-group">
+      <button type="button" class="set-row" id="pb-set-open"><span class="set-row-text"><span class="set-row-title">Telefonbuch öffnen</span><span class="set-row-sub">${n} ${n === 1 ? 'Kontakt' : 'Kontakte'}</span></span><span class="set-row-chev">${SET_ICONS.chev}</span></button>
+    </div>
+    <div class="set-group-header">Telefonliste</div>
+    <div class="set-group">
+      <button type="button" class="set-row" id="pb-set-pdf"><span class="set-row-text"><span class="set-row-title">Telefonliste importieren (PDF)</span><span class="set-row-sub">Mehrere Dienststellen nacheinander möglich</span></span></button>
+      ${rk ? `<button type="button" class="set-row" id="pb-set-rktel"><span class="set-row-text"><span class="set-row-title">Aus RKTel übernehmen</span><span class="set-row-sub">${rk.length} Kontakte auf diesem Gerät gefunden</span></span></button>` : ''}
+    </div>
+    <p class="set-group-footer">Im Online Dienstplan: <b>Downloads → Mitarbeiter</b>, in der Zeile <b>Telefonnummern</b> Liste und Filter wählen und auf das PDF-Symbol tippen. Das PDF wird nur auf dem Gerät gelesen; E-Mail-Adressen und Zusätze wie „(RS, SEF)“ werden verworfen. Gleiche Namen werden zusammengeführt. Eine RKTel-Sicherung (JSON) lässt sich unter „Daten &amp; Backup“ importieren.</p>
+    <div class="set-group-header">Kurzwahl Einsatzmittel</div>
+    <div class="set-group">
+      <div class="set-row place-add-row"><input type="tel" id="pb-set-base" value="${escHtml(base)}" placeholder="Basisnummer, z. B. +43 316 …" autocomplete="off" enterkeyhint="done"></div>
+    </div>
+    <p class="set-group-footer">Mit Basisnummer erscheint oben im Telefonbuch eine Kachel „Einsatzmittel“ – dort nur noch die Endnummer tippen. Die Endnummer wird nie gespeichert.</p>
+    ${n ? `<div class="set-group"><button type="button" class="set-row" id="pb-set-clear"><span class="set-row-text"><span class="set-row-title set-danger">Alle Kontakte löschen</span></span></button></div>` : ''}`;
+  el.querySelector('#pb-set-open').onclick = openPhonebook;
+  el.querySelector('#pb-set-pdf').onclick = pickPhoneListPdf;
+  el.querySelector('#pb-set-rktel')?.addEventListener('click', importFromRktel);
+  const b = el.querySelector('#pb-set-base');
+  const saveBase = () => { const v = b.value.trim(); if (v === (lsGet(QUICKDIAL_KEY) || '')) return; lsSet(QUICKDIAL_KEY, v || null); toast(v ? 'Basisnummer gespeichert.' : 'Kurzwahl entfernt.', 'success', 1600); renderSettings(); };
+  b.addEventListener('change', saveBase);
+  b.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); b.blur(); } });
+  el.querySelector('#pb-set-clear')?.addEventListener('click', () => {
+    if (!confirm(`Wirklich alle ${n} Kontakte unwiderruflich löschen?`)) return;
+    state.contacts = []; saveState(); renderSettings(); toast('Alle Kontakte gelöscht.', 'success');
+  });
+}
+
+
 function openColleagueProfile(name) {
   const box = document.getElementById('colleague-body');
   if (!box) return;
@@ -5816,6 +6278,7 @@ function openColleagueProfile(name) {
       <span class="cp-av" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>
       <div><h3>${escHtml(name)}</h3><span>${shared.length ? `seit ${escHtml(day(shared[shared.length - 1]))} gemeinsam` : 'noch kein gemeinsamer Dienst'}</span></div>
     </div>
+    ${profileContactHtml(name)}
     <div class="cp-tiles">
       <div><strong>${duty.length}</strong><small>Dienste</small></div>
       <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
@@ -8339,6 +8802,7 @@ const SHORTCUTS = [
   { hash: '#tagebuch', label: 'Tagebuch', sub: 'direkt zur Liste', icon: '📖' },
   { hash: '#statistik', label: 'Statistik', sub: '', icon: '📊' },
   { hash: '#rueckblick', label: 'Jahresrückblick', sub: 'Story des aktuellen Jahres', icon: '✨' },
+  { hash: '#telefonbuch', label: 'Telefonbuch', sub: 'Kontakte suchen und anrufen', icon: '📞' },
 ];
 function runShortcut(hash) {
   const now = new Date();
@@ -8355,6 +8819,7 @@ function runShortcut(hash) {
   if (hash === '#neu-seg') { switchTab('home'); setTimeout(() => openIncidentDialog(null, null, { newSeg: true }), 250); return true; }
   if (hash === '#tagebuch') { switchTab('dienste'); return true; }
   if (hash === '#statistik') { switchTab('statistik'); return true; }
+  if (hash === '#telefonbuch') { switchTab('home'); setTimeout(openPhonebook, 250); return true; }
   if (hash === '#rueckblick') { switchTab('statistik'); setTimeout(() => openStory('year', now.getFullYear()), 300); return true; }
   return false;
 }
@@ -8374,6 +8839,7 @@ function handleLaunchTarget(hash = location.hash) {
     launchActionDone = true;
     const act = lsGet('etb_launch_action') || '';
     if (act === 'neu-einsatz' && runningService()) return runShortcut('#neu-einsatz');
+    if (act === 'telefonbuch') return runShortcut('#telefonbuch');
     if (act === 'tagebuch' || act === 'dienstplan' || act === 'statistik') { switchTab(act === 'tagebuch' ? 'dienste' : act); return true; }
   }
   const m = /^#verlauf=(.+)$/.exec(hash || '');

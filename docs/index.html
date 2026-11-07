@@ -77,6 +77,9 @@
           <div class="dp-titlebar">
             <h1 class="large-title">Start</h1>
             <div class="dp-head-actions">
+              <button id="btn-phonebook" class="icon-round" type="button" aria-label="Telefonbuch" title="Telefonbuch">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4h2.4l1.3 3.8-1.8 1.4a10.8 10.8 0 0 0 5.9 5.9l1.4-1.8 3.8 1.3v2.4a1.9 1.9 0 0 1-2 1.9A15.6 15.6 0 0 1 4.9 6a1.9 1.9 0 0 1 1.9-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+              </button>
               <button id="btn-quick-bell" class="icon-round" type="button" aria-label="Schnell-Nachricht „Neuer Einsatz?“" title="Schnell-Nachricht">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="bell-slash" d="M4 4l16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
               </button>
@@ -322,6 +325,21 @@
     <div class="dialog-box dialog-box-wide">
       <div class="dialog-header"><h3 id="colleague-title">Kolleg:in</h3><button class="dialog-close" data-close="dialog-colleague" aria-label="Schließen">✕</button></div>
       <div class="dialog-body" id="colleague-body"></div>
+    </div>
+  </div>
+
+  <!-- Telefonbuch -->
+  <div id="dialog-phonebook" class="dialog-overlay" style="display:none">
+    <div class="dialog-box dialog-box-wide pb-box">
+      <div class="dialog-header"><h3>Telefonbuch</h3><button type="button" class="pb-add" id="btn-pb-add" aria-label="Kontakt anlegen">+</button><button class="dialog-close" data-close="dialog-phonebook" aria-label="Schließen">✕</button></div>
+      <div class="pb-search"><input type="search" id="pb-search" placeholder="Name, Nummer oder Dienststelle" autocomplete="off" enterkeyhint="search" aria-label="Telefonbuch durchsuchen"></div>
+      <div class="dialog-body" id="pb-body"></div>
+    </div>
+  </div>
+  <div id="dialog-contact" class="dialog-overlay" style="display:none;z-index:2150">
+    <div class="dialog-box">
+      <div class="dialog-header"><h3 id="contact-title">Kontakt</h3><button class="dialog-close" data-close="dialog-contact" aria-label="Schließen">✕</button></div>
+      <div class="dialog-body" id="contact-body"></div>
     </div>
   </div>
 
@@ -632,6 +650,12 @@
             <input type="checkbox" id="exp-settings" checked />
             <span class="export-check-icon">⚙️</span>
             <span class="export-check-label">App-Einstellungen</span>
+          </label>
+          <label class="export-check-row">
+            <input type="checkbox" id="exp-contacts" checked />
+            <span class="export-check-icon">📞</span>
+            <span class="export-check-label">Telefonbuch</span>
+            <span class="export-check-count" id="exp-contacts-count"></span>
           </label>
           <label class="export-check-row">
             <input type="checkbox" id="exp-calendar" checked />

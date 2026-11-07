@@ -14,7 +14,8 @@
     { "name": "Neuer Einsatz", "short_name": "Einsatz", "url": "./#neu-einsatz", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Neuer Dienst", "short_name": "Dienst", "url": "./#neu-dienst", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Tagebuch", "url": "./#tagebuch", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Statistik", "url": "./#statistik", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Statistik", "url": "./#statistik", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Telefonbuch", "url": "./#telefonbuch", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

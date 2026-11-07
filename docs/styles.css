@@ -3666,3 +3666,79 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .tt-tile b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .tt-tile span { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .it-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ── Telefonbuch ─────────────────────────────────────────────── */
+.pb-box { height: min(88vh, 860px); display: flex; flex-direction: column; }
+.pb-box .dialog-body { overflow-y: auto; -webkit-overflow-scrolling: touch; gap: 0; padding-top: 6px; }
+.pb-box .dialog-body > *, #contact-body > * { flex-shrink: 0; }
+#dialog-phonebook, #dialog-contact, #dialog-colleague { --pb-box: var(--fill); }
+.pb-add { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: auto; margin-right: 8px;
+  border: none; background: var(--fill); color: var(--accent); font-size: 21px; font-weight: 600; line-height: 1; padding: 0 0 2px; }
+@media (max-width: 700px) { .pb-add { position: absolute; left: 14px; top: 18px; margin: 0; } }
+.pb-search { padding: 0 16px 8px; background: var(--panel); }
+.pb-search input { width: 100%; }
+.pb-av { width: 40px; height: 40px; font-size: 15px; box-shadow: none; }
+.pb-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; text-decoration: none; }
+.pb-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.pb-btn.is-call { background: #30d158; }
+.pb-btn.is-wa { background: #25d366; }
+.pb-btn.is-wa svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.pb-btn.is-disabled { opacity: .35; pointer-events: auto; }
+.pb-sec, .pb-letter { margin: 14px 2px 6px; font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .3px; }
+.pb-letter { margin-top: 12px; color: var(--accent); }
+.pb-list { border-radius: 14px; background: var(--pb-box); overflow: hidden; }
+.pb-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; cursor: pointer; min-height: 58px; }
+.pb-row + .pb-row { border-top: 0.5px solid var(--separator); }
+.pb-row:active { background: var(--cell-pressed); }
+.pb-row-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pb-row-t b { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-row-t small { font-size: 12.5px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-star { color: #ffd60a; font-size: 14px; }
+.pb-tiles { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.pb-tiles::-webkit-scrollbar { display: none; }
+.pb-tile { flex: none; width: 112px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px 10px; border-radius: 14px; background: var(--pb-box); cursor: pointer; }
+.pb-tile .pb-av { width: 48px; height: 48px; font-size: 17px; }
+.pb-tile-n { max-width: 100%; font-size: 13px; font-weight: 600; text-align: center; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pb-tile-a { display: flex; gap: 8px; }
+.pb-tile-a .pb-btn { width: 32px; height: 32px; }
+.pb-quick { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 10px 12px; border-radius: 14px; background: var(--pb-box); }
+.pb-quick-l { display: flex; flex-direction: column; min-width: 0; }
+.pb-quick-l b { font-size: 15px; }
+.pb-quick-l small { font-size: 12px; color: var(--text2); white-space: nowrap; }
+.pb-quick input { flex: 1; min-width: 0; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
+.pb-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 10px; text-align: center; }
+.pb-empty-ic { font-size: 44px; }
+.pb-empty h4 { margin: 0; font-size: 19px; }
+.pb-empty p { margin: 0 0 6px; color: var(--text2); font-size: 14px; line-height: 1.45; }
+.pb-empty button { width: 100%; max-width: 340px; }
+.pb-none, .pb-count { margin: 18px 0 8px; text-align: center; color: var(--text2); font-size: 14px; }
+.ct-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 6px; }
+.ct-big-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 14px; background: var(--pb-box); color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 600; }
+.ct-big-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.ct-big-btn.is-call { color: #30d158; }
+.ct-big-btn.is-wa { color: #25d366; }
+.ct-big-btn.is-sms { color: #0a84ff; }
+.ct-big-btn.is-wa svg, .ct-big-btn.is-sms svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.ct-list, .ct-src { border-radius: 14px; background: var(--pb-box); overflow: hidden; }
+.ct-num { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+.ct-num + .ct-num { border-top: 0.5px solid var(--separator); }
+.ct-num > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ct-num small, .ct-src small { font-size: 12px; color: var(--text2); }
+.ct-num b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ct-src > div { display: flex; flex-direction: column; padding: 9px 12px; }
+.ct-src > div + div { border-top: 0.5px solid var(--separator); }
+.ct-note { white-space: pre-wrap; }
+.ct-profile { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border: none; border-radius: 14px; background: var(--pb-box); color: var(--text); text-align: left; font: inherit; }
+.ct-profile > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
+.ct-profile small { font-size: 12px; color: var(--text2); }
+.ct-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.ct-del { color: var(--danger); }
+.ct-phone { display: flex; gap: 6px; margin-bottom: 6px; }
+.ct-phone input { flex: 1; min-width: 0; }
+.ct-phone-x { flex: none; width: 40px; border: none; border-radius: 10px; background: var(--fill); color: var(--text2); }
+.ct-add-phone { align-self: flex-start; }
+.cp-call { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; padding: 10px 12px; border-radius: 14px; background: var(--pb-box); cursor: pointer; }
+.cp-call-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cp-call-t small { font-size: 12px; color: var(--text2); }
+.cp-call-t b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.set-danger { color: var(--danger); }
