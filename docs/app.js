@@ -1866,10 +1866,7 @@ function setupIncExtras(inc) {
   const from = document.getElementById('inc-from'), to = document.getElementById('inc-to');
   from.value = inc ? inc.from || '' : '';
   to.value = inc ? inc.to || '' : '';
-  const used = allIncidentsFlat().flatMap((i) => [i.from, i.to]).filter(Boolean);
-  const items = [...new Set([...(state.places || []), ...rankByFrequency(used)])];
-  mountSuggestions(from, document.getElementById('inc-from-suggestions'), items, 8, true);
-  mountSuggestions(to, document.getElementById('inc-to-suggestions'), items, 8, true);
+  mountRouteSuggestions();
   [from, to].forEach((el) => { el.onfocus = () => { routeLastField = el; }; el.oninput = updateRouteSaveBtns; el.onchange = renderPlaceChips; el.onblur = () => setTimeout(renderPlaceChips, 200); });
   document.getElementById('btn-route-swap').onclick = () => { const v = from.value; from.value = to.value; to.value = v; renderPlaceChips(); };
   routeLastField = null;
@@ -1996,21 +1993,16 @@ function updateIncTimeSummary() {
   el.innerHTML = parts.map(([l, m]) => `<span>${l} <b>${fmtMin(m)}</b></span>`).join('');
 }
 
-function renderPlaceChips() {
-  const box = document.getElementById('place-chips');
-  if (!box) return;
-  const from = document.getElementById('inc-from'), to = document.getElementById('inc-to');
-  const places = state.places || [];
-  box.innerHTML = places.map((p) => `<button type="button" class="place-chip" data-place="${escHtml(p)}">${escHtml(p)}</button>`).join('');
-  updateRouteSaveBtns();
-  box.querySelectorAll('[data-place]').forEach((b) => b.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); // Fokus im Feld behalten
-    const target = routeLastField && document.activeElement === routeLastField ? routeLastField : !from.value.trim() ? from : !to.value.trim() ? to : (routeLastField || to);
-    target.value = b.dataset.place;
-    routeLastField = target;
-    renderPlaceChips();
-  }));
+/** Vorschläge für Start/Ziel: Kürzel + bisherige Einträge, sortiert nach Häufigkeit. */
+function mountRouteSuggestions() {
+  const used = allIncidentsFlat().flatMap((i) => [i.from, i.to]).filter(Boolean);
+  const seen = new Set(), items = [];
+  [...(state.places || []), ...used].forEach((v) => { const k = String(v).trim().toLowerCase(); if (k && !seen.has(k)) { seen.add(k); items.push(String(v).trim()); } });
+  const sorted = byUsage(items, used);
+  mountSuggestions(document.getElementById('inc-from'), document.getElementById('inc-from-suggestions'), sorted, 8, true);
+  mountSuggestions(document.getElementById('inc-to'), document.getElementById('inc-to-suggestions'), sorted, 8, true);
 }
+function renderPlaceChips() { updateRouteSaveBtns(); }
 /** „+“ im Start-/Ziel-Feld: nur sichtbar, wenn der Text noch kein Kürzel ist. */
 function updateRouteSaveBtns() {
   const places = state.places || [];
@@ -2028,6 +2020,7 @@ function updateRouteSaveBtns() {
         const val = document.getElementById(b.dataset.for).value.trim();
         if (!val) return;
         if (!(state.places || []).some((p) => p.toLowerCase() === val.toLowerCase())) { state.places = [...(state.places || []), val]; saveState(); }
+        mountRouteSuggestions();
         renderPlaceChips();
       });
     }
@@ -3810,7 +3803,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 90;
+const APP_VERSION = 91;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4220,7 +4213,7 @@ function settingsPageOrte(el, title) {
       ${places.length ? places.map((p, i) => `<div class="set-row place-row"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten"><button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
       <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neues Kürzel" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
     </div>
-    <p class="set-group-footer">Zum Bearbeiten einfach in den Eintrag tippen. Kürzel erscheinen im Einsatz unter Start → Ziel zum Antippen und ganz oben in den Vorschlägen.</p>`;
+    <p class="set-group-footer">Zum Bearbeiten einfach in den Eintrag tippen. Kürzel erscheinen im Einsatz bei Start → Ziel in den Vorschlägen.</p>`;
   const save = (list) => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); };
   el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => save(places.filter((_, i) => i !== +b.dataset.i))));
   el.querySelectorAll('.place-edit').forEach((inp) => {

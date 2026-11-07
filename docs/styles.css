@@ -3560,8 +3560,6 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .route-dot.is-from { border: 2.5px solid var(--accent); background: transparent; }
 .route-dot.is-to { background: var(--accent); }
 .route-swap { position: absolute; z-index: 2; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border: none; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 16px; font-weight: 700; box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
-.place-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.place-chip { padding: 6px 11px; border: 1px solid var(--border, transparent); border-radius: 999px; background: var(--fill); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
 .route-save { position: absolute; z-index: 2; right: 42px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%;
   background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-size: 19px; font-weight: 600; line-height: 28px; text-align: center; }
 .route-field.has-save input { padding-right: 76px; }
@@ -3626,7 +3624,6 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .inc-sec-body { display: none; padding: 0 10px 10px; }
 .inc-sec.is-open .inc-sec-body { display: block; }
 .inc-sec.is-collapsible .route-field input, .inc-sec.is-collapsible .link-add input { background: var(--card); }
-.inc-sec.is-collapsible .place-chip { background: var(--card); }
 
 /* Fenster dürfen nie seitlich verrutschen (iOS: Inhalt minimal breiter → seitliches Scrollen) */
 .dialog-box { overflow-x: hidden !important; overscroll-behavior-x: none; touch-action: pan-y; }
