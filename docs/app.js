@@ -1831,6 +1831,7 @@ let incLinks = [];
 let routeLastField = null;
 function setupIncExtras(inc) {
   incTimes = { ...((inc && inc.times) || {}) };
+  incTimeSel = null;
   incLinks = ((inc && inc.links) || []).map((l) => ({ ...l }));
   renderIncTimes();
   // Start → Ziel
@@ -1841,7 +1842,7 @@ function setupIncExtras(inc) {
   const items = [...new Set([...(state.places || []), ...rankByFrequency(used)])];
   mountSuggestions(from, document.getElementById('inc-from-suggestions'), items, 8, true);
   mountSuggestions(to, document.getElementById('inc-to-suggestions'), items, 8, true);
-  [from, to].forEach((el) => { el.onfocus = () => { routeLastField = el; }; el.oninput = renderPlaceChips; el.onchange = renderPlaceChips; });
+  [from, to].forEach((el) => { el.onfocus = () => { routeLastField = el; }; el.oninput = null; el.onchange = renderPlaceChips; el.onblur = () => setTimeout(renderPlaceChips, 200); });
   document.getElementById('btn-route-swap').onclick = () => { const v = from.value; from.value = to.value; to.value = v; renderPlaceChips(); };
   routeLastField = null;
   renderPlaceChips();
@@ -1872,36 +1873,65 @@ function setupIncExtras(inc) {
   document.getElementById('btn-link-add').onclick = add;
   url.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
   renderIncLinks();
+  // Start/Ziel und Links nur aufgeklappt, wenn etwas drinsteht
+  setIncSection('route', !!(from.value || to.value));
+  setIncSection('links', incLinks.length > 0);
 }
+function setIncSection(name, open) {
+  const sec = document.querySelector(`.inc-sec[data-sec="${name}"]`);
+  if (sec) sec.classList.toggle('is-open', open);
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest && e.target.closest('.inc-sec-toggle');
+  if (!t) return;
+  const sec = t.closest('.inc-sec');
+  sec.classList.toggle('is-open');
+  if (sec.classList.contains('is-open')) { const i = sec.querySelector('input'); if (i) setTimeout(() => i.focus({ preventScroll: true }), 50); }
+});
 
+let incTimeSel = null; // gerade bearbeiteter Status
 function renderIncTimes() {
   const box = document.getElementById('inc-times');
   if (!box) return;
-  box.innerHTML = `<div class="it-row">${INC_TIME_STEPS.map(([k, l]) => `<div class="it-step${incTimes[k] ? ' is-set' : ''}" data-step="${k}">
-      <span class="it-l">${l}</span><span class="it-v">${incTimes[k] || '–:–'}</span>
-      <input type="time" class="it-in" data-k="${k}" value="${incTimes[k] || ''}" aria-label="${l}">
-      ${incTimes[k] ? `<button type="button" class="it-x" data-x="${k}" aria-label="${l} löschen">✕</button>` : ''}
-    </div>`).join('')}</div><div class="it-sum" id="it-sum"></div>`;
-  const sync = (k) => {
-    const step = box.querySelector(`[data-step="${k}"]`);
-    step.classList.toggle('is-set', !!incTimes[k]);
-    step.querySelector('.it-v').textContent = incTimes[k] || '–:–';
-    updateIncTimeSummary();
-  };
-  box.querySelectorAll('.it-in').forEach((inp) => {
-    const k = inp.dataset.k;
-    // leer + antippen → sofort „jetzt“ (Rad startet bei der aktuellen Uhrzeit)
-    inp.addEventListener('pointerdown', () => { if (!incTimes[k]) { incTimes[k] = nowHM(); inp.value = incTimes[k]; sync(k); } });
-    inp.addEventListener('input', () => { if (inp.value) { incTimes[k] = inp.value; sync(k); } });
-    inp.addEventListener('change', () => { if (inp.value) incTimes[k] = inp.value; renderIncTimes(); });
-  });
-  box.querySelectorAll('.it-x').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); delete incTimes[b.dataset.x]; renderIncTimes(); }));
+  const sel = incTimeSel;
+  box.innerHTML = `<div class="it-row">${INC_TIME_STEPS.map(([k, l]) => `<button type="button" class="it-step${incTimes[k] ? ' is-set' : ''}${sel === k ? ' is-sel' : ''}" data-step="${k}">
+      <span class="it-l">${l}</span><span class="it-v">${incTimes[k] || '–:–'}</span></button>`).join('')}</div>
+    ${sel ? `<div class="it-edit">
+      <div class="it-edit-hd"><span>${INC_TIME_STEPS.find(([k]) => k === sel)[1]}</span><button type="button" class="it-edit-done" data-it="done">Fertig</button></div>
+      <div class="it-edit-main">
+        <div class="it-spin"><button type="button" data-it="h+">▲</button><b>${(incTimes[sel] || nowHM()).slice(0, 2)}</b><button type="button" data-it="h-">▼</button></div>
+        <span class="it-colon">:</span>
+        <div class="it-spin"><button type="button" data-it="m+">▲</button><b>${(incTimes[sel] || nowHM()).slice(3)}</b><button type="button" data-it="m-">▼</button></div>
+      </div>
+      <div class="it-edit-btns"><button type="button" data-it="-5">−5</button><button type="button" data-it="-1">−1</button><button type="button" data-it="now">Jetzt</button><button type="button" data-it="+1">+1</button><button type="button" data-it="+5">+5</button><button type="button" class="is-del" data-it="del">Löschen</button></div>
+    </div>` : ''}
+    <div class="it-sum" id="it-sum"></div>`;
+  box.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.step;
+    if (!incTimes[k]) { incTimes[k] = nowHM(); incTimeSel = null; }      // leer → sofort „jetzt“
+    else incTimeSel = incTimeSel === k ? null : k;                          // gesetzt → Feinjustierung auf/zu
+    renderIncTimes();
+  }));
+  box.querySelectorAll('[data-it]').forEach((b) => b.addEventListener('click', () => {
+    const k = incTimeSel; if (!k) return;
+    const act = b.dataset.it;
+    if (act === 'done') { incTimeSel = null; renderIncTimes(); return; }
+    if (act === 'del') { delete incTimes[k]; incTimeSel = null; renderIncTimes(); return; }
+    let m = hmToMin(incTimes[k] || nowHM());
+    if (act === 'now') m = hmToMin(nowHM());
+    else if (act === 'h+') m += 60; else if (act === 'h-') m -= 60;
+    else if (act === 'm+') m += 1; else if (act === 'm-') m -= 1;
+    else m += Number(act);
+    m = ((m % 1440) + 1440) % 1440;
+    incTimes[k] = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    renderIncTimes();
+  }));
   updateIncTimeSummary();
   const next = INC_TIME_STEPS.find(([k]) => !incTimes[k]);
   const nb = document.getElementById('btn-inc-next-time');
   if (nb) {
     nb.hidden = !next;
-    if (next) { nb.textContent = `⏱ ${next[1]} jetzt`; nb.onclick = () => { incTimes[next[0]] = nowHM(); renderIncTimes(); }; }
+    if (next) { nb.textContent = `⏱ ${next[1]} jetzt`; nb.onclick = () => { incTimes[next[0]] = nowHM(); incTimeSel = null; renderIncTimes(); }; }
   }
 }
 function updateIncTimeSummary() {
@@ -3661,7 +3691,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 82;
+const APP_VERSION = 83;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5287,9 +5317,27 @@ function cropBlob(bmp, box) {
   c.getContext('2d').drawImage(bmp, box.x0, box.y0, w, h, 0, 0, w, h);
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob'))), 'image/png'));
 }
+/** Animiertes PNG (APNG)? Dann nicht neu rechnen – die Animation ginge verloren. */
+async function isAnimatedPng(blob) {
+  try {
+    const head = new Uint8Array(await blob.slice(0, 64 * 1024).arrayBuffer());
+    for (let i = 8; i + 8 < head.length;) {
+      const len = (head[i] << 24 | head[i + 1] << 16 | head[i + 2] << 8 | head[i + 3]) >>> 0;
+      const type = String.fromCharCode(head[i + 4], head[i + 5], head[i + 6], head[i + 7]);
+      if (type === 'acTL') return true;
+      if (type === 'IDAT') return false;
+      i += 12 + len;
+    }
+  } catch (_) {}
+  return false;
+}
+const ICON_PROC_VERSION = '2';
 /** Normal- und SoSi-Grafik einer Kategorie mit gemeinsamem Ausschnitt zuschneiden (Blinken bleibt deckungsgleich). */
 async function processIconPair(urls) {
   const blobs = await Promise.all(urls.map(fetchIconViaWorker));
+  // animierte Grafiken (APNG/GIF) unverändert speichern – dann beide, damit sie deckungsgleich bleiben
+  const animated = (await Promise.all(blobs.map((b) => (/gif/i.test(b.type) ? true : isAnimatedPng(b))))).some(Boolean);
+  if (animated) return blobs.map((b) => new Response(b, { headers: { 'Content-Type': b.type || 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(b.size), 'X-Etb-Cropped': '0', 'X-Etb-V': ICON_PROC_VERSION } }));
   const bmps = await Promise.all(blobs.map((b) => createImageBitmap(b)));
   const sameSize = bmps.every((b) => b.width === bmps[0].width && b.height === bmps[0].height);
   let box = null;
@@ -5308,7 +5356,7 @@ async function processIconPair(urls) {
       const area = (bx.x1 - bx.x0 + 1) * (bx.y1 - bx.y0 + 1);
       if (area < bmp.width * bmp.height * 0.92) { blob = await cropBlob(bmp, bx); cropped = true; }
     }
-    out.push(new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png', 'Content-Length': String(blob.size), 'X-Etb-Orig-Size': String(blobs[i].size), 'X-Etb-Cropped': cropped ? '1' : '0' } }));
+    out.push(new Response(blob, { headers: { 'Content-Type': blob.type || 'image/png', 'Content-Length': String(blob.size), 'X-Etb-Orig-Size': String(blobs[i].size), 'X-Etb-Cropped': cropped ? '1' : '0', 'X-Etb-V': ICON_PROC_VERSION } }));
   }
   return out;
 }
@@ -5324,7 +5372,7 @@ function syncVehicleIcons({ force = false } = {}) {
     await Promise.all(keys.filter((r) => !wanted.includes(r.url)).map((r) => cache.delete(r)));
     // bereits über den Worker aufbereitet?
     const done = new Set();
-    for (const r of await cache.keys()) { const res = await cache.match(r); if (res && res.type !== 'opaque' && res.headers.get('X-Etb-Cropped') !== null) done.add(r.url); else if (res) done.add('raw:' + r.url); }
+    for (const r of await cache.keys()) { const res = await cache.match(r); if (res && res.type !== 'opaque' && res.headers.get('X-Etb-V') === ICON_PROC_VERSION) done.add(r.url); else if (res) done.add('raw:' + r.url); }
     const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
     let failed = 0, viaWorker = true;
     const handled = new Set();

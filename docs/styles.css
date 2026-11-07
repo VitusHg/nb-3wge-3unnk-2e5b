@@ -3584,3 +3584,31 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .iv-route span { display: flex; align-items: center; gap: 10px; font-size: 15px; }
 .inc-links.is-view { padding: 10px 12px; margin: 0; }
 .place-add-row input { flex: 1; min-width: 0; }
+
+/* Zeiten v2: Knöpfe + eigene Feinjustierung (kein natives Zeitfeld) */
+.it-step { border: none; font: inherit; color: inherit; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.it-step:active { transform: scale(.96); }
+.it-step.is-sel { box-shadow: 0 0 0 2px var(--accent); }
+.it-edit { margin-top: 8px; padding: 10px 12px 12px; border-radius: 14px; background: var(--fill); }
+.it-edit-hd { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: var(--text2); }
+.it-edit-done { border: none; background: none; color: var(--accent); font: inherit; font-size: 15px; font-weight: 700; padding: 4px 2px; }
+.it-edit-main { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 8px; }
+.it-spin { display: flex; flex-direction: column; align-items: center; }
+.it-spin b { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.it-spin button { width: 52px; height: 30px; border: none; border-radius: 10px; background: var(--card); color: var(--accent); font-size: 14px; }
+.it-spin button:active, .it-edit-btns button:active { transform: scale(.94); }
+.it-colon { font-size: 30px; font-weight: 800; padding-bottom: 4px; }
+.it-edit-btns { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.it-edit-btns button { height: 38px; border: none; border-radius: 10px; background: var(--card); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; }
+.it-edit-btns button[data-it="now"] { color: var(--accent); }
+.it-edit-btns .is-del { color: var(--red, #ff3b30); font-size: 12px; }
+
+/* Einklappbare Bereiche im Einsatz-Formular */
+.inc-sec.is-collapsible { margin: 8px 0; border-radius: 12px; background: var(--fill); }
+.inc-sec-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 12px; border: none; background: none; color: var(--text); font: inherit; font-size: 15px; font-weight: 600; text-align: left; }
+.inc-sec-chev { color: var(--text3); font-size: 20px; transition: transform .2s; }
+.inc-sec.is-open .inc-sec-chev { transform: rotate(90deg); }
+.inc-sec-body { display: none; padding: 0 10px 10px; }
+.inc-sec.is-open .inc-sec-body { display: block; }
+.inc-sec.is-collapsible .route-field input, .inc-sec.is-collapsible .link-add input { background: var(--card); }
+.inc-sec.is-collapsible .place-chip { background: var(--card); }

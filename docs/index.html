@@ -468,8 +468,9 @@
         </div>
 
         <!-- Start → Ziel -->
-        <div class="inc-sec">
-          <div class="fg-label inc-sec-hd">Start → Ziel</div>
+        <div class="inc-sec is-collapsible" data-sec="route">
+          <button type="button" class="inc-sec-toggle"><span>📍 Start → Ziel</span><span class="inc-sec-chev">›</span></button>
+          <div class="inc-sec-body">
           <div class="route-grid">
             <div class="suggestion-wrap route-field">
               <span class="route-dot is-from" aria-hidden="true"></span>
@@ -484,11 +485,13 @@
             </div>
           </div>
           <div class="place-chips" id="place-chips"></div>
+          </div>
         </div>
 
         <!-- Berichte & Links -->
-        <div class="inc-sec">
-          <div class="fg-label inc-sec-hd">Berichte &amp; Links</div>
+        <div class="inc-sec is-collapsible" data-sec="links">
+          <button type="button" class="inc-sec-toggle"><span>🔗 Berichte &amp; Links</span><span class="inc-sec-chev">›</span></button>
+          <div class="inc-sec-body">
           <div class="inc-links" id="inc-links"></div>
           <div class="link-add">
             <input type="url" id="inc-link-url" placeholder="Link einfügen (Feuerwehr, Medien …)" autocomplete="off" inputmode="url" enterkeyhint="done" />
@@ -497,6 +500,7 @@
               <input type="text" id="inc-link-name" placeholder="Name des Portals" autocomplete="off" />
               <button type="button" class="btn-secondary" id="btn-link-add">Hinzufügen</button>
             </div>
+          </div>
           </div>
         </div>
 
