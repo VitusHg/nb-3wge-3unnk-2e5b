@@ -161,6 +161,7 @@ const BRIEFCASE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 2
 let state = loadState();
 let activeTab = 'home';
 let pbPage = false, pbSubOpen = false, pbSubTitle = 'Kontakt'; // Telefonbuch: Kontakt als Unterseite
+let pbViaName = '', pbPrefillName = ''; // Schreibweise aus dem Tagebuch · Vorbelegung „Neuer Kontakt“
 let selectedServiceId = null;
 let statsFromDate = null;
 let statsToDate = null;
@@ -3849,7 +3850,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 93;
+const APP_VERSION = 94;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6156,8 +6157,9 @@ document.addEventListener('input', (e) => {
 // — Kontaktkarte —
 // Im Telefonbuch-Tab öffnet der Kontakt als Unterseite (Wischen zurück),
 // sonst (Start, Profil) als Blatt.
-function openContact(id, edit = false) {
+function openContact(id, edit = false, viaName = '') {
   pbContactId = id;
+  pbViaName = viaName;
   pbEditMode = edit || !id;
   pbPage = activeTab === 'telefon';
   if (pbPage) {
@@ -6208,7 +6210,7 @@ function renderContact() {
   if (pbEditMode) {
     pbSetTitle(c ? 'Kontakt bearbeiten' : 'Neuer Kontakt');
     const phones = c && c.phones.length ? c.phones : [''];
-    box.innerHTML = `<div class="fg-field"><label for="ct-name">Name</label><input type="text" id="ct-name" value="${escHtml(c ? c.name : '')}" placeholder="Nachname Vorname" autocomplete="off"></div>
+    box.innerHTML = `<div class="fg-field"><label for="ct-name">Name</label><input type="text" id="ct-name" value="${escHtml(c ? c.name : pbPrefillName)}" placeholder="Nachname Vorname" autocomplete="off"></div>
       <div class="fg-field"><label>Telefonnummern</label><div id="ct-phones">${phones.map((p) => `<div class="ct-phone"><input type="tel" class="ct-phone-in" value="${escHtml(p)}" placeholder="+43 …" autocomplete="off"><button type="button" class="ct-phone-x" aria-label="Nummer entfernen">✕</button></div>`).join('')}</div>
         <button type="button" class="btn-ghost ct-add-phone" id="ct-add-phone">+ Nummer</button></div>
       <div class="fg-field"><label for="ct-note">Notiz</label><textarea id="ct-note" rows="2" placeholder="optional">${escHtml(c ? c.note || '' : '')}</textarea></div>
@@ -6233,55 +6235,44 @@ function renderContact() {
       renderContact(); refreshPhonebookViews();
       toast('Gespeichert.', 'success', 1500);
     };
-    if (!c) setTimeout(() => box.querySelector('#ct-name')?.focus(), 300);
+    pbPrefillName = '';
+    if (!c) setTimeout(() => (box.querySelector('#ct-name').value ? box.querySelector('.ct-phone-in') : box.querySelector('#ct-name'))?.focus(), 300);
     return;
   }
-  pbSetTitle('Kontakt');
+  pbSetTitle('Profil');
   const ph = c.phones || [];
   const main = ph[0];
+  // Tagebuch-Teil: Schreibweise, mit der die Person in den Diensten steht
   const shared = contactServiceNames(c);
-  const svcCount = shared.length ? shared[0][1] : 0; // Profil zeigt diese Schreibweise
+  const tbName = pbViaName && shared.some(([n]) => sameName(n, pbViaName)) ? pbViaName : (shared[0] ? shared[0][0] : '');
+  const st = tbName ? colleagueStats(tbName) : null;
   const sources = (c.quellen || []);
+  const depts = [...new Set(sources.map((q) => q.dienststelle))].join(' · ');
   box.innerHTML = `<div class="cp-head">${pbAvatar(c.name)}
-      <div><h3>${escHtml(c.name)}</h3><span>${escHtml([...new Set(sources.map((q) => q.dienststelle))].join(' · ') || 'Kontakt')}</span></div></div>
+      <div><h3>${escHtml(c.name)}</h3><span>${st && st.count ? st.sub : escHtml(depts || 'Telefonbuch')}</span></div></div>
     ${main ? `<div class="ct-big">
       <a class="ct-big-btn is-call" href="${escHtml(telHref(main))}">${PB_SVG.phone}<span>Anrufen</span></a>
       <a class="ct-big-btn is-wa" href="${escHtml(waHref(main))}" target="_blank" rel="noopener">${PB_SVG.msg}<span>WhatsApp</span></a>
       <a class="ct-big-btn is-sms" href="${escHtml(smsHref(main))}">${PB_SVG.sms}<span>SMS</span></a>
     </div>` : '<p class="cp-line">Keine Telefonnummer hinterlegt.</p>'}
     ${ph.length ? `<div class="ct-list">${ph.map((p, i) => `<div class="ct-num"><span><small>${i === 0 ? 'Mobil' : 'Weitere Nummer'}</small><b>${escHtml(p)}</b></span>${pbCallBtn(p, c.name)}${pbWaBtn(p, c.name)}</div>`).join('')}</div>` : ''}
-    ${c.note ? `<div class="cp-sub">Notiz</div><p class="cp-line ct-note">${escHtml(c.note)}</p>` : ''}
-    ${svcCount ? `<button type="button" class="ct-profile" id="ct-profile"><span>👥</span><span><b>${svcCount} ${svcCount === 1 ? 'gemeinsamer Eintrag' : 'gemeinsame Einträge'}</b><small>Profil im Tagebuch öffnen</small></span><span class="set-row-chev">›</span></button>` : ''}
-    ${sources.length ? `<div class="cp-sub">Quellen</div><div class="ct-src">${sources.map((q) => `<div><b>${escHtml(q.dienststelle)}</b>${q.datum ? `<small>Liste vom ${escHtml(q.datum)}</small>` : ''}</div>`).join('')}</div>` : ''}
     <div class="ct-actions">
       <button type="button" class="btn-secondary" id="ct-fav">${c.pinned ? '★ Favorit' : '☆ Zu Favoriten'}</button>
       <button type="button" class="btn-secondary" id="ct-edit">Bearbeiten</button>
     </div>
-    <button type="button" class="btn-ghost ct-del" id="ct-del">Kontakt löschen</button>`;
+    ${c.note ? `<div class="cp-sub">Notiz</div><p class="cp-line ct-note">${escHtml(c.note)}</p>` : ''}
+    ${st && st.count ? `<div class="ct-tb">${st.html}</div>` : '<p class="cp-line ct-tb-none">Noch kein gemeinsamer Dienst im Tagebuch.</p>'}
+    ${sources.length ? `<div class="cp-sub">Telefonbuch-Quellen</div><div class="ct-src">${sources.map((q) => `<div><b>${escHtml(q.dienststelle)}</b>${q.datum ? `<small>Liste vom ${escHtml(q.datum)}</small>` : ''}</div>`).join('')}</div>` : ''}
+    <button type="button" class="btn-ghost ct-del" id="ct-del">Aus dem Telefonbuch löschen</button>`;
   box.querySelector('#ct-fav').onclick = () => { c.pinned = !c.pinned; saveState(); renderContact(); refreshPhonebookViews(); };
   box.querySelector('#ct-edit').onclick = () => { pbEditMode = true; renderContact(); };
   box.querySelector('#ct-del').onclick = () => {
-    if (!confirm(`„${c.name}“ aus dem Telefonbuch löschen?`)) return;
+    if (!confirm(`„${c.name}“ aus dem Telefonbuch löschen? Die Dienste im Tagebuch bleiben erhalten.`)) return;
     state.contacts = state.contacts.filter((x) => x.id !== c.id);
     saveState(); pbCloseContact(); refreshPhonebookViews();
   };
-  box.querySelector('#ct-profile')?.addEventListener('click', () => {
-    const name = shared[0][0];
-    if (pbPage) { openColleagueProfile(name); return; }
-    closeDialog('dialog-contact');
-    setTimeout(() => openColleagueProfile(name), 200);
-  });
+  bindColleagueStats(box);
   box.scrollTop = 0;
-}
-/** Anruf-Leiste im Kolleg:innen-Profil. */
-function profileContactHtml(name) {
-  const c = contactsForName(name)[0];
-  if (!c) return '';
-  const ph = (c.phones || [])[0];
-  return `<div class="cp-call" data-contact-id="${escHtml(c.id)}" role="button">
-    <span class="cp-call-t"><small>Telefonbuch</small><b>${escHtml(ph || c.name)}</b></span>
-    ${ph ? pbCallBtn(ph, c.name) + pbWaBtn(ph, c.name) : ''}
-  </div>`;
 }
 
 // — Einstellungen → Telefonbuch —
@@ -6319,9 +6310,8 @@ function settingsPageTelefonbuch(el, title) {
 }
 
 
-function openColleagueProfile(name) {
-  const box = document.getElementById('colleague-body');
-  if (!box) return;
+/** Tagebuch-Teil des Personenprofils (gemeinsame Dienste, Kennzahlen). */
+function colleagueStats(name) {
   const shared = state.services.filter((x) => (x.colleagues || []).some((c) => sameName(c, name)))
     .sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
   const duty = shared.filter((x) => !x.isSeg);
@@ -6339,13 +6329,7 @@ function openColleagueProfile(name) {
   const others = countTop(shared.flatMap((x) => (x.colleagues || []).filter((c) => !sameName(c, name))), 3);
   const vic = veh ? vehicleIconSrc(veh[0]) : '';
   const vibe = !duty.length ? '' : avgWith >= avgAll + 0.5 ? `🌪️ Mit ${escHtml(name.split(/\s|,/)[0])} wird’s wild – mehr los als sonst.` : avgWith <= avgAll - 0.5 ? '🍀 Glücksbringer:in – mit euch bleibt’s ruhiger.' : '⚖️ Ganz normales Pensum.';
-  document.getElementById('colleague-title').textContent = 'Kolleg:in';
-  box.innerHTML = `<div class="cp-head">
-      <span class="cp-av" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>
-      <div><h3>${escHtml(name)}</h3><span>${shared.length ? `seit ${escHtml(day(shared[shared.length - 1]))} gemeinsam` : 'noch kein gemeinsamer Dienst'}</span></div>
-    </div>
-    ${profileContactHtml(name)}
-    <div class="cp-tiles">
+  return { count: shared.length, sub: shared.length ? `seit ${escHtml(day(shared[shared.length - 1]))} gemeinsam` : 'noch kein gemeinsamer Dienst', html: `    <div class="cp-tiles">
       <div><strong>${duty.length}</strong><small>Dienste</small></div>
       <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
       <div><strong>${incs.length}</strong><small>Einsätze</small></div>
@@ -6360,15 +6344,45 @@ function openColleagueProfile(name) {
       <span class="cp-svc-d">${shiftCodeHtml(x.startAt, 'is-small')}<span>${escHtml(day(x))}</span></span>
       <span class="cp-svc-t">${escHtml(x.isSeg ? ((x.incidents || [])[0] || {}).alarmCode || 'SEG' : x.vehicle || 'Dienst')}</span>
       <span class="cp-svc-n">${(x.incidents || []).length}</span></button>`).join('')}
-      ${shared.length > 40 ? `<p class="cp-line">… und ${shared.length - 40} weitere</p>` : ''}</div>`;
+      ${shared.length > 40 ? `<p class="cp-line">… und ${shared.length - 40} weitere</p>` : ''}</div>` };
+}
+function bindColleagueStats(box) {
   box.querySelectorAll('[data-cp-svc]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.cpSvc;
     closeDialog('dialog-colleague');
+    closeDialog('dialog-contact');
+    if (pbSubOpen) closePbSub();
     document.querySelectorAll('.lp-ov').forEach((x) => x.remove());
     if (story) closeStory();
     const sv = state.services.find((x) => x.id === id);
     setTimeout(() => { if (sv && sv.isSeg) openIncidentView(id, (sv.incidents[0] || {}).id); else openServiceDetail(id); }, 260);
   }));
+}
+/**
+ * Ein Profil für Tagebuch und Telefonbuch: Steht die Person im Telefonbuch,
+ * öffnet die Kontaktkarte (mit allen Tagebuch-Kennzahlen), sonst das Profil
+ * mit „Ins Telefonbuch aufnehmen“.
+ */
+function openColleagueProfile(name) {
+  const c = contactsForName(name)[0];
+  if (c) { closeDialog('dialog-colleague'); openContact(c.id, false, name); return; }
+  const box = document.getElementById('colleague-body');
+  if (!box) return;
+  closeDialog('dialog-contact');
+  const st = colleagueStats(name);
+  document.getElementById('colleague-title').textContent = 'Profil';
+  box.innerHTML = `<div class="cp-head">
+      <span class="cp-av" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>
+      <div><h3>${escHtml(name)}</h3><span>${st.sub}</span></div>
+    </div>
+    <button type="button" class="ct-profile" id="cp-add-pb"><span>📞</span><span><b>Ins Telefonbuch aufnehmen</b><small>Nummer hinterlegen – dann mit Anrufen &amp; WhatsApp</small></span><span class="set-row-chev">›</span></button>
+    ${st.html}`;
+  box.querySelector('#cp-add-pb').onclick = () => {
+    closeDialog('dialog-colleague');
+    pbPrefillName = name.replace(/,.*$/, '').trim();
+    setTimeout(() => openContact(null, true), 200);
+  };
+  bindColleagueStats(box);
   box.scrollTop = 0;
   openDialog('dialog-colleague');
 }
