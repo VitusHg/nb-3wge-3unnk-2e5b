@@ -571,6 +571,7 @@ const hmToMin = (t) => { const m = /^(\d{2}):(\d{2})$/.exec(t || ''); return m ?
 /** Minuten zwischen zwei Zeiten (über Mitternacht hinweg). */
 function hmDiff(a, b) { const x = hmToMin(a), y = hmToMin(b); if (x === null || y === null) return null; let d = y - x; if (d < 0) d += 1440; return d; }
 const fmtMin = (m) => (m === null ? '' : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+const hmShort = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 function incTimeSummary(times) {
   const t = times || {};
   const parts = [
@@ -581,6 +582,28 @@ function incTimeSummary(times) {
     ['Gesamt', hmDiff(t.erhalten || t.anfahrt, t.beendet || t.ziel)],
   ].filter(([, m]) => m !== null && m < 12 * 60); // über 12 h ist eher ein Tippfehler
   return parts;
+}
+/** Kompakte Zeitleiste für die Einsatzansicht: Von–Bis, Dauer, Phasenbalken; Einzelzeiten per Tipp. */
+const INC_PHASES = { erhalten: ['Ausrücken', '#8e8e93'], anfahrt: ['Anfahrt', '#ff9f0a'], ort: ['Vor Ort', '#30d158'], transport: ['Transport', '#0a84ff'], ziel: ['Am Ziel', '#bf5af2'] };
+function incTimesViewHtml(times) {
+  const t = times || {};
+  const st = INC_TIME_STEPS.filter(([k]) => t[k]);
+  if (!st.length) return '';
+  const first = t[st[0][0]], last = t[st[st.length - 1][0]];
+  const total = st.length > 1 ? hmDiff(first, last) : null;
+  const ph = [];
+  for (let i = 0; i < st.length - 1; i++) {
+    const m = hmDiff(t[st[i][0]], t[st[i + 1][0]]);
+    const p = INC_PHASES[st[i][0]];
+    if (p && m !== null) ph.push([p[0], p[1], m]);
+  }
+  const ok = total !== null && total > 0 && total < 12 * 60;
+  return `<div class="iv-tl" onclick="this.classList.toggle('is-open')">
+    <div class="iv-tl-head"><b>${first}${st.length > 1 ? ` – ${last}` : ''}</b>${ok ? `<span>${fmtMin(total)}</span>` : ''}<i class="iv-tl-more">›</i></div>
+    ${ok && ph.length ? `<div class="iv-tl-bar">${ph.filter((p) => p[2] > 0).map(([l, c, m]) => `<span style="flex:${m};background:${c}" title="${l}"></span>`).join('')}</div>
+    <div class="iv-tl-leg">${ph.filter((p) => p[2] > 0).map(([l, c, m]) => `<span><i style="background:${c}"></i>${l} <b>${fmtMin(m)}</b></span>`).join('')}</div>` : ''}
+    <div class="iv-tl-all">${st.map(([k, l]) => `<span>${l}<b>${t[k]}</b></span>`).join('')}</div>
+  </div>`;
 }
 /** Bekannte Portale; sonst aus der Adresse abgeleitet (ff-xyz.at → FF Xyz). */
 const PORTAL_NAMES = {
@@ -1274,8 +1297,7 @@ function renderIncidentView() {
       p.prio && row('Priorität', escHtml(PRIO_TEXT[p.prio] || p.prio)),
       row('NACA', naca),
     ])
-    + (Object.keys(inc.times || {}).length ? group('Zeiten', [`<div class="iv-times">${INC_TIME_STEPS.filter(([k]) => inc.times[k]).map(([k, l, ic]) => `<span class="iv-time"><small>${ic} ${l}</small><b>${inc.times[k]}</b></span>`).join('<span class="iv-time-arrow">›</span>')}</div>
-        ${incTimeSummary(inc.times).length ? `<div class="iv-time-sum">${incTimeSummary(inc.times).map(([l, m]) => `<span>${l} <b>${fmtMin(m)}</b></span>`).join('')}</div>` : ''}`]) : '')
+    + (Object.keys(inc.times || {}).length ? group('Zeiten', [incTimesViewHtml(inc.times)]) : '')
     + (inc.from || inc.to ? group('Start → Ziel', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${escHtml(inc.from || '—')}</span><span><i class="route-dot is-to"></i>${escHtml(inc.to || '—')}</span></div>`]) : '')
     + ((inc.links || []).length ? group('Berichte & Links', [`<div class="inc-links is-view">${inc.links.map((l) => linkChipHtml(l, false)).join('')}</div>`]) : '')
     + (inc.note ? group('Notiz', [`<div class="iv-note">${linkifyHtml(inc.note)}</div>`]) : '')
@@ -2478,7 +2500,7 @@ function renderStats() {
   const allTo = rankText(allInc.map((i) => i.to));
   const allFrom = rankText(allInc.map((i) => i.from));
   const routeFilled = allInc.filter((i) => i.from || i.to).length;
-  const timeStatsHtml = (cls) => `<div class="${cls}">${timeStats.filter((t) => t.n).map((t) => `<div class="tt-tile"><small>${t.k}</small><b>${fmtMin(t.avg)}</b><span>Ø · ${t.n}× · ${fmtMin(t.min)}–${fmtMin(t.max)}</span></div>`).join('') || '<p class="sx-empty">Noch keine Zeiten erfasst</p>'}</div>`;
+  const timeStatsHtml = (cls) => `<div class="${cls}">${timeStats.filter((t) => t.n).map((t) => `<div class="tt-tile"><small>${t.k}</small><b>${fmtMin(t.avg)}</b><span title="Ø aus ${t.n} Einsätzen">${t.min === t.max ? `${t.n}×` : t.max < 60 ? `${t.min}–${t.max} min` : `${hmShort(t.min)}–${hmShort(t.max)} h`}</span></div>`).join('') || '<p class="sx-empty">Noch keine Zeiten erfasst</p>'}</div>`;
   const allPzc = (() => {
     const map = {};
     allInc.forEach((i) => { const c = i.pzc && i.pzc.diag ? i.pzc.diag : null; if (c) map[c] = (map[c] || 0) + 1; });
@@ -2687,29 +2709,24 @@ function renderStats() {
   // Wann ist was los? Wochentag × Tageszeit (nur Einsätze mit plausibler Uhrzeit)
   const incX = filteredSvcs.flatMap((sv) => (sv.incidents || []).filter(incFilter).map((inc) => ({ inc, svc: sv })));
   function timeCard() {
-    const grid = Array.from({ length: 7 }, () => Array(8).fill(0));
+    const wd = Array(7).fill(0), hb = Array(8).fill(0);
     let n = 0;
     incX.forEach(({ inc, svc }) => {
       const a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
       let c = inc.createdAt ? new Date(inc.createdAt) : null;
       const al = (inc.times || {}).erhalten || (inc.times || {}).anfahrt;
       if (al && a) { c = new Date(a); c.setHours(+al.slice(0, 2), +al.slice(3), 0, 0); if (c < a) c = new Date(c.getTime() + 864e5); }
-      if (!c || !a || !e || c < a || c > new Date(e.getTime() + 2 * 3600e3)) return;
-      grid[(c.getDay() + 6) % 7][Math.floor(c.getHours() / 3)]++; n++;
+      if (!c || !a || !e || c < a || c > new Date(e.getTime() + 2 * 3600e3)) c = a; // keine plausible Uhrzeit → Dienstbeginn
+      if (!c) return;
+      wd[(c.getDay() + 6) % 7]++; hb[Math.floor(c.getHours() / 3)]++; n++;
     });
-    const wd = Array(7).fill(0);
-    incX.forEach(({ svc }) => { const d = parseLocalDt(svc.startAt); if (d) wd[(d.getDay() + 6) % 7]++; });
-    const wmax = Math.max(1, ...wd), best = wd.indexOf(Math.max(...wd));
-    const gmax = Math.max(1, ...grid.flat());
-    const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-    let peak = null;
-    grid.forEach((row, d) => row.forEach((v, h) => { if (v && (!peak || v > peak.v)) peak = { v, d, h }; }));
-    return `<section class="sx-card sx-wide" style="--mc:#0a84ff">${head('🕒', 'Wann ist was los?', incX.length ? `${incX.length} Einsätze` : '')}
-      ${!incX.length ? empty : `<div class="sx-wd">${wd.map((v, i) => `<div class="sx-wd-col${i === best ? ' is-best' : ''}"><span class="sx-wd-n">${v || ''}</span><span class="sx-wd-bar" style="height:${v ? Math.max(6, Math.round((v / wmax) * 100)) : 0}%"></span><span class="sx-wd-l">${days[i]}</span></div>`).join('')}</div>
-      <p class="sx-note">Am meisten los: <strong>${WEEKDAY_LONG[(best + 1) % 7]}</strong>${peak ? ` · Spitze ${days[peak.d]} ${String(peak.h * 3).padStart(2, '0')}–${String(peak.h * 3 + 3).padStart(2, '0')} Uhr` : ''}</p>
-      ${n >= 5 ? `<div class="sx-tgrid"><span></span>${['0', '3', '6', '9', '12', '15', '18', '21'].map((h) => `<span class="sx-tgrid-h">${h}</span>`).join('')}
-        ${grid.map((row, d) => `<span class="sx-tgrid-d">${days[d]}</span>${row.map((v) => `<span class="sx-tgrid-c" style="--a:${v ? 0.18 + 0.82 * (v / gmax) : 0}" title="${v} Einsätze">${v || ''}</span>`).join('')}`).join('')}</div>
-        <p class="sx-note sx-small">nach Alarmzeit bzw. Uhrzeit der Erfassung, ${n} Einsätze</p>` : ''}`}
+    const days = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
+    const bestD = wd.indexOf(Math.max(...wd)), bestH = hb.indexOf(Math.max(...hb));
+    const strip = (arr, best, lbl) => { const mx = Math.max(1, ...arr); return `<div class="sx-mini">${arr.map((v, i) => `<div class="sx-mini-col${i === best && v ? ' is-best' : ''}"><span class="sx-mini-bar" style="height:${v ? Math.max(8, Math.round((v / mx) * 100)) : 0}%"></span><span class="sx-mini-l">${lbl(i)}</span></div>`).join('')}</div>`; };
+    const hh = (h) => String(h * 3).padStart(2, '0');
+    return `<section class="sx-card" style="--mc:#0a84ff">${head('🕒', 'Wann ist was los?', '')}
+      ${!n ? empty : `<p class="sx-note sx-when"><strong>${WEEKDAY_LONG[(bestD + 1) % 7]}</strong> · <strong>${hh(bestH)}–${hh(bestH + 1)} Uhr</strong></p>
+      <div class="sx-mini-wrap">${strip(wd, bestD, (i) => days[i])}${strip(hb, bestH, (i) => (i % 2 ? '' : hh(i)))}</div>`}
     </section>`;
   }
 
@@ -3742,7 +3759,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 87;
+const APP_VERSION = 88;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
