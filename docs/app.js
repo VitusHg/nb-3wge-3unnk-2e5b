@@ -4,7 +4,10 @@
 // ── Constants ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'einsatzTagebuchV4';
 // Einsatz-Zeiten (früh definiert, da normalizeState sie beim Laden braucht)
-const INC_TIME_STEPS = [['alarm', 'Alarm'], ['ab', 'Ausgerückt'], ['an', 'Vor Ort'], ['ziel', 'Am Ziel'], ['frei', 'Frei']];
+const INC_TIME_STEPS = [['erhalten', 'Erhalten', '📟'], ['bestaetigt', 'Bestätigt', '✅'], ['anfahrt', 'Anfahrt', '🚑'], ['ort', 'Am Einsatzort', '📍'],
+  ['transport', 'Transport', '🛏️'], ['ziel', 'Am Ziel', '🏥'], ['beendet', 'Beendet', '🏁']];
+// frühere Schlüssel (Version 82–84) → neue Status
+const INC_TIME_LEGACY = { alarm: 'erhalten', ab: 'anfahrt', an: 'ort', frei: 'beendet' };
 const PRIO_TEXT = { '1': 'Kritischer Patient', '2': 'Voraussichtl. Stationäre Behandlung', '3': 'Voraussichtl. Ambulante Behandlung' };
 const NACA_LABELS = [
   'Keine Erkrankung oder Verletzung',
@@ -253,6 +256,7 @@ function normalizeState(s) {
       inc.extraVehicles = Array.isArray(inc.extraVehicles) ? inc.extraVehicles.map(txt).filter(Boolean) : [];
       const t = isObj(inc.times) ? inc.times : {};
       inc.times = {};
+      Object.entries(INC_TIME_LEGACY).forEach(([o, n]) => { if (t[o] && !t[n]) t[n] = t[o]; });
       INC_TIME_STEPS.forEach(([k]) => { if (/^\d{2}:\d{2}$/.test(String(t[k] || ''))) inc.times[k] = String(t[k]); });
       inc.from = txt(inc.from);
       inc.to = txt(inc.to);
@@ -569,10 +573,11 @@ const fmtMin = (m) => (m === null ? '' : m >= 60 ? `${Math.floor(m / 60)} h ${m 
 function incTimeSummary(times) {
   const t = times || {};
   const parts = [
-    ['Ausrücken', hmDiff(t.alarm, t.ab)],
-    ['Anfahrt', hmDiff(t.ab || t.alarm, t.an)],
-    ['Vor Ort', hmDiff(t.an, t.ziel || t.frei)],
-    ['Gesamt', hmDiff(t.alarm || t.ab, t.frei || t.ziel)],
+    ['Ausrücken', hmDiff(t.erhalten, t.anfahrt)],
+    ['Anfahrt', hmDiff(t.anfahrt || t.erhalten, t.ort)],
+    ['Vor Ort', hmDiff(t.ort, t.transport || t.beendet)],
+    ['Transport', hmDiff(t.transport, t.ziel)],
+    ['Gesamt', hmDiff(t.erhalten || t.bestaetigt || t.anfahrt, t.beendet || t.ziel)],
   ].filter(([, m]) => m !== null && m < 12 * 60); // über 12 h ist eher ein Tippfehler
   return parts;
 }
@@ -1268,7 +1273,7 @@ function renderIncidentView() {
       p.prio && row('Priorität', escHtml(PRIO_TEXT[p.prio] || p.prio)),
       row('NACA', naca),
     ])
-    + (Object.keys(inc.times || {}).length ? group('Zeiten', [`<div class="iv-times">${INC_TIME_STEPS.filter(([k]) => inc.times[k]).map(([k, l]) => `<span class="iv-time"><small>${l}</small><b>${inc.times[k]}</b></span>`).join('<span class="iv-time-arrow">›</span>')}</div>
+    + (Object.keys(inc.times || {}).length ? group('Zeiten', [`<div class="iv-times">${INC_TIME_STEPS.filter(([k]) => inc.times[k]).map(([k, l, ic]) => `<span class="iv-time"><small>${ic} ${l}</small><b>${inc.times[k]}</b></span>`).join('<span class="iv-time-arrow">›</span>')}</div>
         ${incTimeSummary(inc.times).length ? `<div class="iv-time-sum">${incTimeSummary(inc.times).map(([l, m]) => `<span>${l} <b>${fmtMin(m)}</b></span>`).join('')}</div>` : ''}`]) : '')
     + (inc.from || inc.to ? group('Start → Ziel', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${escHtml(inc.from || '—')}</span><span><i class="route-dot is-to"></i>${escHtml(inc.to || '—')}</span></div>`]) : '')
     + ((inc.links || []).length ? group('Berichte & Links', [`<div class="inc-links is-view">${inc.links.map((l) => linkChipHtml(l, false)).join('')}</div>`]) : '')
@@ -1889,50 +1894,69 @@ document.addEventListener('click', (e) => {
   if (sec.classList.contains('is-open')) { const i = sec.querySelector('input'); if (i) setTimeout(() => i.focus({ preventScroll: true }), 50); }
 });
 
-let incTimeSel = null; // gerade bearbeiteter Status
+let incTimeSel = null; // (früher: Feinjustierung) – bleibt für Kompatibilität
+/** Ziffern „0938“ → „09:38“ (oder null, wenn ungültig). */
+function digitsToHM(d) {
+  d = String(d || '').replace(/\D/g, '');
+  if (d.length === 3) d = '0' + d;
+  if (d.length !== 4) return null;
+  const h = +d.slice(0, 2), m = +d.slice(2);
+  return h < 24 && m < 60 ? d.slice(0, 2) + ':' + d.slice(2) : null;
+}
 function renderIncTimes() {
   const box = document.getElementById('inc-times');
   if (!box) return;
-  const sel = incTimeSel;
-  box.innerHTML = `<div class="it-row">${INC_TIME_STEPS.map(([k, l]) => `<button type="button" class="it-step${incTimes[k] ? ' is-set' : ''}${sel === k ? ' is-sel' : ''}" data-step="${k}">
-      <span class="it-l">${l}</span><span class="it-v">${incTimes[k] || '–:–'}</span></button>`).join('')}</div>
-    ${sel ? `<div class="it-edit">
-      <div class="it-edit-hd"><span>${INC_TIME_STEPS.find(([k]) => k === sel)[1]}</span><button type="button" class="it-edit-done" data-it="done">Fertig</button></div>
-      <div class="it-edit-main">
-        <div class="it-spin"><button type="button" data-it="h+">▲</button><b>${(incTimes[sel] || nowHM()).slice(0, 2)}</b><button type="button" data-it="h-">▼</button></div>
-        <span class="it-colon">:</span>
-        <div class="it-spin"><button type="button" data-it="m+">▲</button><b>${(incTimes[sel] || nowHM()).slice(3)}</b><button type="button" data-it="m-">▼</button></div>
-      </div>
-      <div class="it-edit-btns"><button type="button" data-it="-5">−5</button><button type="button" data-it="-1">−1</button><button type="button" data-it="now">Jetzt</button><button type="button" data-it="+1">+1</button><button type="button" data-it="+5">+5</button><button type="button" class="is-del" data-it="del">Löschen</button></div>
-    </div>` : ''}
+  box.innerHTML = `<div class="it-grid">${INC_TIME_STEPS.map(([k, l, ic]) => `<label class="it-tile${incTimes[k] ? ' is-set' : ''}" data-step="${k}">
+      <span class="it-ic" aria-hidden="true">${ic}</span>
+      <input class="it-num" data-k="${k}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="next" value="${incTimes[k] || ''}" placeholder="–:–" aria-label="${l}">
+      <span class="it-lab">${l}</span>
+    </label>`).join('')}</div>
+    <div class="it-hint">Kurz tippen: Uhrzeit eingeben · Lange drücken: jetzt</div>
     <div class="it-sum" id="it-sum"></div>`;
-  box.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
-    const k = b.dataset.step;
-    if (!incTimes[k]) { incTimes[k] = nowHM(); incTimeSel = null; }      // leer → sofort „jetzt“
-    else incTimeSel = incTimeSel === k ? null : k;                          // gesetzt → Feinjustierung auf/zu
-    renderIncTimes();
-  }));
-  box.querySelectorAll('[data-it]').forEach((b) => b.addEventListener('click', () => {
-    const k = incTimeSel; if (!k) return;
-    const act = b.dataset.it;
-    if (act === 'done') { incTimeSel = null; renderIncTimes(); return; }
-    if (act === 'del') { delete incTimes[k]; incTimeSel = null; renderIncTimes(); return; }
-    let m = hmToMin(incTimes[k] || nowHM());
-    if (act === 'now') m = hmToMin(nowHM());
-    else if (act === 'h+') m += 60; else if (act === 'h-') m -= 60;
-    else if (act === 'm+') m += 1; else if (act === 'm-') m -= 1;
-    else m += Number(act);
-    m = ((m % 1440) + 1440) % 1440;
-    incTimes[k] = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
-    renderIncTimes();
-  }));
+  box.querySelectorAll('.it-tile').forEach((tile) => {
+    const k = tile.dataset.step;
+    const inp = tile.querySelector('.it-num');
+    let timer = 0, long = false;
+    const set = (v) => { if (v) incTimes[k] = v; else delete incTimes[k]; tile.classList.toggle('is-set', !!v); inp.value = v || ''; updateIncTimeSummary(); updateNextTimeBtn(); };
+    // lange drücken → jetzt
+    tile.addEventListener('touchstart', () => {
+      long = false; clearTimeout(timer);
+      timer = setTimeout(() => { long = true; set(nowHM()); tile.classList.add('is-flash'); setTimeout(() => tile.classList.remove('is-flash'), 400); if (navigator.vibrate) navigator.vibrate(15); }, 450);
+    }, { passive: true });
+    tile.addEventListener('touchmove', () => clearTimeout(timer), { passive: true });
+    tile.addEventListener('touchend', (e) => { clearTimeout(timer); if (long) { e.preventDefault(); inp.blur(); } }, { passive: false });
+    tile.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Maus (Desktop): lange klicken
+    tile.addEventListener('mousedown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; set(nowHM()); }, 450); });
+    tile.addEventListener('mouseup', (e) => { clearTimeout(timer); if (long) { e.preventDefault(); setTimeout(() => inp.blur(), 0); } });
+    // Eingabe: nur Ziffern, Doppelpunkt automatisch
+    inp.addEventListener('focus', () => { inp.dataset.prev = inp.value; inp.value = inp.value.replace(':', ''); tile.classList.add('is-edit'); setTimeout(() => inp.setSelectionRange(0, inp.value.length), 0); });
+    inp.addEventListener('input', () => {
+      const d = inp.value.replace(/\D/g, '').slice(0, 4);
+      inp.value = d;
+      if (d.length === 4) {
+        const v = digitsToHM(d);
+        if (v) { set(v); const i = INC_TIME_STEPS.findIndex(([x]) => x === k); const nx = box.querySelectorAll('.it-num')[i + 1]; if (nx && !incTimes[INC_TIME_STEPS[i + 1][0]]) nx.focus(); else inp.blur(); }
+      }
+    });
+    inp.addEventListener('blur', () => {
+      tile.classList.remove('is-edit');
+      const d = inp.value.replace(/\D/g, '');
+      if (!d) { set(''); return; }
+      const v = digitsToHM(d);
+      if (v) set(v); else { toast('Bitte als HHMM eingeben, z. B. 0938.', 'info', 2200); set(inp.dataset.prev && digitsToHM(inp.dataset.prev) ? digitsToHM(inp.dataset.prev) : incTimes[k] || ''); }
+    });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  });
   updateIncTimeSummary();
+  updateNextTimeBtn();
+}
+function updateNextTimeBtn() {
   const next = INC_TIME_STEPS.find(([k]) => !incTimes[k]);
   const nb = document.getElementById('btn-inc-next-time');
-  if (nb) {
-    nb.hidden = !next;
-    if (next) { nb.textContent = `⏱ ${next[1]} jetzt`; nb.onclick = () => { incTimes[next[0]] = nowHM(); incTimeSel = null; renderIncTimes(); }; }
-  }
+  if (!nb) return;
+  nb.hidden = !next;
+  if (next) { nb.textContent = `⏱ ${next[1]} jetzt`; nb.onclick = () => { incTimes[next[0]] = nowHM(); renderIncTimes(); }; }
 }
 function updateIncTimeSummary() {
   const el = document.getElementById('it-sum');
@@ -2441,6 +2465,19 @@ function renderStats() {
     filteredSvcs.forEach((s) => (s.colleagues || []).forEach((c) => { map[c] = (map[c] || 0) + 1; }));
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   })();
+  // Einsatzzeiten, Start und Ziel
+  const timeStats = (() => {
+    const keys = ['Ausrücken', 'Anfahrt', 'Vor Ort', 'Transport', 'Gesamt'];
+    const acc = Object.fromEntries(keys.map((k) => [k, []]));
+    allInc.forEach((i) => incTimeSummary(i.times).forEach(([l, m]) => acc[l] && acc[l].push(m)));
+    return keys.map((k) => { const a = acc[k].slice().sort((x, y) => x - y); return { k, n: a.length, avg: a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null, med: a.length ? a[Math.floor(a.length / 2)] : null, min: a[0] ?? null, max: a[a.length - 1] ?? null }; });
+  })();
+  const timesFilled = allInc.filter((i) => Object.keys(i.times || {}).length).length;
+  const rankText = (vals) => { const m = new Map(); vals.forEach((v) => { if (!v) return; const k = v.trim().toLowerCase(); const e = m.get(k) || [v.trim(), 0]; e[1]++; m.set(k, e); }); return [...m.values()].sort((a, b) => b[1] - a[1]); };
+  const allTo = rankText(allInc.map((i) => i.to));
+  const allFrom = rankText(allInc.map((i) => i.from));
+  const routeFilled = allInc.filter((i) => i.from || i.to).length;
+  const timeStatsHtml = (cls) => `<div class="${cls}">${timeStats.filter((t) => t.n).map((t) => `<div class="tt-tile"><small>${t.k}</small><b>${fmtMin(t.avg)}</b><span>Ø · ${t.n}× · ${fmtMin(t.min)}–${fmtMin(t.max)}</span></div>`).join('') || '<p class="sx-empty">Noch keine Zeiten erfasst</p>'}</div>`;
   const allPzc = (() => {
     const map = {};
     allInc.forEach((i) => { const c = i.pzc && i.pzc.diag ? i.pzc.diag : null; if (c) map[c] = (map[c] || 0) + 1; });
@@ -2547,6 +2584,9 @@ function renderStats() {
       ${statsCard('Top Kolleg:innen', allColleagues, true)}
       ${statsCard('Top Fahrzeug', allVehicle, true)}
       ${statsCard('Top Dienststelle', allLocation, true)}
+      ${allTo.length ? statsCard('Top Ziele', allTo, false, `${routeFilled}/${totalInc} Einsätze`) : ''}
+      ${allFrom.length ? statsCard('Top Startorte', allFrom, false) : ''}
+      ${timesFilled ? `<div class="stats-rank-section"><div class="stats-section-head"><h4>Einsatzzeiten</h4><span class="stats-coverage">${timesFilled}/${totalInc} Einsätze</span></div>${timeStatsHtml('tt-grid is-classic')}</div>` : ''}
       <div class="stats-group-title">Kennzahlen &amp; Patient</div>
       ${statsCard('Einsatzart', allEinsatzart, true, `${eaFilled}/${totalInc} Einsätze`)}
       ${statsCard('Statistikkennzahl', allStatKz, true, `${kzFilled}/${totalInc} Einsätze`)}
@@ -2649,7 +2689,10 @@ function renderStats() {
     const grid = Array.from({ length: 7 }, () => Array(8).fill(0));
     let n = 0;
     incX.forEach(({ inc, svc }) => {
-      const c = inc.createdAt ? new Date(inc.createdAt) : null, a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
+      const a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
+      let c = inc.createdAt ? new Date(inc.createdAt) : null;
+      const al = (inc.times || {}).erhalten || (inc.times || {}).anfahrt;
+      if (al && a) { c = new Date(a); c.setHours(+al.slice(0, 2), +al.slice(3), 0, 0); if (c < a) c = new Date(c.getTime() + 864e5); }
       if (!c || !a || !e || c < a || c > new Date(e.getTime() + 2 * 3600e3)) return;
       grid[(c.getDay() + 6) % 7][Math.floor(c.getHours() / 3)]++; n++;
     });
@@ -2665,7 +2708,7 @@ function renderStats() {
       <p class="sx-note">Am meisten los: <strong>${WEEKDAY_LONG[(best + 1) % 7]}</strong>${peak ? ` · Spitze ${days[peak.d]} ${String(peak.h * 3).padStart(2, '0')}–${String(peak.h * 3 + 3).padStart(2, '0')} Uhr` : ''}</p>
       ${n >= 5 ? `<div class="sx-tgrid"><span></span>${['0', '3', '6', '9', '12', '15', '18', '21'].map((h) => `<span class="sx-tgrid-h">${h}</span>`).join('')}
         ${grid.map((row, d) => `<span class="sx-tgrid-d">${days[d]}</span>${row.map((v) => `<span class="sx-tgrid-c" style="--a:${v ? 0.18 + 0.82 * (v / gmax) : 0}" title="${v} Einsätze">${v || ''}</span>`).join('')}`).join('')}</div>
-        <p class="sx-note sx-small">nach Uhrzeit der Erfassung, ${n} Einsätze</p>` : ''}`}
+        <p class="sx-note sx-small">nach Alarmzeit bzw. Uhrzeit der Erfassung, ${n} Einsätze</p>` : ''}`}
     </section>`;
   }
 
@@ -2713,6 +2756,9 @@ function renderStats() {
       ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
       ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead }) : ''; })()}
       ${timeCard()}
+      ${timesFilled ? `<section class="sx-card sx-wide" style="--mc:#30d158">${head('⏱', 'Einsatzzeiten', `${timesFilled}/${totalInc} Einsätze`)}${timeStatsHtml('tt-grid')}<p class="sx-note sx-small">Durchschnitt, Anzahl und Spanne – aus den erfassten Status-Zeiten</p></section>` : ''}
+      ${allTo.length ? podiumCard({ key: 'Top Ziele', title: 'Häufigste Ziele', icon: '🏥', color: '#ff375f', items: allTo, meta: `${routeFilled}/${totalInc} Einsätze` }) : ''}
+      ${allFrom.length ? podiumCard({ key: 'Top Startorte', title: 'Häufigste Startorte', icon: '📍', color: '#5e5ce6', items: allFrom }) : ''}
       <div class="stats-group-title sx-group">Kennzahlen &amp; Patient</div>
       ${shareCard({ key: 'Einsatzart', title: 'Einsatzart', icon: '🧭', color: '#0a84ff', items: allEinsatzart, meta: `${eaFilled}/${totalInc} Einsätze` })}
       ${shareCard({ key: 'Statistikkennzahl', title: 'Statistikkennzahl', icon: '📊', color: '#30d158', items: allStatKz, meta: `${kzFilled}/${totalInc} Einsätze` })}
@@ -2752,6 +2798,8 @@ function renderStats() {
     'Top Kolleg:innen': allColleagues,
     'Top Fahrzeug': allVehicle,
     'Top Dienststelle': allLocation,
+    'Top Ziele': allTo,
+    'Top Startorte': allFrom,
     'Companions': countTop(allInc.flatMap((i) => i.extraVehicles || []), 999),
   };
   const popupVeh = (name) => { const src = vehicleIconSrc(name); return src ? `<img class="lp-veh" src="${escHtml(src)}" alt="">` : ''; };
@@ -2764,6 +2812,8 @@ function renderStats() {
     'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv, colleague: true },
     'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh },
     'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste' },
+    'Top Ziele': { icon: '🏥', color: '#ff375f', unit: 'Einsätze' },
+    'Top Startorte': { icon: '📍', color: '#5e5ce6', unit: 'Einsätze' },
     'Companions': { icon: '🚨', color: '#64d2ff', unit: 'Einsätze', lead: popupVeh },
   };
   container.querySelectorAll('.btn-show-all').forEach((btn) => {
@@ -3691,7 +3741,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 84;
+const APP_VERSION = 85;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

@@ -3623,3 +3623,30 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .it-v { font-size: 16px; }
 @media (max-width: 360px) { .it-l { font-size: 9px; } .it-v { font-size: 14px; } }
 .code-grid, .einsatzmittel-row, .route-grid, .link-add, .inc-sec { max-width: 100%; min-width: 0; }
+
+/* Zeiten v3: Status-Kacheln im Stil des Fahrzeug-Tablets */
+.it-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.it-tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-width: 0; height: 74px; padding: 14px 3px 6px;
+  border-radius: 12px; background: #4a4a4e; color: #fff; cursor: pointer; overflow: hidden;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: background .15s, transform .1s; font-size: inherit; font-weight: 400; }
+:root[data-theme="light"] .it-tile:not(.is-set) { background: #8e8e93; }
+@media (prefers-color-scheme: light) { :root[data-theme="system"] .it-tile:not(.is-set) { background: #8e8e93; } }
+.it-tile.is-set { background: #2e7d32 !important; }
+.it-tile.is-edit { background: #1b5e20 !important; box-shadow: 0 0 0 2px #fff inset; }
+.it-tile.is-flash { animation: it-flash .4s ease; }
+@keyframes it-flash { 30% { transform: scale(1.06); } }
+.it-tile:active { transform: scale(.97); }
+.it-ic { position: absolute; top: 4px; left: 6px; font-size: 13px; line-height: 1; opacity: .95; }
+.it-num { width: 100%; min-width: 0; padding: 0; margin: 0; border: none !important; background: transparent !important; box-shadow: none !important; outline: none !important;
+  color: #fff; text-align: center; font: inherit; font-size: 24px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; caret-color: #fff; }
+.it-num::placeholder { color: rgba(255, 255, 255, .45); font-weight: 600; }
+.it-tile:not(.is-set) .it-num:not(:focus) { font-size: 20px; }
+.it-lab { max-width: 100%; font-size: 10.5px; font-weight: 600; line-height: 1.1; opacity: .92; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-hint { margin-top: 6px; font-size: 11.5px; color: var(--text3); text-align: center; }
+@media (max-width: 360px) { .it-num { font-size: 20px; } .it-lab { font-size: 9px; } .it-tile { height: 66px; } }
+.tt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.tt-grid.is-classic { padding: 4px 12px 12px; }
+.tt-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 12px; background: var(--fill); min-width: 0; }
+.tt-tile small { font-size: 12px; font-weight: 600; color: var(--text2); }
+.tt-tile b { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.tt-tile span { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
