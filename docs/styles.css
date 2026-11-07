@@ -1519,7 +1519,7 @@ button, a, [role=button] { touch-action: manipulation; }
   /* ── Inhaltsbereich: scrollt unter beide Leisten ── */
   #layout { padding: 0; }
   .tab-panel { padding: 0 !important; }
-#tab-home, #tab-statistik, #settings-root, #settings-sub, #tab-dienstplan, #tab-favoriten,
+#tab-home, #tab-statistik, #settings-root, #settings-sub, #pb-root, #pb-sub, #tab-dienstplan, #tab-favoriten,
   #service-list-panel, #service-detail-panel {
     overflow-y: auto; overflow-x: hidden;
     -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain;
@@ -1945,6 +1945,13 @@ button:disabled { opacity: .45; cursor: default; }
 }
 .settings-pane > *:last-child { margin-bottom: 24px; }
 #settings-sub { display: none; }
+#tab-telefon { position: relative; overflow: hidden !important; padding: 0 !important; }
+#pb-sub { display: none; }
+#tab-telefon.sub-open #pb-root { display: none; }
+#tab-telefon.sub-open #pb-sub { display: block; }
+#pb-body, #pb-sub-body { max-width: 720px; }
+#pb-sub-body { display: flex; flex-direction: column; gap: 12px; }
+#pb-sub-body > * { flex-shrink: 0; }
 #tab-einstellungen.sub-open #settings-root { display: none; }
 #tab-einstellungen.sub-open #settings-sub { display: block; }
 #settings-container, #settings-sub { max-width: 720px; }
@@ -2033,6 +2040,8 @@ button.set-row:active { background: var(--cell-pressed); opacity: 1; }
 @media (hover: none) { button.set-row:hover { background: var(--card); } }
 @media (max-width: 700px) {
   #tab-einstellungen.sub-open #settings-sub, #settings-root { display: block; }
+  #tab-telefon.sub-open #pb-sub, #pb-root { display: block; }
+  #tab-telefon.sub-open #pb-root { display: none; }
   #tab-einstellungen.sub-open #settings-root { display: none; }
   .set-page-title { display: none; }           /* Titel steht in der Navigationsleiste */
   #settings-sub > .set-group-header:first-of-type { margin-top: 8px; }
@@ -3671,7 +3680,7 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .pb-box { height: min(88vh, 860px); display: flex; flex-direction: column; }
 .pb-box .dialog-body { overflow-y: auto; -webkit-overflow-scrolling: touch; gap: 0; padding-top: 6px; }
 .pb-box .dialog-body > *, #contact-body > * { flex-shrink: 0; }
-#dialog-phonebook, #dialog-contact, #dialog-colleague { --pb-box: var(--fill); }
+#dialog-contact, #dialog-colleague { --pb-box: var(--fill); }
 .pb-add { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: auto; margin-right: 8px;
   border: none; background: var(--fill); color: var(--accent); font-size: 21px; font-weight: 600; line-height: 1; padding: 0 0 2px; }
 @media (max-width: 700px) { .pb-add { position: absolute; left: 14px; top: 18px; margin: 0; } }
@@ -3742,3 +3751,23 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .cp-call-t small { font-size: 12px; color: var(--text2); }
 .cp-call-t b { font-size: 16px; font-variant-numeric: tabular-nums; }
 .set-danger { color: var(--danger); }
+
+#tab-telefon, #home-container { --pb-box: var(--card); }
+.pb-search { padding: 4px 0 6px; background: none; }
+.pb-av.is-sm { width: 32px; height: 32px; font-size: 12px; }
+.hm-crew-list { display: flex; flex-direction: column; gap: 6px; margin: 2px 14px 14px; border-top: 0.5px solid var(--separator); }
+.hm-crew-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 0; }
+.hm-crew-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; font-weight: 600; text-decoration: none; }
+.hm-crew-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-crew-row .pb-btn { width: 34px; height: 34px; }
+.hm-speed .pb-tile { width: 104px; }
+#inbox-quick:empty { display: none; }
+.iq-card { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; background: var(--fill); margin-bottom: 12px; }
+.iq-hd { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.iq-row { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between; gap: 12px; padding: 6px 0; margin: 0; cursor: pointer; text-align: left; }
+.iq-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.iq-row b { color: var(--text); }
+.iq-row b { font-size: 15px; font-weight: 600; }
+.iq-row small { font-size: 12px; color: var(--text2); }
+.iq-now { margin-top: 6px; }
+#dp-inbox-body-wrap { display: block; }

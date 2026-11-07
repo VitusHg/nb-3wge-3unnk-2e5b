@@ -160,6 +160,7 @@ const BRIEFCASE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 2
 // ── State ──────────────────────────────────────────────────────────────────
 let state = loadState();
 let activeTab = 'home';
+let pbPage = false, pbSubOpen = false, pbSubTitle = 'Kontakt'; // Telefonbuch: Kontakt als Unterseite
 let selectedServiceId = null;
 let statsFromDate = null;
 let statsToDate = null;
@@ -882,6 +883,15 @@ function initTabs() {
           }
           return;
         }
+        if (tab === 'telefon') {
+          // wie RKTel: zurück zur Liste → nach oben → ins Suchfeld
+          const si = document.getElementById('pb-search');
+          if (target) { popAnimated(target); return; }
+          if (si && si.value) { si.value = ''; pbSearch = ''; renderPhonebook(); }
+          scrollActiveToTop();
+          if (si) si.focus({ preventScroll: true });
+          return;
+        }
         if (target) popAnimated(target);
         else scrollActiveToTop();
         return;
@@ -918,6 +928,7 @@ function renderTab(tab, prevTab) {
     if (tab === 'einstellungen') renderSettings();
     if (tab === 'dienste') { renderServiceList(); renderServiceDetail(); }
     if (tab === 'favoriten') renderFavorites();
+    if (tab === 'telefon') { renderPhonebook(); if (pbSubOpen) renderContact(); }
     if (tab === 'dienstplan') {
       const panel = document.getElementById('tab-dienstplan');
       if (panel && prevTab !== 'dienstplan') panel.scrollTop = 0;
@@ -3456,8 +3467,8 @@ function homeActiveCardHtml(svc, now) {
         <span class="hm-progress-time">${end ? formatTimeHM(end) : '?'}</span>
       </div>
       ${start && end && end > start ? `<div class="hm-progress-meta"><span class="hm-progress-pct">${Math.floor(pct)} %</span><span class="hm-progress-left">${homeRemainingText(end - now)}</span></div>` : ''}
-      ${crew.length ? `<div class="hm-crew">👥 ${crew.map((c) => `<span class="crew-link" role="button" data-colleague="${escHtml(c)}">${escHtml(c)}</span>`).join(' · ')}</div>` : ''}
     </button>
+    ${homeCrewHtml(crew)}
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">🔵 ${lights}</span>` : ''}</span>
       <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
@@ -3490,12 +3501,37 @@ function homeNextCardHtml(item, now) {
         </div>
         ${item.svc ? '<span class="hm-chev" aria-hidden="true">›</span>' : ''}
       </div>
-      ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}`;
+`;
   if (item.svc) {
-    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
+    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button>${homeCrewHtml(crew)}</section>`;
   }
-  return `<section class="hm-card hm-hero"><div class="hm-hero-open is-static">${inner}</div>
+  return `<section class="hm-card hm-hero"><div class="hm-hero-open is-static">${inner}</div>${homeCrewHtml(crew)}
     <button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button>
+  </section>`;
+}
+
+/** Besatzung mit Anruf/WhatsApp (sofern im Telefonbuch); eigener Name wird ausgelassen. */
+function homeCrewHtml(names) {
+  const me = toDisplayName(state.profile.displayName);
+  const meM = me && window.RKDienstplan ? RKDienstplan.createContactMatcher([{ name: me, phones: ['-'] }]) : null;
+  const list = (names || []).filter(Boolean).filter((n) => !(meM && meM(n).length));
+  if (!list.length) return '';
+  return `<div class="hm-crew-list">${list.map((n) => {
+    const c = contactsForName(n)[0];
+    const ph = c && (c.phones || [])[0];
+    return `<div class="hm-crew-row">
+      <span class="crew-link hm-crew-name" role="button" data-colleague="${escHtml(n)}">${pbAvatar(n, ' is-sm')}<span>${escHtml(n)}</span></span>
+      ${ph ? pbCallBtn(ph, n) + pbWaBtn(ph, n) : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+/** Favoriten aus dem Telefonbuch als Schnellwahl. */
+function homeSpeedDialHtml() {
+  const fav = (state.contacts || []).filter((c) => c.pinned).sort(pbByName);
+  if (!fav.length) return '';
+  return `<section class="hm-section">
+    <div class="hm-section-hd"><span>Schnellwahl</span><button type="button" class="hm-link" data-goto="telefon">Telefonbuch ›</button></div>
+    <div class="pb-tiles hm-speed">${fav.map((c) => pbTileHtml(c)).join('')}</div>
   </section>`;
 }
 
@@ -3601,6 +3637,7 @@ function buildHomeHtml({ now, currentSvc, lastEnded, upcoming, icsLoading }) {
     <div class="hm-col">
       ${hero}
       ${homeQuickActionsHtml(currentSvc, lastEnded)}
+      ${homeSpeedDialHtml()}
       ${homeUpcomingHtml(rest, now, icsLoading && !upcoming.length ? true : false)}
     </div>
     <div class="hm-col">
@@ -3812,7 +3849,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 92;
+const APP_VERSION = 93;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5998,19 +6035,15 @@ function pickPhoneListPdf() {
   inp.click();
 }
 function refreshPhonebookViews() {
-  if (document.getElementById('dialog-phonebook')?.style.display === 'flex') renderPhonebook();
-  if (activeTab === 'einstellungen') { renderSettings(); }
+  if (activeTab === 'telefon') renderPhonebook();
+  if (activeTab === 'einstellungen') renderSettings();
+  if (activeTab === 'home' && !homeIsBusy()) renderHome().catch(() => {});
 }
 
 // — Telefonbuch-Ansicht —
 function openPhonebook() {
-  pbSearch = '';
-  const s = document.getElementById('pb-search');
-  if (s) s.value = '';
-  renderPhonebook();
-  openDialog('dialog-phonebook');
-  const body = document.getElementById('pb-body');
-  if (body) body.scrollTop = 0;
+  if (pbSubOpen) closePbSub();
+  switchTab('telefon');
 }
 function pbMatches(c, q) {
   if (c.name.toLowerCase().includes(q)) return true;
@@ -6106,26 +6139,59 @@ document.addEventListener('visibilitychange', () => {
   if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input')); }
 });
 document.addEventListener('click', (e) => {
-  const row = e.target.closest && e.target.closest('#pb-body [data-contact-id], #colleague-body [data-contact-id]');
+  const row = e.target.closest && e.target.closest('#pb-body [data-contact-id], #colleague-body [data-contact-id], #home-container [data-contact-id]');
   if (!row || e.target.closest('a')) return;
   openContact(row.dataset.contactId);
 });
 
 document.addEventListener('click', (e) => {
   if (!e.target.closest) return;
-  if (e.target.closest('#btn-phonebook')) openPhonebook();
-  else if (e.target.closest('#btn-pb-add')) openContact(null, true);
+  if (e.target.closest('#btn-pb-add')) openContact(null, true);
+  else if (e.target.closest('#btn-home-inbox')) { initDpButtons(); openDpInbox(); }
 });
 document.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'pb-search') { pbSearch = e.target.value; renderPhonebook(); }
 });
 
 // — Kontaktkarte —
+// Im Telefonbuch-Tab öffnet der Kontakt als Unterseite (Wischen zurück),
+// sonst (Start, Profil) als Blatt.
 function openContact(id, edit = false) {
   pbContactId = id;
   pbEditMode = edit || !id;
-  renderContact();
-  openDialog('dialog-contact');
+  pbPage = activeTab === 'telefon';
+  if (pbPage) {
+    pbSubOpen = true;
+    renderContact();
+    document.getElementById('tab-telefon').classList.add('sub-open');
+    document.getElementById('pb-sub').scrollTop = 0;
+    updateNavBar();
+    if (isMobile()) pushAnimated(getBackTarget());
+  } else {
+    if (pbSubOpen) closePbSub();
+    renderContact();
+    openDialog('dialog-contact');
+  }
+}
+function closePbSub() {
+  pbSubOpen = false;
+  pbEditMode = false;
+  document.getElementById('tab-telefon')?.classList.remove('sub-open');
+  if (activeTab === 'telefon') renderPhonebook();
+  updateNavBar();
+}
+function pbCloseContact() {
+  if (!pbPage) { closeDialog('dialog-contact'); return; }
+  const t = activeTab === 'telefon' ? getBackTarget() : null;
+  if (t && isMobile()) popAnimated(t); else closePbSub();
+}
+function pbSetTitle(t) {
+  if (pbPage) {
+    pbSubTitle = t;
+    const h = document.getElementById('pb-sub-title');
+    if (h) h.textContent = t;
+    updateNavBar();
+  } else document.getElementById('contact-title').textContent = t;
 }
 function contactServiceNames(c) {
   // Namen aus Tagebuch-Diensten, die zu diesem Kontakt passen
@@ -6135,13 +6201,12 @@ function contactServiceNames(c) {
   return [...names.entries()].sort((a, b) => b[1] - a[1]);
 }
 function renderContact() {
-  const box = document.getElementById('contact-body');
+  const box = document.getElementById(pbPage ? 'pb-sub-body' : 'contact-body');
   if (!box) return;
   const c = pbContactId ? (state.contacts || []).find((x) => x.id === pbContactId) : null;
-  if (pbContactId && !c) { closeDialog('dialog-contact'); return; }
-  const title = document.getElementById('contact-title');
+  if (pbContactId && !c) { pbCloseContact(); return; }
   if (pbEditMode) {
-    title.textContent = c ? 'Kontakt bearbeiten' : 'Neuer Kontakt';
+    pbSetTitle(c ? 'Kontakt bearbeiten' : 'Neuer Kontakt');
     const phones = c && c.phones.length ? c.phones : [''];
     box.innerHTML = `<div class="fg-field"><label for="ct-name">Name</label><input type="text" id="ct-name" value="${escHtml(c ? c.name : '')}" placeholder="Nachname Vorname" autocomplete="off"></div>
       <div class="fg-field"><label>Telefonnummern</label><div id="ct-phones">${phones.map((p) => `<div class="ct-phone"><input type="tel" class="ct-phone-in" value="${escHtml(p)}" placeholder="+43 …" autocomplete="off"><button type="button" class="ct-phone-x" aria-label="Nummer entfernen">✕</button></div>`).join('')}</div>
@@ -6155,7 +6220,7 @@ function renderContact() {
       phonesBox.insertAdjacentHTML('beforeend', '<div class="ct-phone"><input type="tel" class="ct-phone-in" placeholder="+43 …" autocomplete="off"><button type="button" class="ct-phone-x" aria-label="Nummer entfernen">✕</button></div>');
       bindX(); phonesBox.lastElementChild.querySelector('input').focus();
     };
-    box.querySelector('#ct-cancel').onclick = () => { if (c) { pbEditMode = false; renderContact(); } else closeDialog('dialog-contact'); };
+    box.querySelector('#ct-cancel').onclick = () => { if (c) { pbEditMode = false; renderContact(); } else pbCloseContact(); };
     box.querySelector('#ct-save').onclick = () => {
       const name = box.querySelector('#ct-name').value.trim().replace(/\s+/g, ' ');
       if (!name) { toast('Bitte einen Namen eingeben.', 'info'); return; }
@@ -6171,7 +6236,7 @@ function renderContact() {
     if (!c) setTimeout(() => box.querySelector('#ct-name')?.focus(), 300);
     return;
   }
-  title.textContent = 'Kontakt';
+  pbSetTitle('Kontakt');
   const ph = c.phones || [];
   const main = ph[0];
   const shared = contactServiceNames(c);
@@ -6198,10 +6263,11 @@ function renderContact() {
   box.querySelector('#ct-del').onclick = () => {
     if (!confirm(`„${c.name}“ aus dem Telefonbuch löschen?`)) return;
     state.contacts = state.contacts.filter((x) => x.id !== c.id);
-    saveState(); closeDialog('dialog-contact'); refreshPhonebookViews();
+    saveState(); pbCloseContact(); refreshPhonebookViews();
   };
   box.querySelector('#ct-profile')?.addEventListener('click', () => {
     const name = shared[0][0];
+    if (pbPage) { openColleagueProfile(name); return; }
     closeDialog('dialog-contact');
     setTimeout(() => openColleagueProfile(name), 200);
   });
@@ -8284,14 +8350,23 @@ async function setQuickPushSilent(silent) {
   if (endpoint && dpConfigured()) workerApi('/push/quick', { method: 'POST', body: { endpoint, sound: !silent } }).catch(() => {});
 }
 function updateQuickBell() {
-  const b = document.getElementById('btn-quick-bell');
-  if (!b) return;
-  b.classList.toggle('is-off', !quickPushEnabled());
-  // nur während eines laufenden Dienstes zeigen
-  const wrap = b.closest('.dp-head-actions');
-  const show = !!runningService();
-  b.hidden = !show;
-  if (wrap) wrap.hidden = !show;
+  // Glocke ersetzt durch das Postfach (Schnell-Nachricht-Einstellungen stehen dort)
+  if (document.getElementById('dialog-dp-inbox')?.style.display === 'flex') renderInboxQuick();
+}
+/** Postfach oben: Schnell-Nachricht „Neuer Einsatz?“ steuern. */
+function renderInboxQuick() {
+  const box = document.getElementById('inbox-quick');
+  if (!box) return;
+  const svc = runningService();
+  box.innerHTML = `<div class="iq-card">
+    <div class="iq-hd">🔔 Schnell-Nachricht „Neuer Einsatz?“</div>
+    <label class="iq-row"><span><b>Im Dienst bereitlegen</b><small>Mitteilung im Sperrbildschirm öffnet „Neuer Einsatz“</small></span><input type="checkbox" class="set-switch" id="iq-on" ${quickPushEnabled() ? 'checked' : ''}></label>
+    <label class="iq-row"><span><b>Lautlos</b><small>ohne Ton und Vibration</small></span><input type="checkbox" class="set-switch" id="iq-silent" ${quickPushSilent() ? 'checked' : ''}></label>
+    <button type="button" class="btn-secondary iq-now" id="iq-now" ${svc ? '' : 'disabled'}>${svc ? `Jetzt bereitlegen · ${escHtml(svc.vehicle || 'Dienst')}` : 'Jetzt bereitlegen – gerade kein Dienst'}</button>
+  </div>`;
+  box.querySelector('#iq-on').onchange = (e) => { setQuickPushEnabled(e.target.checked); toast(e.target.checked ? 'Schnell-Nachrichten an.' : 'Schnell-Nachrichten aus.', 'success', 1500); };
+  box.querySelector('#iq-silent').onchange = (e) => { setQuickPushSilent(e.target.checked); toast(e.target.checked ? 'Schnell-Nachrichten lautlos.' : 'Schnell-Nachrichten mit Ton.', 'success', 1500); };
+  box.querySelector('#iq-now').onclick = () => quickPushManual();
 }
 /** Glocke neben „Start“: Schnell-Nachrichten steuern und für den laufenden Dienst auslösen. */
 function openQuickBellSheet() {
@@ -8556,13 +8631,14 @@ function markDpRead(keys) {
 }
 
 function updateDpInboxBadge() {
-  const badge = document.getElementById('dp-inbox-badge');
-  if (!badge) return;
   const n = dpConfigured() ? dpUnreadCount() : 0;
-  badge.textContent = n > 99 ? '99+' : String(n);
-  badge.hidden = !n;
-  const btn = document.getElementById('btn-dp-inbox');
-  if (btn) btn.setAttribute('aria-label', n ? `Änderungen (${n} ungelesen)` : 'Änderungen');
+  ['dp-inbox-badge', 'home-inbox-badge'].forEach((id) => {
+    const badge = document.getElementById(id);
+    if (!badge) return;
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.hidden = !n;
+  });
+  ['btn-dp-inbox', 'btn-home-inbox'].forEach((id) => { const btn = document.getElementById(id); if (btn) btn.setAttribute('aria-label', n ? `Postfach (${n} ungelesen)` : 'Postfach'); });
   syncAppBadge(dpConfigured() ? groupDpChanges(recentDpChanges()).filter((g) => g.unread).map((g) => g.key) : []);
 }
 
@@ -8614,7 +8690,7 @@ function renderDpInbox() {
   body.innerHTML = items.length
     ? `<p class="inbox-hint">${unread ? `${unread} ungelesen · ` : ''}Änderungen der letzten ${DP_CHANGES_DAYS} Tage. Antippen zeigt den Verlauf.</p>
        <div class="dp-chg inbox-list">${dpInboxRowsHtml(items)}</div>`
-    : '<div class="list-empty"><div class="list-empty-icon">📭</div><strong>Keine Änderungen</strong><span>In den letzten 7 Tagen hat sich im Dienstplan nichts geändert.</span></div>';
+    : `<div class="list-empty"><div class="list-empty-icon">📭</div><strong>Keine Änderungen</strong><span>${dpConfigured() ? 'In den letzten 7 Tagen hat sich im Dienstplan nichts geändert.' : 'Der Dienstplan ist nicht verbunden – Änderungen erscheinen hier, sobald er in den Einstellungen verbunden ist.'}</span></div>`;
   body.querySelectorAll('[data-inbox-key]').forEach((row) => row.addEventListener('click', () => {
     const key = row.dataset.inboxKey;
     markDpRead([key]);
@@ -8625,6 +8701,8 @@ function renderDpInbox() {
 }
 
 function openDpInbox() {
+  updateDpInboxBadge();
+  renderInboxQuick();
   renderDpInbox();
   openDialog('dialog-dp-inbox');
 }
@@ -8819,7 +8897,7 @@ function runShortcut(hash) {
   if (hash === '#neu-seg') { switchTab('home'); setTimeout(() => openIncidentDialog(null, null, { newSeg: true }), 250); return true; }
   if (hash === '#tagebuch') { switchTab('dienste'); return true; }
   if (hash === '#statistik') { switchTab('statistik'); return true; }
-  if (hash === '#telefonbuch') { switchTab('home'); setTimeout(openPhonebook, 250); return true; }
+  if (hash === '#telefonbuch') { openPhonebook(); return true; }
   if (hash === '#rueckblick') { switchTab('statistik'); setTimeout(() => openStory('year', now.getFullYear()), 300); return true; }
   return false;
 }
@@ -8870,7 +8948,7 @@ if ('serviceWorker' in navigator) {
 const TAB_ROOT = { favoriten: 'dienste' };
 const TAB_TITLES = {
   home: 'Start', dienste: 'Tagebuch', statistik: 'Statistik',
-  dienstplan: 'Dienstplan', favoriten: 'Favoriten', einstellungen: 'Einstellungen',
+  dienstplan: 'Dienstplan', favoriten: 'Favoriten', einstellungen: 'Einstellungen', telefon: 'Telefonbuch',
 };
 let navAnimating = false;
 let serviceListScrollTop = 0;
@@ -8902,6 +8980,12 @@ function getBackTarget() {
     if (!top || !under) return null;
     return { label: TAB_TITLES.einstellungen, top, under, pop: closeSettingsPage };
   }
+  if (activeTab === 'telefon' && pbSubOpen) {
+    const top = document.getElementById('pb-sub');
+    const under = document.getElementById('pb-root');
+    if (!top || !under) return null;
+    return { label: TAB_TITLES.telefon, top, under, pop: closePbSub };
+  }
   if (TAB_ROOT[activeTab]) {
     const parent = TAB_ROOT[activeTab];
     const top = document.getElementById('tab-' + activeTab);
@@ -8923,6 +9007,10 @@ function getActiveScrollers() {
   }
   if (activeTab === 'einstellungen') {
     const el = document.getElementById(settingsSub ? 'settings-sub' : 'settings-root');
+    return el ? [el] : [];
+  }
+  if (activeTab === 'telefon') {
+    const el = document.getElementById(pbSubOpen ? 'pb-sub' : 'pb-root');
     return el ? [el] : [];
   }
   // Statistik scrollt im eigenen Container
@@ -8947,6 +9035,7 @@ function navTitleText() {
     }
   }
   if (activeTab === 'einstellungen' && settingsSub) return SETTINGS_PAGES[settingsSub];
+  if (activeTab === 'telefon' && pbSubOpen) return pbSubTitle;
   return TAB_TITLES[activeTab] || '';
 }
 
@@ -8968,7 +9057,7 @@ function updateNavBar() {
   bar.classList.toggle('scrolled', y > 2);
   // Kleiner Titel erscheint, sobald der große Titel unter der Leiste verschwindet.
   // Detailansichten haben keinen großen Titel → Titel immer sichtbar.
-  bar.classList.toggle('show-title', isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub) || y > 40);
+  bar.classList.toggle('show-title', isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub) || (activeTab === 'telefon' && pbSubOpen) || y > 40);
 }
 
 function scheduleNavBarUpdate() {
