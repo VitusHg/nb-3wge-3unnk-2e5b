@@ -637,7 +637,7 @@ function linkChipHtml(l, removable, i) {
   const fav = faviconUrl(l.url);
   return `<span class="link-chip">${fav ? `<img class="link-fav-img" src="${escHtml(fav)}" alt="" onerror="this.style.visibility='hidden'">` : ''}
     <a class="link-chip-a" ${dpLinkAttrs(l.url)}>${escHtml(l.name || portalName(l.url) || l.url)}</a>
-    ${removable ? `<button type="button" class="link-chip-x" data-link-del="${i}" aria-label="Link entfernen">✕</button>` : ''}</span>`;
+    ${removable ? `<button type="button" class="link-chip-x" data-link-edit="${i}" aria-label="Link bearbeiten">✎</button><button type="button" class="link-chip-x" data-link-del="${i}" aria-label="Link entfernen">✕</button>` : ''}</span>`;
 }
 
 const ICON_CAL = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M14 14.5h3.5v3.5" /></svg>';
@@ -1890,12 +1890,15 @@ function setupIncExtras(inc) {
   };
   name.oninput = () => { name.dataset.touched = name.value ? '1' : ''; };
   name.dataset.touched = '';
+  incLinkEdit = -1;
+  document.getElementById('btn-link-add').textContent = 'Hinzufügen';
   const add = () => {
     const v = url.value.trim();
     if (!/^https?:\/\//i.test(v)) { toast('Bitte einen Link mit https:// einfügen.', 'info'); return; }
-    if (!incLinks.some((l) => l.url === v)) incLinks.push({ url: v, name: name.value.trim() || portalName(v) });
-    url.value = ''; name.value = ''; name.dataset.touched = '';
-    document.getElementById('link-add-row').hidden = true;
+    const entry = { url: v, name: name.value.trim() || portalName(v) };
+    if (incLinkEdit >= 0 && incLinks[incLinkEdit]) incLinks[incLinkEdit] = entry;
+    else if (!incLinks.some((l) => l.url === v)) incLinks.push(entry);
+    resetLinkForm();
     renderIncLinks();
   };
   document.getElementById('btn-link-add').onclick = add;
@@ -1933,6 +1936,7 @@ function renderIncTimes() {
       <span class="it-ic" aria-hidden="true">${ic}</span>
       <input class="it-num" data-k="${k}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="next" value="${incTimes[k] || ''}" placeholder="–:–" aria-label="${l}">
       <span class="it-lab">${l}</span>
+      <button type="button" class="it-clr" aria-label="${l} löschen">✕</button>
     </label>`).join('')}</div>
     <div class="it-hint">Kurz tippen: Uhrzeit eingeben · Lange drücken: jetzt</div>
     <div class="it-sum" id="it-sum"></div>`;
@@ -1949,6 +1953,10 @@ function renderIncTimes() {
     tile.addEventListener('touchmove', () => clearTimeout(timer), { passive: true });
     tile.addEventListener('touchend', (e) => { clearTimeout(timer); if (long) { e.preventDefault(); inp.blur(); } }, { passive: false });
     tile.addEventListener('contextmenu', (e) => e.preventDefault());
+    // ✕ rechts oben: Eintrag löschen (ohne Tastatur/Long-Press auszulösen)
+    const clr = tile.querySelector('.it-clr');
+    ['touchstart', 'mousedown', 'pointerdown'].forEach((ev) => clr.addEventListener(ev, (e) => { e.stopPropagation(); }, { passive: true }));
+    clr.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); clearTimeout(timer); set(''); inp.blur(); });
     // Maus (Desktop): lange klicken
     tile.addEventListener('mousedown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; set(nowHM()); }, 450); });
     tile.addEventListener('mouseup', (e) => { clearTimeout(timer); if (long) { e.preventDefault(); setTimeout(() => inp.blur(), 0); } });
@@ -2012,11 +2020,40 @@ function renderPlaceChips() {
   }));
 }
 
+let incLinkEdit = -1; // Index des gerade bearbeiteten Links (-1 = neuer Link)
+function resetLinkForm() {
+  const url = document.getElementById('inc-link-url'), name = document.getElementById('inc-link-name');
+  url.value = ''; name.value = ''; name.dataset.touched = '';
+  incLinkEdit = -1;
+  document.getElementById('link-add-row').hidden = true;
+  document.getElementById('btn-link-add').textContent = 'Hinzufügen';
+}
 function renderIncLinks() {
   const box = document.getElementById('inc-links');
   if (!box) return;
-  box.innerHTML = incLinks.map((l, i) => linkChipHtml(l, true, i)).join('');
-  box.querySelectorAll('[data-link-del]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); incLinks.splice(+b.dataset.linkDel, 1); renderIncLinks(); }));
+  box.innerHTML = incLinks.map((l, i) => linkChipHtml(l, true, i).replace('class="link-chip"', `class="link-chip${i === incLinkEdit ? ' is-editing' : ''}"`)).join('');
+  box.querySelectorAll('[data-link-del]').forEach((b) => b.addEventListener('click', (e) => {
+    e.preventDefault();
+    const i = +b.dataset.linkDel;
+    incLinks.splice(i, 1);
+    if (incLinkEdit === i) resetLinkForm(); else if (incLinkEdit > i) incLinkEdit--;
+    renderIncLinks();
+  }));
+  box.querySelectorAll('[data-link-edit]').forEach((b) => b.addEventListener('click', (e) => {
+    e.preventDefault();
+    const i = +b.dataset.linkEdit, l = incLinks[i];
+    if (!l) return;
+    if (incLinkEdit === i) { resetLinkForm(); renderIncLinks(); return; } // nochmal tippen = abbrechen
+    const url = document.getElementById('inc-link-url'), name = document.getElementById('inc-link-name');
+    url.value = l.url;
+    url.oninput && url.oninput();
+    name.value = l.name || '';
+    name.dataset.touched = l.name ? '1' : '';
+    incLinkEdit = i;
+    document.getElementById('btn-link-add').textContent = 'Speichern';
+    renderIncLinks();
+    name.focus({ preventScroll: true });
+  }));
 }
 
 /** Nur Ziffern zulassen (iOS ignoriert keypress-Filter zuverlässig nicht). */
@@ -3759,7 +3796,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 88;
+const APP_VERSION = 89;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
