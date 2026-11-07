@@ -258,6 +258,7 @@ function normalizeState(s) {
       inc.times = {};
       Object.entries(INC_TIME_LEGACY).forEach(([o, n]) => { if (t[o] && !t[n]) t[n] = t[o]; });
       INC_TIME_STEPS.forEach(([k]) => { if (/^\d{2}:\d{2}$/.test(String(t[k] || ''))) inc.times[k] = String(t[k]); });
+      inc.incidentNumber = txt(inc.incidentNumber);
       inc.from = txt(inc.from);
       inc.to = txt(inc.to);
       inc.links = objList(inc.links).map((l) => ({ url: txt(l.url), name: txt(l.name) })).filter((l) => /^https?:\/\//i.test(l.url));
@@ -3741,7 +3742,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 86;
+const APP_VERSION = 87;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4822,6 +4823,8 @@ function toCompatExport() {
       tip: svc.isSeg ? 'seg' : '',
       note: svc.note || '',
       crew: svc.colleagues || [],
+      dpUid: svc.dpUid || '',
+      dpAck: svc.dpAck || '',
       missions: (svc.incidents || []).map((inc) => ({
         missionId: inc.id,
         title: inc.alarmCode || '',
@@ -4853,12 +4856,15 @@ function fromCompatibleImport(data) {
     startAt: utcIsoToLocalDtStr(shift.startTime) || shift.startTime || '',
     endAt: utcIsoToLocalDtStr(shift.endTime) || shift.endTime || '',
     // Abteilung fehlt (z. B. Henri-Export, alte Sicherung) oder ist leer → Dienststelle übernehmen
-    abteilung: toDisplayName(shift.abteilung) || toDisplayName(shift.location),
+    // (nicht bei SEG-Diensten: dort ist „location" der Anlass, keine Dienststelle)
+    abteilung: toDisplayName(shift.abteilung) || (shift.tip === 'seg' ? '' : toDisplayName(shift.location)),
     location: toDisplayName(shift.location) || '',
     vehicle: shift.resource || '',
     note: shift.note || '',
     isSeg: shift.tip === 'seg',
     colleagues: Array.isArray(shift.crew) ? shift.crew : [],
+    ...(shift.dpUid ? { dpUid: String(shift.dpUid) } : {}),
+    ...(shift.dpAck ? { dpAck: String(shift.dpAck) } : {}),
     incidents: Array.isArray(shift.missions) ? shift.missions.map((m) => ({
       id: m.missionId || uid(),
       alarmCode: m.title || '',
@@ -4906,6 +4912,7 @@ function openExportDialog() {
       vehicles: document.getElementById('exp-vehicles').checked,
       alarm: document.getElementById('exp-alarm').checked,
       pzc: document.getElementById('exp-pzc').checked,
+      settings: !!(document.getElementById('exp-settings') && document.getElementById('exp-settings').checked),
     };
     const payload = buildExportPayload(sel);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -4920,6 +4927,8 @@ function openExportDialog() {
   };
 }
 
+// App-Einstellungen, die mit „Einstellungen“ gesichert und übernommen werden
+const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
 function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
@@ -4933,6 +4942,10 @@ function buildExportPayload(sel) {
   }
   if (sel.alarm) { payload.alarmCodes = state.alarmCodes || []; payload.alarmBlaulicht = state.alarmBlaulicht || {}; }
   if (sel.pzc) payload.pzcCodes = state.pzcCodes || [];
+  if (sel.settings) {
+    payload.settings = {};
+    SETTINGS_EXPORT_KEYS.forEach((k) => { const v = lsGet(k); if (v !== null && v !== undefined && v !== '') payload.settings[k] = v; });
+  }
   return payload;
 }
 
@@ -4959,7 +4972,8 @@ function openImportDialog(file) {
         // new selective format — show checklist
         const sections = [
           { key: 'services',          id: 'imp-services', icon: '📋', label: 'Dienste & Einsätze',          count: Array.isArray(data.services) ? data.services.length : null },
-          { key: 'profile',           id: 'imp-profile',  icon: '👤', label: 'Profil (Anzeigename)',         count: null },
+          { key: 'profile',           id: 'imp-profile',  icon: '👤', label: 'Profil, Abteilungen & Orte',   count: null },
+          { key: 'settings',          id: 'imp-settings', icon: '⚙️', label: 'App-Einstellungen',            count: null },
           { key: data.dienstplanWorker !== undefined ? 'dienstplanWorker' : 'calendarUrl', id: 'imp-calendar', icon: '📅', label: 'Dienstplan-Worker', count: null },
           { key: 'vehicleCategories', id: 'imp-vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: Array.isArray(data.vehicleCategories) ? data.vehicleCategories.length : null },
           { key: 'alarmCodes',        id: 'imp-alarm',    icon: '🚨', label: 'Einsatzstichwörter',           count: Array.isArray(data.alarmCodes) ? data.alarmCodes.length : null },
@@ -5013,6 +5027,13 @@ function doSelectiveImport(data, chosen) {
     if (data.abteilungen) state.abteilungen = data.abteilungen;
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     msgs.push('Profil');
+  }
+  if (chosen['imp-settings'] && data.settings && typeof data.settings === 'object') {
+    const iconsBefore = iconsOfflineEnabled();
+    SETTINGS_EXPORT_KEYS.forEach((k) => { if (typeof data.settings[k] === 'string') lsSet(k, data.settings[k]); });
+    if (data.settings.etb_theme) applyTheme(data.settings.etb_theme);
+    if (iconsOfflineEnabled() !== iconsBefore) setIconsOffline(iconsOfflineEnabled()).catch(() => {});
+    msgs.push('Einstellungen');
   }
   if (chosen['imp-calendar'] && (data.dienstplanWorker !== undefined || data.calendarUrl !== undefined)) {
     if (data.dienstplanWorker) lsSet(DP_WORKER_KEY, data.dienstplanWorker);
