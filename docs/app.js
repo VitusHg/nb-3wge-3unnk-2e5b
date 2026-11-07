@@ -3,6 +3,8 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'einsatzTagebuchV4';
+// Einsatz-Zeiten (früh definiert, da normalizeState sie beim Laden braucht)
+const INC_TIME_STEPS = [['alarm', 'Alarm'], ['ab', 'Ausgerückt'], ['an', 'Vor Ort'], ['ziel', 'Am Ziel'], ['frei', 'Frei']];
 const PRIO_TEXT = { '1': 'Kritischer Patient', '2': 'Voraussichtl. Stationäre Behandlung', '3': 'Voraussichtl. Ambulante Behandlung' };
 const NACA_LABELS = [
   'Keine Erkrankung oder Verletzung',
@@ -198,6 +200,7 @@ function defaultState() {
     vehicleCategories: [],
     vehicleAssignments: {},
     abteilungen: [],
+    places: [],
   };
 }
 
@@ -208,6 +211,7 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
+  s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
   s.abteilungen = Array.isArray(s.abteilungen) ? s.abteilungen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? '') })) : [];
   // Einträge ohne Objektform (null, Zahlen …) verwerfen statt später abzustürzen
   s.services = objList(s.services);
@@ -247,6 +251,12 @@ function normalizeState(s) {
       inc.einsatzart = inc.einsatzart != null && inc.einsatzart !== '' ? String(inc.einsatzart) : '';
       inc.statKz = inc.statKz != null && inc.statKz !== '' ? String(inc.statKz) : '';
       inc.extraVehicles = Array.isArray(inc.extraVehicles) ? inc.extraVehicles.map(txt).filter(Boolean) : [];
+      const t = isObj(inc.times) ? inc.times : {};
+      inc.times = {};
+      INC_TIME_STEPS.forEach(([k]) => { if (/^\d{2}:\d{2}$/.test(String(t[k] || ''))) inc.times[k] = String(t[k]); });
+      inc.from = txt(inc.from);
+      inc.to = txt(inc.to);
+      inc.links = objList(inc.links).map((l) => ({ url: txt(l.url), name: txt(l.name) })).filter((l) => /^https?:\/\//i.test(l.url));
     });
   });
   return s;
@@ -548,6 +558,57 @@ function linkifyHtml(text) {
     re.lastIndex = last;
   }
   return out + escHtml(src.slice(last));
+}
+
+// ── Einsatz-Zeiten, Start/Ziel, Links ─────────────────────────────────────
+const nowHM = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+const hmToMin = (t) => { const m = /^(\d{2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; };
+/** Minuten zwischen zwei Zeiten (über Mitternacht hinweg). */
+function hmDiff(a, b) { const x = hmToMin(a), y = hmToMin(b); if (x === null || y === null) return null; let d = y - x; if (d < 0) d += 1440; return d; }
+const fmtMin = (m) => (m === null ? '' : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
+function incTimeSummary(times) {
+  const t = times || {};
+  const parts = [
+    ['Ausrücken', hmDiff(t.alarm, t.ab)],
+    ['Anfahrt', hmDiff(t.ab || t.alarm, t.an)],
+    ['Vor Ort', hmDiff(t.an, t.ziel || t.frei)],
+    ['Gesamt', hmDiff(t.alarm || t.ab, t.frei || t.ziel)],
+  ].filter(([, m]) => m !== null && m < 12 * 60); // über 12 h ist eher ein Tippfehler
+  return parts;
+}
+/** Bekannte Portale; sonst aus der Adresse abgeleitet (ff-xyz.at → FF Xyz). */
+const PORTAL_NAMES = {
+  'kleinezeitung.at': 'Kleine Zeitung', '5min.at': '5 Minuten', 'krone.at': 'Kronen Zeitung', 'noen.at': 'NÖN', 'meinbezirk.at': 'MeinBezirk',
+  'heute.at': 'Heute', 'oe24.at': 'oe24', 'derstandard.at': 'Der Standard', 'diepresse.com': 'Die Presse', 'kurier.at': 'Kurier', 'puls24.at': 'PULS 24',
+  'bvz.at': 'BVZ', 'nachrichten.at': 'OÖN', 'sn.at': 'Salzburger Nachrichten', 'tt.com': 'Tiroler Tageszeitung', 'vol.at': 'VOL.AT', 'feuerwehr.at': 'ÖBFV',
+  'facebook.com': 'Facebook', 'instagram.com': 'Instagram', 'youtube.com': 'YouTube',
+};
+const umlautize = (w) => w.replace(/ae/g, 'ä').replace(/oe/g, 'ö').replace(/ue/g, 'ü');
+const capWords = (s) => s.split(/[-_.]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+function portalName(url) {
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch (_) { return ''; }
+  const parts = host.split('.');
+  const base = parts.slice(-2).join('.');
+  if (base === 'orf.at') return parts.length > 2 && parts[0] !== 'orf' ? 'ORF ' + capWords(parts[0]) : 'ORF';
+  if (PORTAL_NAMES[host]) return PORTAL_NAMES[host];
+  if (PORTAL_NAMES[base]) return PORTAL_NAMES[base];
+  const label = parts.length > 2 ? parts[parts.length - 2] : parts[0];
+  // Feuerwehren: ff-hartberg, ffpoellau, bff-…
+  const ff = /^(b?ff)-?(.+)$/.exec(label);
+  if (ff) return ff[1].toUpperCase() + ' ' + capWords(umlautize(ff[2]));
+  const fw = /^(?:feuerwehr|fw)-?(.+)$/.exec(label);
+  if (fw) return 'FF ' + capWords(umlautize(fw[1]));
+  return capWords(label);
+}
+function faviconUrl(url) {
+  try { return 'https://icons.duckduckgo.com/ip3/' + new URL(url).hostname + '.ico'; } catch (_) { return ''; }
+}
+function linkChipHtml(l, removable, i) {
+  const fav = faviconUrl(l.url);
+  return `<span class="link-chip">${fav ? `<img class="link-fav-img" src="${escHtml(fav)}" alt="" onerror="this.style.visibility='hidden'">` : ''}
+    <a class="link-chip-a" ${dpLinkAttrs(l.url)}>${escHtml(l.name || portalName(l.url) || l.url)}</a>
+    ${removable ? `<button type="button" class="link-chip-x" data-link-del="${i}" aria-label="Link entfernen">✕</button>` : ''}</span>`;
 }
 
 const ICON_CAL = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M14 14.5h3.5v3.5" /></svg>';
@@ -1207,6 +1268,10 @@ function renderIncidentView() {
       p.prio && row('Priorität', escHtml(PRIO_TEXT[p.prio] || p.prio)),
       row('NACA', naca),
     ])
+    + (Object.keys(inc.times || {}).length ? group('Zeiten', [`<div class="iv-times">${INC_TIME_STEPS.filter(([k]) => inc.times[k]).map(([k, l]) => `<span class="iv-time"><small>${l}</small><b>${inc.times[k]}</b></span>`).join('<span class="iv-time-arrow">›</span>')}</div>
+        ${incTimeSummary(inc.times).length ? `<div class="iv-time-sum">${incTimeSummary(inc.times).map(([l, m]) => `<span>${l} <b>${fmtMin(m)}</b></span>`).join('')}</div>` : ''}`]) : '')
+    + (inc.from || inc.to ? group('Start → Ziel', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${escHtml(inc.from || '—')}</span><span><i class="route-dot is-to"></i>${escHtml(inc.to || '—')}</span></div>`]) : '')
+    + ((inc.links || []).length ? group('Berichte & Links', [`<div class="inc-links is-view">${inc.links.map((l) => linkChipHtml(l, false)).join('')}</div>`]) : '')
     + (inc.note ? group('Notiz', [`<div class="iv-note">${linkifyHtml(inc.note)}</div>`]) : '')
     + (svc.isSeg
       ? group('SEG', [
@@ -1298,7 +1363,7 @@ function searchIncidents(q) {
       const kz = inc.statKz ? STATKZ_MAP.get(String(inc.statKz)) || '' : '';
       const p = inc.pzc || {};
       const hasNaca = inc.naca !== null && inc.naca !== undefined && inc.naca !== '';
-      const fields = [inc.alarmCode, inc.note, ea, kz, p.diag, pzcDiagnosis(p.diag), hasNaca ? `naca ${inc.naca}` : '', (inc.extraVehicles || []).join(' '), svc.isSeg ? svc.location : ''];
+      const fields = [inc.alarmCode, inc.note, ea, kz, p.diag, pzcDiagnosis(p.diag), hasNaca ? `naca ${inc.naca}` : '', (inc.extraVehicles || []).join(' '), svc.isSeg ? svc.location : '', inc.from, inc.to, (inc.links || []).map((l) => l.name).join(' ')];
       if (fields.some((f) => f && String(f).toLowerCase().includes(q))) hits.push({ svc, inc });
     }
   }
@@ -1734,6 +1799,7 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
   document.getElementById('pzc-age').value = src && src.pzc ? (src.pzc.age || '') : '';
   document.getElementById('pzc-prio').value = src && src.pzc ? (src.pzc.prio || '') : '';
   document.getElementById('inc-note').value = inc ? (inc.note || '') : '';
+  setupIncExtras(inc);
   setupKennzahlField('einsatzart', EINSATZART_MAP, EINSATZART_CODES, src ? src.einsatzart : '');
   setupKennzahlField('statkz', STATKZ_MAP, STATKZ_CODES, src ? src.statKz : '');
   setupPzcField();
@@ -1757,6 +1823,123 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
     const bl = keywordBlaulicht(val);
     if (bl !== undefined && bl !== incLights) { incLights = bl; updateLightsBtn(); }
   };
+}
+
+// ── Zeiten / Start→Ziel / Links im Einsatz-Formular ────────────────────────
+let incTimes = {};
+let incLinks = [];
+let routeLastField = null;
+function setupIncExtras(inc) {
+  incTimes = { ...((inc && inc.times) || {}) };
+  incLinks = ((inc && inc.links) || []).map((l) => ({ ...l }));
+  renderIncTimes();
+  // Start → Ziel
+  const from = document.getElementById('inc-from'), to = document.getElementById('inc-to');
+  from.value = inc ? inc.from || '' : '';
+  to.value = inc ? inc.to || '' : '';
+  const used = allIncidentsFlat().flatMap((i) => [i.from, i.to]).filter(Boolean);
+  const items = [...new Set([...(state.places || []), ...rankByFrequency(used)])];
+  mountSuggestions(from, document.getElementById('inc-from-suggestions'), items, 8, true);
+  mountSuggestions(to, document.getElementById('inc-to-suggestions'), items, 8, true);
+  [from, to].forEach((el) => { el.onfocus = () => { routeLastField = el; }; el.oninput = renderPlaceChips; el.onchange = renderPlaceChips; });
+  document.getElementById('btn-route-swap').onclick = () => { const v = from.value; from.value = to.value; to.value = v; renderPlaceChips(); };
+  routeLastField = null;
+  renderPlaceChips();
+  // Links
+  const url = document.getElementById('inc-link-url'), name = document.getElementById('inc-link-name');
+  url.value = ''; name.value = '';
+  document.getElementById('link-add-row').hidden = true;
+  url.oninput = () => {
+    const v = url.value.trim();
+    const ok = /^https?:\/\/[^\s]+\.[^\s]+/i.test(v);
+    document.getElementById('link-add-row').hidden = !ok;
+    if (ok) {
+      if (!name.dataset.touched) name.value = portalName(v);
+      const fav = faviconUrl(v);
+      document.getElementById('link-add-fav').innerHTML = fav ? `<img src="${escHtml(fav)}" alt="" onerror="this.style.visibility='hidden'">` : '';
+    }
+  };
+  name.oninput = () => { name.dataset.touched = name.value ? '1' : ''; };
+  name.dataset.touched = '';
+  const add = () => {
+    const v = url.value.trim();
+    if (!/^https?:\/\//i.test(v)) { toast('Bitte einen Link mit https:// einfügen.', 'info'); return; }
+    if (!incLinks.some((l) => l.url === v)) incLinks.push({ url: v, name: name.value.trim() || portalName(v) });
+    url.value = ''; name.value = ''; name.dataset.touched = '';
+    document.getElementById('link-add-row').hidden = true;
+    renderIncLinks();
+  };
+  document.getElementById('btn-link-add').onclick = add;
+  url.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+  renderIncLinks();
+}
+
+function renderIncTimes() {
+  const box = document.getElementById('inc-times');
+  if (!box) return;
+  box.innerHTML = `<div class="it-row">${INC_TIME_STEPS.map(([k, l]) => `<div class="it-step${incTimes[k] ? ' is-set' : ''}" data-step="${k}">
+      <span class="it-l">${l}</span><span class="it-v">${incTimes[k] || '–:–'}</span>
+      <input type="time" class="it-in" data-k="${k}" value="${incTimes[k] || ''}" aria-label="${l}">
+      ${incTimes[k] ? `<button type="button" class="it-x" data-x="${k}" aria-label="${l} löschen">✕</button>` : ''}
+    </div>`).join('')}</div><div class="it-sum" id="it-sum"></div>`;
+  const sync = (k) => {
+    const step = box.querySelector(`[data-step="${k}"]`);
+    step.classList.toggle('is-set', !!incTimes[k]);
+    step.querySelector('.it-v').textContent = incTimes[k] || '–:–';
+    updateIncTimeSummary();
+  };
+  box.querySelectorAll('.it-in').forEach((inp) => {
+    const k = inp.dataset.k;
+    // leer + antippen → sofort „jetzt“ (Rad startet bei der aktuellen Uhrzeit)
+    inp.addEventListener('pointerdown', () => { if (!incTimes[k]) { incTimes[k] = nowHM(); inp.value = incTimes[k]; sync(k); } });
+    inp.addEventListener('input', () => { if (inp.value) { incTimes[k] = inp.value; sync(k); } });
+    inp.addEventListener('change', () => { if (inp.value) incTimes[k] = inp.value; renderIncTimes(); });
+  });
+  box.querySelectorAll('.it-x').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); delete incTimes[b.dataset.x]; renderIncTimes(); }));
+  updateIncTimeSummary();
+  const next = INC_TIME_STEPS.find(([k]) => !incTimes[k]);
+  const nb = document.getElementById('btn-inc-next-time');
+  if (nb) {
+    nb.hidden = !next;
+    if (next) { nb.textContent = `⏱ ${next[1]} jetzt`; nb.onclick = () => { incTimes[next[0]] = nowHM(); renderIncTimes(); }; }
+  }
+}
+function updateIncTimeSummary() {
+  const el = document.getElementById('it-sum');
+  if (!el) return;
+  const parts = incTimeSummary(incTimes);
+  el.innerHTML = parts.map(([l, m]) => `<span>${l} <b>${fmtMin(m)}</b></span>`).join('');
+}
+
+function renderPlaceChips() {
+  const box = document.getElementById('place-chips');
+  if (!box) return;
+  const from = document.getElementById('inc-from'), to = document.getElementById('inc-to');
+  const places = state.places || [];
+  const unsaved = [from.value.trim(), to.value.trim()].filter((v) => v && !places.some((p) => p.toLowerCase() === v.toLowerCase()));
+  box.innerHTML = places.map((p) => `<button type="button" class="place-chip" data-place="${escHtml(p)}">${escHtml(p)}</button>`).join('')
+    + unsaved.map((v) => `<button type="button" class="place-chip is-add" data-place-add="${escHtml(v)}">★ „${escHtml(v.length > 22 ? v.slice(0, 21) + '…' : v)}“ merken</button>`).join('');
+  box.querySelectorAll('[data-place]').forEach((b) => b.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); // Fokus im Feld behalten
+    const target = routeLastField && document.activeElement === routeLastField ? routeLastField : !from.value.trim() ? from : !to.value.trim() ? to : (routeLastField || to);
+    target.value = b.dataset.place;
+    routeLastField = target;
+    renderPlaceChips();
+  }));
+  box.querySelectorAll('[data-place-add]').forEach((b) => b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    state.places = [...(state.places || []), b.dataset.placeAdd];
+    saveState();
+    toast(`„${b.dataset.placeAdd}“ als Kürzel gespeichert.`, 'success', 1800);
+    renderPlaceChips();
+  }));
+}
+
+function renderIncLinks() {
+  const box = document.getElementById('inc-links');
+  if (!box) return;
+  box.innerHTML = incLinks.map((l, i) => linkChipHtml(l, true, i)).join('');
+  box.querySelectorAll('[data-link-del]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); incLinks.splice(+b.dataset.linkDel, 1); renderIncLinks(); }));
 }
 
 /** Nur Ziffern zulassen (iOS ignoriert keypress-Filter zuverlässig nicht). */
@@ -1938,7 +2121,11 @@ function saveIncident() {
   const statKz = readKennzahl('statkz', STATKZ_MAP);
   if (einsatzart === null) { toast('Unbekannte Einsatzart – bitte ID prüfen oder über die Suche wählen.', 'error'); document.getElementById('inc-einsatzart').focus(); return; }
   if (statKz === null) { toast('Unbekannte Statistikkennzahl – bitte ID prüfen oder über die Suche wählen.', 'error'); document.getElementById('inc-statkz').focus(); return; }
-  const fields = { alarmCode: keyword, lights: incLights, note, pzc: { diag, age, prio }, naca: nacaVal, einsatzart, statKz, extraVehicles: [...incExtraVehicles] };
+  const fields = { alarmCode: keyword, lights: incLights, note, pzc: { diag, age, prio }, naca: nacaVal, einsatzart, statKz, extraVehicles: [...incExtraVehicles],
+    times: { ...incTimes }, from: document.getElementById('inc-from').value.trim(), to: document.getElementById('inc-to').value.trim(), links: incLinks.map((l) => ({ ...l })) };
+  // halb eingegebener Link: mitnehmen statt verlieren
+  const pendingUrl = document.getElementById('inc-link-url').value.trim();
+  if (/^https?:\/\//i.test(pendingUrl) && !fields.links.some((l) => l.url === pendingUrl)) fields.links.push({ url: pendingUrl, name: document.getElementById('inc-link-name').value.trim() || portalName(pendingUrl) });
 
   let svc = incDialogServiceId ? state.services.find((s) => s.id === incDialogServiceId) : null;
   if (incDialogSegMode) {
@@ -3474,13 +3661,14 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 81;
+const APP_VERSION = 82;
 const APP_VERSION_DATE = '04.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
   dienstplan: 'Dienstplan',
   bedienung: 'Bedienung',
+  orte: 'Orte & Ziele',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
   ueber: 'Über',
@@ -3490,6 +3678,7 @@ let settingsSub = null;
 const SET_ICONS = {
   person: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5a7 7 0 0 1 14 0"/></svg>',
   brush: '<svg viewBox="0 0 24 24"><path d="M14.5 4.5 19.5 9.5 11 18l-5-5z"/><path d="M6 13c-2 1-2.5 3-2.5 6.5C7 19.5 9 19 10 17"/></svg>',
+  pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
   hand: '<svg viewBox="0 0 24 24"><path d="M8.5 12V5.5a1.5 1.5 0 0 1 3 0V11M11.5 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14.5 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.6 6.5-6 6.5-2.4 0-4-1.2-5.2-3.3L4.6 13.4a1.5 1.5 0 0 1 2.5-1.6l1.4 1.7"/></svg>',
   disk: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
@@ -3569,6 +3758,7 @@ function renderSettings() {
       ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, id: 'btn-open-vehicles-popup' })}
       ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, id: 'btn-open-codes-popup' })}
       ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-open-abt-popup' })}
+      ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
     </div>
 
     <div class="set-group-header">Daten</div>
@@ -3621,6 +3811,7 @@ function renderSettingsPage() {
     profil: settingsPageProfil,
     darstellung: settingsPageDarstellung,
     bedienung: settingsPageBedienung,
+    orte: settingsPageOrte,
     speicher: settingsPageSpeicher,
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
@@ -3869,6 +4060,27 @@ function settingsPageBedienung(el, title) {
     el.querySelectorAll('[data-dp-link]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
     renderServiceList(); if (selectedServiceId) renderServiceDetail();
   }));
+}
+
+// — Orte & Ziele ——————————————————————————————————————————————————————
+function settingsPageOrte(el, title) {
+  const places = state.places || [];
+  const used = rankByFrequency(allIncidentsFlat().flatMap((i) => [i.from, i.to]).filter(Boolean)).filter((v) => !places.some((p) => p.toLowerCase() === v.toLowerCase())).slice(0, 8);
+  el.innerHTML = `${title}
+    <div class="set-group-header">Deine Kürzel</div>
+    <div class="set-group">
+      ${places.length ? places.map((p, i) => `<div class="set-row"><span class="set-row-text set-row-title">${escHtml(p)}</span><button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
+      <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neues Kürzel" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
+    </div>
+    <p class="set-group-footer">Kürzel erscheinen im Einsatz unter Start → Ziel zum Antippen und ganz oben in den Vorschlägen. Freier Text geht natürlich immer.</p>
+    ${used.length ? `<div class="set-group-header">Oft eingetragen</div><div class="set-group">${used.map((v) => `<div class="set-row"><span class="set-row-text set-row-title">${escHtml(v)}</span><button type="button" class="btn-ghost place-take" data-v="${escHtml(v)}">★ Merken</button></div>`).join('')}</div>` : ''}`;
+  const save = (list) => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); };
+  el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => save(places.filter((_, i) => i !== +b.dataset.i))));
+  el.querySelectorAll('.place-take').forEach((b) => b.addEventListener('click', () => save([...places, b.dataset.v])));
+  const inp = el.querySelector('#place-new');
+  const add = () => { if (inp.value.trim()) save([...places, inp.value]); };
+  el.querySelector('#btn-place-add').addEventListener('click', add);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
 }
 
 // — Speicher ——————————————————————————————————————————————————————————
@@ -4543,7 +4755,11 @@ function toCompatExport() {
         naca: inc.naca ?? null,
         einsatzart: inc.einsatzart || '',
         statKz: inc.statKz || '',
-        extraVehicles: inc.extraVehicles || []
+        extraVehicles: inc.extraVehicles || [],
+        times: inc.times || {},
+        from: inc.from || '',
+        to: inc.to || '',
+        links: inc.links || []
       }))
     }))
   };
@@ -4575,7 +4791,11 @@ function fromCompatibleImport(data) {
       naca: m.naca ?? null,
       einsatzart: m.einsatzart ? String(m.einsatzart) : '',
       statKz: m.statKz ? String(m.statKz) : '',
-      extraVehicles: m.extraVehicles || []
+      extraVehicles: m.extraVehicles || [],
+      times: m.times || {},
+      from: m.from || '',
+      to: m.to || '',
+      links: m.links || []
     })).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')) : []
   }));
   saveState();
@@ -4624,6 +4844,7 @@ function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
   if (sel.profile) payload.abteilungen = state.abteilungen || [];
+  if (sel.profile) payload.places = state.places || [];
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
   if (sel.vehicles) {
@@ -4710,6 +4931,7 @@ function doSelectiveImport(data, chosen) {
     const n = toDisplayName(data.profile.displayName);
     if (n) state.profile.displayName = n;
     if (data.abteilungen) state.abteilungen = data.abteilungen;
+    if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     msgs.push('Profil');
   }
   if (chosen['imp-calendar'] && (data.dienstplanWorker !== undefined || data.calendarUrl !== undefined)) {

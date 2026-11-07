@@ -461,6 +461,45 @@
           </div>
         </div>
 
+        <!-- Zeiten: antippen = jetzt, nochmal antippen = ändern -->
+        <div class="inc-sec">
+          <div class="fg-label inc-sec-hd">Zeiten <button type="button" class="inc-next-time" id="btn-inc-next-time" hidden></button></div>
+          <div class="inc-times" id="inc-times"></div>
+        </div>
+
+        <!-- Start → Ziel -->
+        <div class="inc-sec">
+          <div class="fg-label inc-sec-hd">Start → Ziel</div>
+          <div class="route-grid">
+            <div class="suggestion-wrap route-field">
+              <span class="route-dot is-from" aria-hidden="true"></span>
+              <input type="text" id="inc-from" placeholder="Start, z. B. Wohnhaus, Hartberg" autocomplete="off" enterkeyhint="next" />
+              <div id="inc-from-suggestions" class="suggestions-dropdown"></div>
+            </div>
+            <button type="button" class="route-swap" id="btn-route-swap" aria-label="Start und Ziel tauschen" title="Tauschen">⇅</button>
+            <div class="suggestion-wrap route-field">
+              <span class="route-dot is-to" aria-hidden="true"></span>
+              <input type="text" id="inc-to" placeholder="Ziel, z. B. KH Oberwart ZAE" autocomplete="off" enterkeyhint="done" />
+              <div id="inc-to-suggestions" class="suggestions-dropdown"></div>
+            </div>
+          </div>
+          <div class="place-chips" id="place-chips"></div>
+        </div>
+
+        <!-- Berichte & Links -->
+        <div class="inc-sec">
+          <div class="fg-label inc-sec-hd">Berichte &amp; Links</div>
+          <div class="inc-links" id="inc-links"></div>
+          <div class="link-add">
+            <input type="url" id="inc-link-url" placeholder="Link einfügen (Feuerwehr, Medien …)" autocomplete="off" inputmode="url" enterkeyhint="done" />
+            <div class="link-add-row" id="link-add-row" hidden>
+              <span class="link-fav" id="link-add-fav"></span>
+              <input type="text" id="inc-link-name" placeholder="Name des Portals" autocomplete="off" />
+              <button type="button" class="btn-secondary" id="btn-link-add">Hinzufügen</button>
+            </div>
+          </div>
+        </div>
+
         <div class="fg-field">
           <label class="fg-label" for="inc-note">Notiz</label>
           <textarea id="inc-note" rows="2" placeholder="Optional"></textarea>
