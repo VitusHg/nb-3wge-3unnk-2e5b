@@ -1826,6 +1826,7 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
   document.getElementById('pzc-diag').value = src && src.pzc ? (src.pzc.diag || '') : '';
   document.getElementById('pzc-age').value = src && src.pzc ? (src.pzc.age || '') : '';
   document.getElementById('pzc-yob').value = '';
+  setYobOpen(false);
   renderYobChips();
   document.getElementById('pzc-prio').value = src && src.pzc ? (src.pzc.prio || '') : '';
   document.getElementById('inc-note').value = inc ? (inc.note || '') : '';
@@ -2139,17 +2140,31 @@ function yobAges(yy, now = new Date()) {
   const a = y - birth;
   return [a - 1, a].filter((n) => n >= 0 && n <= 99);
 }
+function setYobOpen(open) {
+  const row = document.getElementById('pzc-yob-row'), t = document.getElementById('pzc-yob-toggle');
+  if (!row || !t) return;
+  row.hidden = !open;
+  t.setAttribute('aria-expanded', String(open));
+  t.classList.toggle('is-open', open);
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest && e.target.closest('#pzc-yob-toggle');
+  if (!t) return;
+  const open = t.getAttribute('aria-expanded') !== 'true';
+  setYobOpen(open);
+  if (open) setTimeout(() => document.getElementById('pzc-yob')?.focus(), 50);
+});
 function renderYobChips() {
   const box = document.getElementById('pzc-yob-chips');
   const yob = document.getElementById('pzc-yob');
   const age = document.getElementById('pzc-age');
   if (!box || !yob) return;
   const ages = yobAges(yob.value);
-  if (!ages.length) { box.innerHTML = '<span class="pzc-yob-hint">→ Alter für den PZC</span>'; return; }
+  if (!ages.length) { box.innerHTML = ''; return; }
   const cur = age.value.trim();
   box.innerHTML = ages.map((n, i) => {
     const v = String(n).padStart(2, '0');
-    return `<button type="button" class="pzc-yob-chip${cur === v ? ' is-on' : ''}" data-age="${v}"><b>${n}</b><small>${ages.length > 1 ? (i ? 'nach Geb.' : 'vor Geb.') : 'Jahre'}</small></button>`;
+    return `<button type="button" class="pzc-yob-chip${cur === v ? ' is-on' : ''}" data-age="${v}"><b>${n}</b></button>`;
   }).join('');
   box.querySelectorAll('[data-age]').forEach((b) => b.addEventListener('pointerdown', (e) => e.preventDefault()));
   box.querySelectorAll('[data-age]').forEach((b) => b.addEventListener('click', () => {
@@ -3841,7 +3856,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 99;
+const APP_VERSION = 100;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
