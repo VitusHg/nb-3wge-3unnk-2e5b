@@ -418,7 +418,7 @@
         </div>
 
         <!-- Kennzahlen: kompakt, ID (nur Ziffern) + Suche bzw. Auswahl -->
-        <div class="code-grid" id="inc-code-grid">
+        <div class="code-grid">
           <div class="cg-row">
             <label class="cg-label" for="inc-einsatzart">Einsatzart</label>
             <div class="cg-ctrl">
@@ -429,7 +429,6 @@
               </div>
             </div>
           </div>
-          <label class="ea-full" id="ea-full-row" hidden><input type="checkbox" id="ea-full"> <span>Ganzes Formular</span></label>
           <div class="cg-row">
             <label class="cg-label" for="inc-statkz">Statistik-KZ</label>
             <div class="cg-ctrl">
@@ -441,7 +440,7 @@
             </div>
           </div>
           <div class="cg-row">
-            <label class="cg-label" for="pzc-diag" id="pzc-label">PZC</label>
+            <label class="cg-label" for="pzc-diag">PZC</label>
             <div class="cg-ctrl">
               <div class="cg-pzc">
                 <input type="text" id="pzc-diag" class="cg-id pzc-diag" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="000" autocomplete="off" aria-label="PZC Diagnose" />
@@ -479,8 +478,8 @@
         </div>
 
         <!-- Start → Ziel -->
-        <div class="inc-sec is-collapsible" data-sec="route">
-          <button type="button" class="inc-sec-toggle"><span>📍 Start → Ziel</span><span class="inc-sec-chev">›</span></button>
+        <div class="inc-sec is-open" data-sec="route">
+          <div class="fg-label inc-sec-hd">Transport</div>
           <div class="inc-sec-body">
           <div class="route-grid">
             <div class="suggestion-wrap route-field">
@@ -490,7 +489,7 @@
               <div id="inc-from-suggestions" class="suggestions-dropdown"></div>
             </div>
             <button type="button" class="route-swap" id="btn-route-swap" aria-label="Start und Ziel tauschen" title="Tauschen">⇅</button>
-            <div class="suggestion-wrap route-field" id="inc-to-field">
+            <div class="suggestion-wrap route-field">
               <span class="route-dot is-to" aria-hidden="true"></span>
               <input type="text" id="inc-to" placeholder="Ziel" autocomplete="off" enterkeyhint="done" />
               <button type="button" class="route-save" data-for="inc-to" hidden aria-label="Als Kürzel merken" title="Als Kürzel merken">+</button>

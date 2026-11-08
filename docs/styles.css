@@ -3821,26 +3821,4 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .pzc-yob-toggle.is-open span { transform: rotate(90deg); }
 .pzc-yob-row[hidden] { display: none !important; }
 .pzc-yob-chip { flex: 0 0 64px; padding: 6px; }
-
-/* Formular nach Einsatzart */
-.ea-full { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 8px; margin: 0; padding: 0 14px 8px 114px; font-size: 13px; color: var(--text2); text-align: left; cursor: pointer; }
-.ea-full[hidden] { display: none !important; }
-.ea-full[hidden] { display: none; }
-.ea-full input { flex: none; width: 18px !important; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); }
-.ea-full span, .ea-full small { margin: 0; }
-.ea-full span { color: var(--text); font-weight: 600; }
-.ea-full small { color: var(--text3); }
-#dialog-incident[data-ea-mode="age"] #pzc-diag,
-#dialog-incident[data-ea-mode="age"] #pzc-prio,
-#dialog-incident[data-ea-mode="age"] .cg-row:has(#pzc-diag) .cg-search-wrap,
-#dialog-incident[data-ea-mode="age"] #pzc-resolution,
-#dialog-incident[data-ea-mode="none"] #pzc-diag,
-#dialog-incident[data-ea-mode="none"] #pzc-prio,
-#dialog-incident[data-ea-mode="none"] .cg-row:has(#pzc-diag) .cg-search-wrap,
-#dialog-incident[data-ea-mode="none"] #pzc-resolution,
-#dialog-incident[data-ea-mode="none"] #inc-to-field,
-#dialog-incident[data-ea-mode="none"] #btn-route-swap,
-#dialog-incident[data-ea-mode="none"] .it-tile[data-step="transport"],
-#dialog-incident[data-ea-mode="none"] .it-tile[data-step="ziel"] { display: none !important; }
-.ea-full > span, .ea-full > small { flex: none !important; width: auto !important; white-space: nowrap; }
-.ea-full > small { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1 !important; }
+.inc-sec[data-sec="route"] .inc-sec-body { padding: 0; }
