@@ -1825,6 +1825,8 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
   document.getElementById('inc-keyword').value = src ? (src.alarmCode || '') : '';
   document.getElementById('pzc-diag').value = src && src.pzc ? (src.pzc.diag || '') : '';
   document.getElementById('pzc-age').value = src && src.pzc ? (src.pzc.age || '') : '';
+  document.getElementById('pzc-yob').value = '';
+  renderYobChips();
   document.getElementById('pzc-prio').value = src && src.pzc ? (src.pzc.prio || '') : '';
   document.getElementById('inc-note').value = inc ? (inc.note || '') : '';
   setupIncExtras(inc);
@@ -2097,7 +2099,8 @@ function setupKennzahlField(key, map, codes, value) {
     if (map.has(code) && (explicit || code.length === 2 || unambiguous)) focusNextCodeField(idEl);
   };
   const field = key === 'statkz' ? 'statKz' : key;
-  mountSuggestions(searchEl, dropEl, byUsage(codes, allIncidentsFlat().map((i) => i[field]), ([c]) => c).map(([c, l]) => `${c} – ${l}`), 60, true);
+  // nach Nummer sortiert (nicht nach Häufigkeit)
+  mountSuggestions(searchEl, dropEl, codes.slice().sort((a, b) => +a[0] - +b[0]).map(([c, l]) => `${c} – ${l}`), 60, true);
   const pick = (code) => { idEl.value = code; searchEl.blur(); dropEl.classList.remove('open'); showResolved(); };
   // Beim Antippen leeren, damit sofort gesucht werden kann; Liste zeigt alles
   searchEl.onfocus = () => { if (searchEl.classList.contains('is-resolved')) searchEl.value = ''; };
@@ -2125,6 +2128,39 @@ function readKennzahl(key, map) {
   return map.has(code) ? code : null;
 }
 
+/**
+ * Jahrgang (JJ) → mögliche Alter für den PZC: je nachdem, ob der Geburtstag
+ * heuer schon war, ist die Person Jahr−Jahrgang oder ein Jahr jünger.
+ */
+function yobAges(yy, now = new Date()) {
+  if (!/^\d{2}$/.test(yy)) return [];
+  const y = now.getFullYear();
+  const birth = 2000 + +yy <= y ? 2000 + +yy : 1900 + +yy;
+  const a = y - birth;
+  return [a - 1, a].filter((n) => n >= 0 && n <= 99);
+}
+function renderYobChips() {
+  const box = document.getElementById('pzc-yob-chips');
+  const yob = document.getElementById('pzc-yob');
+  const age = document.getElementById('pzc-age');
+  if (!box || !yob) return;
+  const ages = yobAges(yob.value);
+  if (!ages.length) { box.innerHTML = '<span class="pzc-yob-hint">→ Alter für den PZC</span>'; return; }
+  const cur = age.value.trim();
+  box.innerHTML = ages.map((n, i) => {
+    const v = String(n).padStart(2, '0');
+    return `<button type="button" class="pzc-yob-chip${cur === v ? ' is-on' : ''}" data-age="${v}"><b>${n}</b><small>${ages.length > 1 ? (i ? 'nach Geb.' : 'vor Geb.') : 'Jahre'}</small></button>`;
+  }).join('');
+  box.querySelectorAll('[data-age]').forEach((b) => b.addEventListener('pointerdown', (e) => e.preventDefault()));
+  box.querySelectorAll('[data-age]').forEach((b) => b.addEventListener('click', () => {
+    age.value = b.dataset.age;
+    updatePzcPreview();
+    renderYobChips();
+    const prio = document.getElementById('pzc-prio');
+    if (prio && !prio.value) focusField(prio);
+  }));
+}
+
 // ── PZC: drei ID-Felder + Suche (zeigt die Diagnose) ───────────────────────
 function setupPzcField() {
   const diag = document.getElementById('pzc-diag');
@@ -2134,7 +2170,9 @@ function setupPzcField() {
   const drop = document.getElementById('pzc-search-suggestions');
   const show = () => updatePzcPreview();
   diag.oninput = () => { if (digitsOnly(diag, 3).length === 3) focusField(age); show(); };
-  age.oninput = () => { if (digitsOnly(age, 2).length === 2) focusField(prio); show(); };
+  age.oninput = () => { if (digitsOnly(age, 2).length === 2) focusField(prio); show(); renderYobChips(); };
+  const yob = document.getElementById('pzc-yob');
+  yob.oninput = () => { digitsOnly(yob, 2); renderYobChips(); };
   prio.oninput = () => { if (digitsOnly(prio, 1, /[1-3]/).length === 1) focusNextCodeField(prio); show(); };
   const items = byUsage(state.pzcCodes || [], allIncidentsFlat().map((i) => i.pzc && i.pzc.diag), (p) => p.code).map((p) => `${p.code} - ${p.diagnosis}`);
   mountSuggestions(search, drop, items, 40, items.length > 0);
@@ -3803,7 +3841,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 98;
+const APP_VERSION = 99;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

@@ -3807,3 +3807,12 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .sx-podium { gap: 4px; }
 [data-compact] .sx-pod { gap: 2px; font-size: 13px; }
 [data-compact] .svc-meta-row { padding-top: 6px; padding-bottom: 6px; }
+
+/* PZC: Alter aus Jahrgang */
+.pzc-yob-row .cg-ctrl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pzc-yob-chips { flex: 1; min-width: 0; display: flex; gap: 6px; }
+.pzc-yob-hint { font-size: 13px; color: var(--text3); }
+.pzc-yob-chip { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 4px 6px; border: 1.5px solid transparent; border-radius: 10px; background: var(--fill); color: var(--text); font: inherit; line-height: 1.15; cursor: pointer; }
+.pzc-yob-chip b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.pzc-yob-chip small { font-size: 10.5px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pzc-yob-chip.is-on { border-color: var(--accent); background: var(--accent-soft); }
