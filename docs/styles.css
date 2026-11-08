@@ -3822,3 +3822,12 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .pzc-yob-row[hidden] { display: none !important; }
 .pzc-yob-chip { flex: 0 0 64px; padding: 6px; }
 .inc-sec[data-sec="route"] .inc-sec-body { padding: 0; }
+
+/* Route zur Dienststelle */
+.hm-inc-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.hm-nav { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; background: var(--fill); color: var(--blue); font-size: 15px; font-weight: 600; text-decoration: none; flex-shrink: 0; }
+.hm-nav svg { width: 16px; height: 16px; transform: rotate(45deg); }
+.hm-hero-acts { display: flex; gap: 8px; margin: 0 16px 14px; }
+.hm-hero-acts .hm-hero-btn { flex: 1; margin: 0; }
+.abt-addr-input { width: 100%; margin-top: 6px; }
+.abt-addr { display: block; font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

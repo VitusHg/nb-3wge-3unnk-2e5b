@@ -215,7 +215,7 @@ function normalizeState(s) {
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
-  s.abteilungen = Array.isArray(s.abteilungen) ? s.abteilungen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? '') })) : [];
+  s.abteilungen = Array.isArray(s.abteilungen) ? s.abteilungen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? ''), ...(toDisplayName(a.address) ? { address: toDisplayName(a.address) } : {}) })) : [];
   // Einträge ohne Objektform (null, Zahlen …) verwerfen statt später abzustürzen
   s.services = objList(s.services);
   s.alarmCodes = Array.isArray(s.alarmCodes) ? s.alarmCodes.filter((c) => typeof c === 'string') : [];
@@ -654,6 +654,33 @@ function serviceDurationHours(svc) {
   const end = parseLocalDt(svc.endAt);
   if (!start || !end) return 0;
   return ((end - start) / 3600000).toFixed(1);
+}
+
+/** Abteilung/Dienststelle zu einem Dienst (Name exakt, sonst unscharf wie RKTel). */
+function findAbteilung(svc) {
+  const abtName = (svc && (svc.abteilung || svc.location)) || '';
+  if (!abtName) return null;
+  let abt = (state.abteilungen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
+  if (!abt && window.RKDienstplan && (state.abteilungen || []).length) {
+    try {
+      const match = window.RKDienstplan.createDepartmentMatcher(state.abteilungen);
+      abt = (svc.abteilung && match(svc.abteilung)) || (svc.location && match(svc.location)) || null;
+    } catch (_) { abt = null; }
+  }
+  return abt || null;
+}
+/** Google-Maps-Route vom aktuellen Standort zur Dienststelle (oder hinterlegter Maps-Link). */
+function mapsRouteUrl(address) {
+  const a = String(address || '').trim();
+  if (!a) return '';
+  if (/^https?:\/\//i.test(a)) return a;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(a)}&travelmode=driving`;
+}
+function homeNavBtnHtml(svcLike) {
+  const abt = findAbteilung(svcLike);
+  const url = abt && mapsRouteUrl(abt.address);
+  if (!url) return '';
+  return `<a class="hm-nav" href="${escHtml(url)}" target="_blank" rel="noopener" aria-label="Route zu ${escHtml(abt.name)} in Google Maps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19.5 21 12 17l-7.5 4z" fill="currentColor"/></svg><span>Route</span></a>`;
 }
 
 function dienstplanUrl(svc) {
@@ -3503,7 +3530,7 @@ function homeActiveCardHtml(svc, now) {
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">🔵 ${lights}</span>` : ''}</span>
-      <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
+      <span class="hm-inc-btns">${homeNavBtnHtml(svc)}<button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button></span>
     </div>
     ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
     ${incs.length > shown.length ? `<button type="button" class="hm-more" data-open-svc="${escHtml(svc.id)}">Alle ${incs.length} Einsätze anzeigen</button>` : ''}
@@ -3535,10 +3562,11 @@ function homeNextCardHtml(item, now) {
       </div>
       ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}`;
   if (item.svc) {
-    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
+    const nav = homeNavBtnHtml(item.svc);
+    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button>${nav ? `<div class="hm-hero-acts">${nav}</div>` : ''}</section>`;
   }
   return `<section class="hm-card hm-hero"><div class="hm-hero-open is-static">${inner}</div>
-    <button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button>
+    <div class="hm-hero-acts">${homeNavBtnHtml({ abteilung: '', location: location })}<button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button></div>
   </section>`;
 }
 
@@ -3855,7 +3883,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 102;
+const APP_VERSION = 103;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4696,10 +4724,11 @@ function renderAbteilungenPopup() {
       <input type="text" id="new-abt-id" class="settings-pzc-code-input" placeholder="ID" inputmode="numeric" pattern="[0-9]*" value="${escHtml(editing ? editing.deptId : '')}" autocomplete="off">
       <button id="btn-add-abt" class="btn-secondary settings-add-btn" aria-label="${editing ? 'Übernehmen' : 'Hinzufügen'}">${editing ? '✓' : '+'}</button>
     </div>
+    <input type="text" id="new-abt-addr" class="abt-addr-input" placeholder="📍 Standort (Adresse oder Maps-Link)" value="${escHtml(editing ? editing.address || '' : '')}" autocomplete="off">
     ${editing ? '<button type="button" id="btn-abt-cancel" class="btn-ghost" style="align-self:flex-start">Bearbeiten abbrechen</button>' : ''}
     <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Abteilungen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="abt-list" style="margin-top:4px"></div>
-    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
+    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheint auf Start beim aktuellen bzw. nächsten Dienst „Route“ (Google Maps). Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
 
   const refreshList = () => {
     const el = body.querySelector('#abt-list');
@@ -4708,7 +4737,7 @@ function renderAbteilungenPopup() {
     el.innerHTML = rows.length
       ? rows.map(({ a, i }) => `<div class="code-item code-item-tap${i === _abtEditIdx ? ' is-editing' : ''}" data-idx="${i}">
           <span class="code-item-code">${escHtml(a.deptId || '—')}</span>
-          <span class="code-item-text">${escHtml(a.name || '(ohne Namen)')}</span>
+          <span class="code-item-text">${escHtml(a.name || '(ohne Namen)')}${a.address ? `<small class="abt-addr">📍 ${escHtml(a.address.length > 40 ? a.address.slice(0, 39) + '…' : a.address)}</small>` : ''}</span>
           <button class="btn-code-del" data-idx="${i}" title="Löschen" aria-label="${escHtml(a.name)} löschen">✕</button>
         </div>`).join('')
       : `<div class="code-empty">Keine Einträge${q ? ' für diese Suche' : ''}.</div>`;
@@ -4730,18 +4759,20 @@ function renderAbteilungenPopup() {
   idEl.addEventListener('input', () => digitsOnly(idEl, 6));
   const commit = () => {
     const name = nameEl.value.trim(), deptId = idEl.value.trim();
-    if (!name || !deptId) { toast('Bitte Name und ID eingeben.', 'error'); return; }
+    const address = body.querySelector('#new-abt-addr').value.trim();
+    if (!name || (!deptId && !address)) { toast('Bitte Name und ID oder Standort eingeben.', 'error'); return; }
     state.abteilungen = list;
+    const entry = { name, deptId, ...(address ? { address } : {}) };
     const clash = list.findIndex((a, i) => a.name.toLowerCase() === name.toLowerCase() && i !== _abtEditIdx);
-    if (clash >= 0) list.splice(clash, 1, { name, deptId });
-    else if (_abtEditIdx !== null) list.splice(_abtEditIdx, 1, { name, deptId });
-    else list.push({ name, deptId });
+    if (clash >= 0) list.splice(clash, 1, entry);
+    else if (_abtEditIdx !== null) list.splice(_abtEditIdx, 1, entry);
+    else list.push(entry);
     list.sort((a, b) => a.name.localeCompare(b.name, 'de'));
     _abtEditIdx = null; saveState(); renderAbteilungenPopup(); renderSettings();
     body.querySelector('#new-abt-name').focus();
   };
   body.querySelector('#btn-add-abt').addEventListener('click', commit);
-  [nameEl, idEl].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }));
+  [nameEl, idEl, body.querySelector('#new-abt-addr')].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }));
   const cancel = body.querySelector('#btn-abt-cancel');
   if (cancel) cancel.addEventListener('click', () => { _abtEditIdx = null; renderAbteilungenPopup(); });
   body.querySelector('#abt-filter').addEventListener('input', (e) => { _abtFilter = e.target.value; refreshList(); });
@@ -4750,14 +4781,14 @@ function renderAbteilungenPopup() {
     try {
       const data = parseJsonText(await file.text());
       const raw = Array.isArray(data) ? data : (data.abteilungen || data.departments || []);
-      const valid = raw.filter((a) => a && (a.name || '').trim() && String(a.deptId ?? a.id ?? '').trim())
-        .map((a) => ({ name: a.name.trim(), deptId: String(a.deptId ?? a.id).trim() }));
+      const valid = raw.filter((a) => a && (a.name || '').trim() && (String(a.deptId ?? a.id ?? '').trim() || String(a.address || '').trim()))
+        .map((a) => ({ name: a.name.trim(), deptId: String(a.deptId ?? a.id ?? '').trim(), ...(String(a.address || '').trim() ? { address: String(a.address).trim() } : {}) }));
       const byName = new Map(list.map((a) => [a.name.toLowerCase(), a]));
       let added = 0, updated = 0;
       valid.forEach((a) => {
         const ex = byName.get(a.name.toLowerCase());
         if (!ex) { list.push(a); byName.set(a.name.toLowerCase(), a); added++; }
-        else if (ex.deptId !== a.deptId) { ex.deptId = a.deptId; updated++; }
+        else if (ex.deptId !== a.deptId || (a.address && ex.address !== a.address)) { if (a.deptId) ex.deptId = a.deptId; if (a.address) ex.address = a.address; updated++; }
       });
       list.sort((a, b) => a.name.localeCompare(b.name, 'de'));
       state.abteilungen = list; saveState(); _abtFilter = ''; renderAbteilungenPopup(); renderSettings();
