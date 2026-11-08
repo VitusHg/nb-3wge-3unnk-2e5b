@@ -1835,6 +1835,10 @@ function openIncidentDialog(serviceId, incidentId, opts = {}) {
   setupKennzahlField('statkz', STATKZ_MAP, STATKZ_CODES, src ? src.statKz : '');
   setupPzcField();
   setupNacaField(src && src.naca !== null && src.naca !== undefined ? String(src.naca) : '');
+  // Formular nach Einsatzart: ausgeblendete Felder mit Inhalt → ganzes Formular
+  document.getElementById('ea-full').checked = false;
+  applyEaMode();
+  if (eaHasHiddenData()) { document.getElementById('ea-full').checked = true; applyEaMode(); }
   if (opts.prefill && !inc) document.getElementById('dialog-incident-title').textContent = 'Neuer Einsatz (Kopie)';
 
   const deleteBtn = document.getElementById('btn-inc-delete');
@@ -1982,8 +1986,49 @@ function renderIncTimes() {
   updateIncTimeSummary();
   updateNextTimeBtn();
 }
+// ── Formular nach Einsatzart ───────────────────────────────────────────────
+// full: alles · age: ohne PZC-Diagnose/Behandlungsstufe (nur Alter) ·
+// none: zusätzlich ohne Ziel und ohne Zeiten „Transport“/„Am Ziel“
+const EA_MODE = {
+  1: 'full', 3: 'full', 99: 'full',          // Primärfahrten ins KH (EBA-Zuweisung), Sonstiges
+  2: 'age', 4: 'age', 7: 'age', 17: 'age',   // Heimtransporte, Sekundär, Krankentransport
+  10: 'none', 11: 'none', 14: 'none',        // Übergabe an anderes Rettungsmittel
+  12: 'none', 13: 'none', 15: 'none', 59: 'none', // kein Transport
+};
+const EA_HINT = { age: 'ohne PZC-Diagnose', none: 'ohne PZC und Ziel' };
+function eaMode() {
+  const v = (document.getElementById('inc-einsatzart')?.value || '').trim();
+  if (!v || !EINSATZART_MAP.has(v)) return 'full';
+  if (document.getElementById('ea-full')?.checked) return 'full';
+  return EA_MODE[+v] || 'full';
+}
+function eaHiddenSteps() { return eaMode() === 'none' ? ['transport', 'ziel'] : []; }
+function eaHasHiddenData() {
+  const m = eaMode();
+  if (m === 'full') return false;
+  const v = (id) => (document.getElementById(id)?.value || '').trim();
+  if (v('pzc-diag') || v('pzc-prio')) return true;
+  return m === 'none' && !!(v('inc-to') || incTimes.transport || incTimes.ziel);
+}
+function applyEaMode() {
+  const grid = document.getElementById('inc-code-grid');
+  const dlg = document.getElementById('dialog-incident');
+  if (!grid || !dlg) return;
+  const v = (document.getElementById('inc-einsatzart')?.value || '').trim();
+  const reduced = v && EINSATZART_MAP.has(v) && (EA_MODE[+v] || 'full') !== 'full';
+  const row = document.getElementById('ea-full-row');
+  if (row) row.hidden = !reduced;
+  const m = eaMode();
+  dlg.dataset.eaMode = m;
+  const lbl = document.getElementById('pzc-label');
+  if (lbl) lbl.textContent = m === 'full' ? 'PZC' : 'Alter';
+  updateNextTimeBtn();
+}
+document.addEventListener('change', (e) => { if (e.target && e.target.id === 'ea-full') applyEaMode(); });
+
 function updateNextTimeBtn() {
-  const next = INC_TIME_STEPS.find(([k]) => !incTimes[k]);
+  const hidden = eaHiddenSteps();
+  const next = INC_TIME_STEPS.find(([k]) => !incTimes[k] && !hidden.includes(k));
   const nb = document.getElementById('btn-inc-next-time');
   if (!nb) return;
   nb.hidden = !next;
@@ -2087,6 +2132,7 @@ function setupKennzahlField(key, map, codes, value) {
     searchEl.classList.toggle('is-invalid', !!code && !valid);
     searchEl.classList.toggle('is-resolved', valid);
     if (document.activeElement !== searchEl) searchEl.value = valid ? map.get(code) : '';
+    if (key === 'einsatzart') applyEaMode();
     searchEl.placeholder = code && !valid ? 'Unbekannte ID' : 'Suchen…';
   };
   idEl.oninput = () => {
@@ -3856,7 +3902,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 100;
+const APP_VERSION = 101;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

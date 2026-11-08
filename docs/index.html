@@ -418,7 +418,7 @@
         </div>
 
         <!-- Kennzahlen: kompakt, ID (nur Ziffern) + Suche bzw. Auswahl -->
-        <div class="code-grid">
+        <div class="code-grid" id="inc-code-grid">
           <div class="cg-row">
             <label class="cg-label" for="inc-einsatzart">Einsatzart</label>
             <div class="cg-ctrl">
@@ -429,6 +429,7 @@
               </div>
             </div>
           </div>
+          <label class="ea-full" id="ea-full-row" hidden><input type="checkbox" id="ea-full"> <span>Ganzes Formular</span></label>
           <div class="cg-row">
             <label class="cg-label" for="inc-statkz">Statistik-KZ</label>
             <div class="cg-ctrl">
@@ -440,7 +441,7 @@
             </div>
           </div>
           <div class="cg-row">
-            <label class="cg-label" for="pzc-diag">PZC</label>
+            <label class="cg-label" for="pzc-diag" id="pzc-label">PZC</label>
             <div class="cg-ctrl">
               <div class="cg-pzc">
                 <input type="text" id="pzc-diag" class="cg-id pzc-diag" inputmode="numeric" pattern="[0-9]*" maxlength="3" placeholder="000" autocomplete="off" aria-label="PZC Diagnose" />
@@ -489,7 +490,7 @@
               <div id="inc-from-suggestions" class="suggestions-dropdown"></div>
             </div>
             <button type="button" class="route-swap" id="btn-route-swap" aria-label="Start und Ziel tauschen" title="Tauschen">⇅</button>
-            <div class="suggestion-wrap route-field">
+            <div class="suggestion-wrap route-field" id="inc-to-field">
               <span class="route-dot is-to" aria-hidden="true"></span>
               <input type="text" id="inc-to" placeholder="Ziel" autocomplete="off" enterkeyhint="done" />
               <button type="button" class="route-save" data-for="inc-to" hidden aria-label="Als Kürzel merken" title="Als Kürzel merken">+</button>
