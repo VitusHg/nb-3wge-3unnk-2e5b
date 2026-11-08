@@ -3803,7 +3803,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 97;
+const APP_VERSION = 98;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7545,8 +7545,8 @@ function renderDpShifts(shifts, container) {
  *  damit „Name, BSc“ als eine Person erkennbar bleibt. */
 function dpCrewHtml(shift) {
   const p = Array.isArray(shift.colleagues) ? { colleagues: mergeCrewTitles(shift.colleagues), note: shift.note || '' } : crewOf(shift.description || '');
-  return (p.colleagues.length ? `<div class="dp-shift-meta">👥 ${p.colleagues.map(escHtml).join(' · ')}</div>` : '')
-    + (p.note ? `<div class="dp-shift-meta">ℹ️ ${escHtml(p.note).replace(/\n/g, ' · ')}</div>` : '');
+  return (p.colleagues.length ? `<div class="dp-shift-meta is-crew">👥 ${p.colleagues.map(escHtml).join(' · ')}</div>` : '')
+    + (p.note ? `<div class="dp-shift-meta is-note">ℹ️ ${escHtml(p.note).replace(/\n/g, ' · ')}</div>` : '');
 }
 
 /** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */

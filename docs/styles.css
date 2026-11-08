@@ -3746,3 +3746,64 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .dialog-body { gap: 8px; padding-top: 10px; padding-bottom: 10px; }
 [data-compact] .ib-row { padding-top: 7px; padding-bottom: 7px; }
 [data-compact] .ib-old { display: none; }
+
+/* Kompakt, Stufe 2: nur das Wichtigste */
+[data-compact] .large-title, [data-compact] #service-list-header .large-title { font-size: 24px !important; line-height: 30px !important; }
+[data-compact] .rv-banner,
+[data-compact] .hm-hero-top,
+[data-compact] .hm-crew,
+[data-compact] .hm-veh,
+[data-compact] .hm-section:has(.hm-stats),
+[data-compact] .hm-hero .hm-list .hm-row:nth-child(n+3),
+[data-compact] .hm-section .hm-list .hm-row:nth-child(n+4),
+[data-compact] .hm-qa-icon,
+[data-compact] .svc-month-meta,
+[data-compact] .dp-shift-dur,
+[data-compact] .dp-shift-meta.is-note,
+[data-compact] .sx-note,
+[data-compact] .sx-hero-chips,
+[data-compact] .ib-type { display: none !important; }
+[data-compact] .hm-grid, [data-compact] .hm-col { gap: 10px; }
+[data-compact] .hm-hero-open { gap: 4px; padding: 10px 14px 8px; }
+[data-compact] .hm-hero-sub { -webkit-line-clamp: 1; font-size: 13px; }
+[data-compact] .hm-progress { font-size: 12px; gap: 8px; }
+[data-compact] .hm-hero-incs-hd { font-size: 13px; }
+[data-compact] .hm-qa { min-height: 38px; padding: 6px 12px; justify-content: center; }
+[data-compact] .hm-section-hd { font-size: 14px; }
+[data-compact] .hm-section-hd > span:first-child { font-size: 15px; }
+[data-compact] .hm-row-title { font-size: 15px; }
+[data-compact] .svc-card-top { margin-bottom: 2px; }
+[data-compact] .service-card-title { font-size: 15px; }
+[data-compact] .svc-card-body { padding: 6px 12px; }
+[data-compact] .svc-month { padding-top: 8px; padding-bottom: 4px; }
+[data-compact] .incident-card-note { display: none; }
+[data-compact] .dp-shift-card { padding-top: 8px; padding-bottom: 8px; }
+[data-compact] .dp-shift-actions { margin-top: 6px; }
+[data-compact] .dp-shift-actions .btn-primary, [data-compact] .dp-shift-actions .btn-secondary { padding: 5px 10px; font-size: 13px; }
+[data-compact] .set-group-header { margin-top: 10px; margin-bottom: 4px; }
+[data-compact] .set-row { min-height: 36px; padding-top: 4px; padding-bottom: 4px; }
+[data-compact] .sq-icon { transform: scale(.85); }
+[data-compact] #search-bar input { padding-top: 7px; padding-bottom: 7px; }
+/* Kompakt, Stufe 3 */
+[data-compact] .service-card .shift-code,
+[data-compact] .svc-detail-header ~ * .shift-code,
+[data-compact] .sx-pod-bar,
+[data-compact] .sx-medal,
+[data-compact] .sx-ic,
+[data-compact] .sx-hero-sub,
+[data-compact] .rv-year-k { display: none !important; }
+[data-compact] .fav-entry { min-height: 38px !important; padding-top: 4px !important; padding-bottom: 4px !important; }
+[data-compact] .fav-entry-icon { width: 22px; height: 22px; font-size: 13px; transform: none; }
+[data-compact] #search-input { padding-top: 6px !important; padding-bottom: 6px !important; min-height: 0 !important; }
+[data-compact] .set-row-title, [data-compact] .set-row-value { font-size: 15px !important; }
+[data-compact] .set-avatar { width: 36px; height: 36px; font-size: 16px; }
+[data-compact] .rv-year { padding: 8px 12px !important; min-height: 0 !important; }
+[data-compact] .rv-year-t { font-size: 20px !important; letter-spacing: -.3px; }
+[data-compact] .rv-play { width: 24px; height: 24px; }
+[data-compact] .rv-all, [data-compact] .rv-alltime { padding: 7px !important; font-size: 14px; }
+[data-compact] .sx-hero { padding: 10px 14px; margin-bottom: 10px; border-radius: 16px; }
+[data-compact] .sx-hero-big { font-size: 34px; }
+[data-compact] .sx-card { padding: 10px 12px 12px; }
+[data-compact] .sx-podium { gap: 4px; }
+[data-compact] .sx-pod { gap: 2px; font-size: 13px; }
+[data-compact] .svc-meta-row { padding-top: 6px; padding-bottom: 6px; }
