@@ -3831,3 +3831,5 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .hm-hero-acts .hm-hero-btn { flex: 1; margin: 0; }
 .abt-addr-input { width: 100%; margin-top: 6px; }
 .abt-addr { display: block; font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.abt-sug { align-items: center; }
+.abt-sug .abt-sug-add { padding: 5px 12px; font-size: 13px; flex-shrink: 0; }

@@ -3883,7 +3883,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 103;
+const APP_VERSION = 104;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3982,7 +3982,7 @@ function renderSettings() {
     <div class="set-group">
       ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, id: 'btn-open-vehicles-popup' })}
       ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, id: 'btn-open-codes-popup' })}
-      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-open-abt-popup' })}
+      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: abtRowValue(), id: 'btn-open-abt-popup' })}
       ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
     </div>
 
@@ -4176,7 +4176,7 @@ function settingsPageDienstplan(el, title) {
     <p class="set-group-footer">Wird nicht mehr gebraucht – der Dienstplan kommt über den Worker.</p>` : ''}
 
     <div class="set-group">
-      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: String((state.abteilungen || []).length), id: 'btn-dp-open-abt' })}
+      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: abtRowValue(), id: 'btn-dp-open-abt' })}
     </div>
     <p class="set-group-footer">Verknüpft den Abteilungsnamen eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag. Ob Links in Safari oder in der App aufgehen, stellst du unter <strong>Einstellungen → Bedienung</strong> ein.</p>`;
   el.querySelector('#btn-dp-open-abt').addEventListener('click', openAbteilungenPopup);
@@ -4701,6 +4701,31 @@ function refreshVehicleAssignList() {
 }
 
 // ── Abteilungen (Aufbau wie Stichwörter & PZC) ────────────────────────────
+function abtRowValue() { const n = (state.abteilungen || []).length, k = abteilungSuggestions().length; return k ? `${n} · ${k} Vorschl.` : String(n); }
+function abtSuggestHidden() { try { const a = JSON.parse(lsGet('etb_abt_sug_hidden') || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
+/** Dienststellen aus Tagebuch/Dienstplan ohne passenden Abteilungs-Eintrag. */
+function abteilungSuggestions() {
+  const hidden = new Set(abtSuggestHidden());
+  const map = new Map();
+  const add = (name, src) => {
+    const n = String(name || '').trim();
+    if (!n) return;
+    // „MINA“ und „MINA RKZ“ / „MINA West“ als eine Dienststelle zählen; kürzeste Schreibweise anzeigen
+    const k = n.toLowerCase().split(/\s+/).filter((w) => w !== 'rkz' && w !== 'west').join(' ') || n.toLowerCase();
+    const e = map.get(k) || { name: n, n: 0, tb: 0, dp: 0 };
+    if (n.length < e.name.length) e.name = n;
+    e.n++; e[src]++; map.set(k, e);
+  };
+  state.services.filter((s) => !s.isSeg).forEach((s) => add(s.abteilung || s.location, 'tb'));
+  const cache = readIcsCache();
+  ((cache && cache.shifts) || []).forEach((x) => add(x.location, 'dp'));
+  return [...map.values()]
+    .filter((e) => !hidden.has(e.name.toLowerCase()) && !findAbteilung({ abteilung: e.name }))
+    .map((e) => ({ ...e, src: e.tb && e.dp ? 'Tagebuch & Dienstplan' : e.tb ? 'im Tagebuch' : 'im Dienstplan' }))
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'de'))
+    .slice(0, 30);
+}
+
 function openAbteilungenPopup() {
   _abtEditIdx = null;
   renderAbteilungenPopup();
@@ -4728,6 +4753,7 @@ function renderAbteilungenPopup() {
     ${editing ? '<button type="button" id="btn-abt-cancel" class="btn-ghost" style="align-self:flex-start">Bearbeiten abbrechen</button>' : ''}
     <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Abteilungen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="abt-list" style="margin-top:4px"></div>
+    <div id="abt-suggest"></div>
     <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheint auf Start beim aktuellen bzw. nächsten Dienst „Route“ (Google Maps). Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
 
   const refreshList = () => {
@@ -4753,6 +4779,32 @@ function renderAbteilungenPopup() {
     enableCodeListSwipe(el);
   };
   refreshList();
+
+  // Vorschläge: Dienststellen aus Tagebuch und Dienstplan, die noch fehlen
+  const renderSuggest = () => {
+    const box = body.querySelector('#abt-suggest');
+    const sug = abteilungSuggestions();
+    box.innerHTML = sug.length ? `<h4 class="popup-col-title" style="margin-top:14px">Vorschläge <span class="popup-col-count">${sug.length}</span></h4>
+      <div class="settings-code-list">${sug.map((x) => `<div class="code-item abt-sug">
+        <span class="code-item-text">${escHtml(x.name)}<small class="abt-addr">${x.n}× ${x.src}</small></span>
+        <button type="button" class="btn-secondary abt-sug-add" data-sug="${escHtml(x.name)}">Anlegen</button>
+        <button type="button" class="btn-code-del" data-sug-hide="${escHtml(x.name)}" title="Ausblenden" aria-label="${escHtml(x.name)} ausblenden">✕</button>
+      </div>`).join('')}</div>` : '';
+    box.querySelectorAll('[data-sug]').forEach((b) => b.addEventListener('click', () => {
+      _abtEditIdx = null;
+      const n = body.querySelector('#new-abt-name');
+      n.value = b.dataset.sug;
+      body.querySelector('#new-abt-id').focus();
+      body.querySelector('.settings-add-row').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }));
+    box.querySelectorAll('[data-sug-hide]').forEach((b) => b.addEventListener('click', () => {
+      const hidden = abtSuggestHidden();
+      hidden.push(b.dataset.sugHide.toLowerCase());
+      lsSet('etb_abt_sug_hidden', JSON.stringify([...new Set(hidden)]));
+      renderSuggest();
+    }));
+  };
+  renderSuggest();
 
   const nameEl = body.querySelector('#new-abt-name');
   const idEl = body.querySelector('#new-abt-id');
