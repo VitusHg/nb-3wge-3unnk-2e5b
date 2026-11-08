@@ -3675,3 +3675,74 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .iq-t b { font-size: 15px; font-weight: 600; }
 .iq-t small { font-size: 12px; color: var(--text2); }
 #dp-inbox-body-wrap { display: block; }
+
+/* ── Postfach: übersichtliche Änderungsliste ─────────────────── */
+.ib-hd { margin: 4px 4px 6px; font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .3px; }
+.ib-hd ~ .ib-hd { margin-top: 16px; }
+.ib-list { border-radius: 14px; background: var(--fill); overflow: hidden; }
+.ib-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border: none; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ib-row + .ib-row { border-top: 0.5px solid var(--separator); }
+.ib-row:active { background: var(--cell-pressed); }
+.ib-ic { flex: none; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
+.ib-row.is-added .ib-ic { color: var(--green-light); background: rgba(48, 209, 88, .16); }
+.ib-row.is-updated .ib-ic { color: var(--orange); background: rgba(255, 159, 10, .16); }
+.ib-row.is-removed .ib-ic { color: var(--danger); background: var(--accent-soft); }
+.ib-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ib-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ib-row:not(.is-unread) .ib-title { font-weight: 500; }
+.ib-when { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ib-type { font-weight: 600; }
+.ib-row.is-added .ib-type { color: var(--green-light); }
+.ib-row.is-updated .ib-type { color: var(--orange); }
+.ib-row.is-removed .ib-type { color: var(--danger); }
+.ib-row.is-removed .ib-title { text-decoration: line-through; text-decoration-color: var(--text3); }
+.ib-old { font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.ib-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.ib-at { font-size: 12px; color: var(--text3); }
+.ib-n { font-size: 11px; font-weight: 700; color: var(--text2); background: var(--fill2); border-radius: 8px; padding: 1px 6px; }
+.ib-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+
+/* Orte: Sortierung */
+.place-sort { display: flex; gap: 2px; margin: 4px 0 2px; padding: 2px; border-radius: 9px; background: var(--fill); }
+.place-sort button { flex: 1; padding: 6px 0; border: none; border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 13px; font-weight: 600; }
+.place-sort button[aria-checked="true"] { background: var(--card2); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); }
+.place-n { flex: none; margin-right: 6px; font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+/* ── Kompakt-Modus: weniger Beschriftung, engere Abstände ────── */
+[data-compact] .large-title, [data-compact] #service-list-header .large-title { font-size: 28px !important; line-height: 34px !important; }
+[data-compact] .svc-card-body { padding: 8px 12px; }
+[data-compact] .fav-entry { padding-top: 6px; padding-bottom: 6px; }
+[data-compact] .fav-entry-icon { transform: scale(.8); }
+[data-compact] .hm-date,
+[data-compact] .hm-progress-meta,
+[data-compact] .hm-qa-sub,
+[data-compact] .hm-stat-sub,
+[data-compact] .hm-inc .hm-row-sub,
+[data-compact] .hm-eyebrow,
+[data-compact] .it-hint,
+[data-compact] .svc-card-note,
+[data-compact] .set-row-sub,
+[data-compact] .set-group-footer:not(#ics-status):not(#about-storage-foot),
+[data-compact] .settings-hint,
+[data-compact] .inbox-hint { display: none !important; }
+[data-compact] .rv-banner { padding-top: 8px; padding-bottom: 8px; }
+[data-compact] .hm-hero-open { gap: 6px; padding: 10px 14px; }
+[data-compact] .hm-countdown { font-size: 22px; }
+[data-compact] .hm-hero-title { font-size: 17px; }
+[data-compact] .hm-veh { width: 70px; height: 38px; }
+[data-compact] .hm-hero-incs-hd { padding: 6px 14px; }
+[data-compact] .hm-add-inc { padding: 6px 14px; }
+[data-compact] .hm-qa { min-height: 44px; padding: 8px 12px; flex-direction: row; align-items: center; gap: 8px; }
+[data-compact] .hm-row { padding-top: 7px; padding-bottom: 7px; }
+[data-compact] .hm-section { gap: 4px; }
+[data-compact] .hm-stat-val { font-size: 20px; }
+[data-compact] .service-card { margin-bottom: 4px; }
+[data-compact] .svc-card-icon-wrap { width: 54px; min-height: 42px; }
+[data-compact] .svc-card-icon { max-width: 48px; max-height: 28px; }
+[data-compact] .incident-card { padding: 7px 12px; margin-bottom: 4px; }
+[data-compact] .incident-card-note { -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+[data-compact] .set-row { min-height: 40px; padding-top: 6px; padding-bottom: 6px; }
+[data-compact] .set-group-header { margin-top: 14px; }
+[data-compact] .dialog-body { gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+[data-compact] .ib-row { padding-top: 7px; padding-bottom: 7px; }
+[data-compact] .ib-old { display: none; }

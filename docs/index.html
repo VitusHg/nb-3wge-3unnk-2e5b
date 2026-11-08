@@ -15,6 +15,7 @@
       try { t = localStorage.getItem('etb_theme'); } catch (e) { /* ignorieren */ }
       if (['system', 'light', 'dark'].indexOf(t) === -1) t = 'system';
       document.documentElement.setAttribute('data-theme', t);
+      try { if (localStorage.getItem('etb_compact') === '1') document.documentElement.setAttribute('data-compact', '1'); } catch (e) { /* ignorieren */ }
       var light = t === 'light' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
       document.getElementById('theme-color-meta').setAttribute('content', light ? '#f2f2f7' : '#000000');
     })();

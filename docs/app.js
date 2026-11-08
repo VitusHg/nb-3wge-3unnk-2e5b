@@ -3803,7 +3803,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 96;
+const APP_VERSION = 97;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3888,7 +3888,7 @@ function renderSettings() {
 
     <div class="set-group-header">App</div>
     <div class="set-group">
-      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', sub: 'Hell/Dunkel, Statistik-Stil', value: themeLabel(currentTheme()), push: 'darstellung' })}
+      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()) + (compactOn() ? ' · Kompakt' : ''), push: 'darstellung' })}
       ${setRow({ icon: 'hand', color: 'teal', title: 'Bedienung', sub: 'Beim Öffnen, Links, Kurzbefehle', value: ({ '': 'Start', 'neu-einsatz': 'Neuer Einsatz', tagebuch: 'Tagebuch', dienstplan: 'Dienstplan', statistik: 'Statistik' })[lsGet('etb_launch_action') || ''] || 'Start', push: 'bedienung' })}
     </div>
 
@@ -3989,34 +3989,42 @@ function settingsPageProfil(el, title) {
 // — Darstellung —————————————————————————————————————————————————————————
 function statsStyle() { return lsGet('etb_stats_style') === 'classic' ? 'classic' : 'dynamic'; }
 
+const compactOn = () => lsGet('etb_compact') === '1';
+function applyCompact(on) {
+  lsSet('etb_compact', on ? '1' : null);
+  document.documentElement.toggleAttribute('data-compact', on);
+  if (on) document.documentElement.setAttribute('data-compact', '1');
+}
 function settingsPageDarstellung(el, title) {
   const cur = currentTheme();
-  const opt = (val, label, sub) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${cur === val}" data-theme-choice="${val}">
-      <span class="set-row-text"><span class="set-row-title">${label}</span>${sub ? `<span class="set-row-sub">${sub}</span>` : ''}</span>
+  const choice = (attr, val, label, on) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${on}" data-${attr}="${val}">
+      <span class="set-row-text"><span class="set-row-title">${label}</span></span>
       <span class="set-check">${SET_ICONS.check}</span>
     </button>`;
   el.innerHTML = `${title}
     <div class="set-group-header">Design</div>
     <div class="set-group" role="radiogroup" aria-label="Design">
-      ${opt('system', 'Wie System', 'Hell oder dunkel nach Geräteeinstellung')}
-      ${opt('light', 'Hell', '')}
-      ${opt('dark', 'Dunkel', 'Angenehm im Nachtdienst')}
+      ${choice('theme-choice', 'system', 'Wie System', cur === 'system')}
+      ${choice('theme-choice', 'light', 'Hell', cur === 'light')}
+      ${choice('theme-choice', 'dark', 'Dunkel', cur === 'dark')}
     </div>
-    <p class="set-group-footer">Bedienung und Funktionen sind in allen Designs gleich.</p>
+    <div class="set-group">
+      <label class="set-row set-row-switch">
+        <span class="set-row-text"><span class="set-row-title">Kompakt</span></span>
+        <input type="checkbox" class="set-switch" id="set-compact" ${compactOn() ? 'checked' : ''}>
+      </label>
+    </div>
     <div class="set-group-header">Statistik</div>
     <div class="set-group" role="radiogroup" aria-label="Statistik">
-      ${['dynamic', 'classic'].map((v) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${statsStyle() === v}" data-stats-choice="${v}">
-        <span class="set-row-text"><span class="set-row-title">${v === 'dynamic' ? 'Dynamisch' : 'Klassisch'}</span><span class="set-row-sub">${v === 'dynamic' ? 'Podest, Anteilsbalken, Tageszeit-Raster und Farbe' : 'Schlichte Ranglisten mit Kreisdiagrammen'}</span></span>
-        <span class="set-check">${SET_ICONS.check}</span>
-      </button>`).join('')}
-    </div>
-    <p class="set-group-footer">Filter, Rückblicke und Aktivität gibt es in beiden Varianten.</p>`;
+      ${choice('stats-choice', 'dynamic', 'Dynamisch', statsStyle() === 'dynamic')}
+      ${choice('stats-choice', 'classic', 'Klassisch', statsStyle() === 'classic')}
+    </div>`;
+  el.querySelector('#set-compact').addEventListener('change', (e) => { applyCompact(e.target.checked); renderSettings(); });
   el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
       lsSet('etb_stats_style', btn.dataset.statsChoice);
       el.querySelectorAll('[data-stats-choice]').forEach((b) => b.setAttribute('aria-checked', String(b === btn)));
       renderStats();
-      toast(btn.dataset.statsChoice === 'classic' ? 'Klassische Statistik aktiv.' : 'Dynamische Statistik aktiv.', 'success', 1500);
     });
   });
   el.querySelectorAll('[data-theme-choice]').forEach((btn) => {
@@ -4231,15 +4239,28 @@ function settingsPageBedienung(el, title) {
 // — Orte & Ziele ——————————————————————————————————————————————————————
 function settingsPageOrte(el, title) {
   const places = state.places || [];
+  // Anzeige sortiert (Häufigkeit in Start/Ziel oder alphabetisch); data-i bleibt der echte Index
+  const mode = lsGet('etb_places_sort') === 'alpha' ? 'alpha' : 'freq';
+  const used = new Map();
+  allIncidentsFlat().forEach((inc) => [inc.from, inc.to].forEach((v) => { const k = String(v || '').trim().toLowerCase(); if (k) used.set(k, (used.get(k) || 0) + 1); }));
+  const count = (p) => used.get(p.toLowerCase()) || 0;
+  const order = places.map((p, i) => i).sort((a, b) => mode === 'alpha'
+    ? places[a].localeCompare(places[b], 'de')
+    : count(places[b]) - count(places[a]) || places[a].localeCompare(places[b], 'de'));
   el.innerHTML = `${title}
+    ${places.length > 1 ? `<div class="place-sort" role="radiogroup" aria-label="Sortierung">
+      <button type="button" role="radio" aria-checked="${mode === 'freq'}" data-place-sort="freq">Häufigkeit</button>
+      <button type="button" role="radio" aria-checked="${mode === 'alpha'}" data-place-sort="alpha">A–Z</button>
+    </div>` : ''}
     <div class="set-group-header">Deine Kürzel</div>
     <div class="set-group">
-      ${places.length ? places.map((p, i) => `<div class="set-row place-row"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten"><button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
+      ${places.length ? order.map((i) => [places[i], i]).map(([p, i]) => `<div class="set-row place-row"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten">${mode === 'freq' && count(p) ? `<span class="place-n">${count(p)}×</span>` : ''}<button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
       <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neues Kürzel" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
     </div>
-    <p class="set-group-footer">Zum Bearbeiten einfach in den Eintrag tippen. Kürzel erscheinen im Einsatz bei Start → Ziel in den Vorschlägen.</p>`;
+    <p class="set-group-footer">Zum Bearbeiten in den Eintrag tippen.</p>`;
   const save = (list) => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); };
   el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => save(places.filter((_, i) => i !== +b.dataset.i))));
+  el.querySelectorAll('[data-place-sort]').forEach((b) => b.addEventListener('click', () => { lsSet('etb_places_sort', b.dataset.placeSort === 'alpha' ? 'alpha' : null); renderSettingsPage(); }));
   el.querySelectorAll('.place-edit').forEach((inp) => {
     const commit = () => {
       const i = +inp.dataset.i, v = inp.value.trim();
@@ -5020,7 +5041,7 @@ function openExportDialog() {
 }
 
 // App-Einstellungen, die mit „Einstellungen“ gesichert und übernommen werden
-const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
+const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_compact', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
 function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
@@ -5124,6 +5145,7 @@ function doSelectiveImport(data, chosen) {
     const iconsBefore = iconsOfflineEnabled();
     SETTINGS_EXPORT_KEYS.forEach((k) => { if (typeof data.settings[k] === 'string') lsSet(k, data.settings[k]); });
     if (data.settings.etb_theme) applyTheme(data.settings.etb_theme);
+    applyCompact(lsGet('etb_compact') === '1');
     if (iconsOfflineEnabled() !== iconsBefore) setIconsOffline(iconsOfflineEnabled()).catch(() => {});
     msgs.push('Einstellungen');
   }
@@ -8140,20 +8162,28 @@ async function syncAppBadge(keys) {
 }
 
 function dpInboxRowsHtml(items) {
-  const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' };
-  const fmt = (x) => {
-    const s = new Date(x.s), e = new Date(x.e);
-    return `${s.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(s)}–${formatTimeHM(e)}`;
-  };
+  const meta = { added: ['＋', 'Neu'], updated: ['✎', 'Geändert'], removed: ['✕', 'Ausfall'] };
+  const now = new Date();
+  const range = (x) => `${formatTimeHM(new Date(x.s))}–${formatTimeHM(new Date(x.e))}`;
   return items.map(({ key, list, latest, type, x, first, moved, unread }) => {
-    const extra = moved ? ` <span class="dp-chg-old">vorher ${escHtml(fmt(first))}</span>` : '';
+    const [ic, lbl] = meta[type] || meta.updated;
+    const s = new Date(x.s);
+    const title = [x.t || 'Dienst', x.l].filter(Boolean).join(' · ');
+    const old = moved && first ? `vorher ${localDateStr(new Date(first.s)) === localDateStr(s) ? '' : homeDayLabel(new Date(first.s), now) + ' '}${range(first)}` : '';
     const n = list.length;
-    return `<div class="dp-chg-row${unread ? ' is-unread' : ''}" role="button" tabindex="0" data-inbox-key="${escHtml(key)}">
-      <span class="inbox-dot" aria-label="${unread ? 'ungelesen' : 'gelesen'}"></span>
-      <span class="dp-chg-badge is-${type}">${label[type]}</span>
-      <span class="dp-chg-main"><span class="dp-chg-title">${escHtml(x.t || 'Dienst')}${n > 1 ? ` <span class="dp-chg-n">${n} Änderungen</span>` : ''}</span><span class="dp-chg-sub">${escHtml(fmt(x))}${x.l ? ' · ' + escHtml(x.l) : ''}${extra}</span></span>
-      <span class="dp-chg-at">${escHtml(homeDayLabel(new Date(latest.at), new Date()))}</span>
-    </div>`;
+    return `<button type="button" class="ib-row is-${type}${unread ? ' is-unread' : ''}" data-inbox-key="${escHtml(key)}" aria-label="${escHtml(lbl + ': ' + title)}${unread ? ' (ungelesen)' : ''}">
+      <span class="ib-ic" aria-hidden="true">${ic}</span>
+      <span class="ib-main">
+        <span class="ib-title">${escHtml(title)}</span>
+        <span class="ib-when"><span class="ib-type">${lbl}</span> · ${escHtml(homeDayLabel(s, now))} · ${escHtml(range(x))}</span>
+        ${old ? `<span class="ib-old">${escHtml(old)}</span>` : ''}
+      </span>
+      <span class="ib-side">
+        <span class="ib-at">${escHtml(homeDayLabel(new Date(latest.at), now))}</span>
+        ${n > 1 ? `<span class="ib-n">${n}×</span>` : ''}
+        ${unread ? '<span class="ib-dot" aria-hidden="true"></span>' : ''}
+      </span>
+    </button>`;
   }).join('');
 }
 
@@ -8164,8 +8194,11 @@ function renderDpInbox() {
   const unread = items.filter((g) => g.unread).length;
   document.getElementById('btn-dp-inbox-readall').disabled = !unread;
   body.innerHTML = items.length
-    ? `<p class="inbox-hint">${unread ? `${unread} ungelesen · ` : ''}Änderungen der letzten ${DP_CHANGES_DAYS} Tage. Antippen zeigt den Verlauf.</p>
-       <div class="dp-chg inbox-list">${dpInboxRowsHtml(items)}</div>`
+    ? (() => {
+      const fresh = items.filter((g) => g.unread), seen = items.filter((g) => !g.unread);
+      const sec = (hd, list) => list.length ? `<div class="ib-hd">${hd}</div><div class="ib-list">${dpInboxRowsHtml(list)}</div>` : '';
+      return sec(`Ungelesen · ${fresh.length}`, fresh) + sec(fresh.length ? 'Gelesen' : `Letzte ${DP_CHANGES_DAYS} Tage`, seen);
+    })()
     : `<div class="list-empty"><div class="list-empty-icon">📭</div><strong>Keine Änderungen</strong><span>${dpConfigured() ? 'In den letzten 7 Tagen hat sich im Dienstplan nichts geändert.' : 'Der Dienstplan ist nicht verbunden – Änderungen erscheinen hier, sobald er in den Einstellungen verbunden ist.'}</span></div>`;
   body.querySelectorAll('[data-inbox-key]').forEach((row) => row.addEventListener('click', () => {
     const key = row.dataset.inboxKey;
