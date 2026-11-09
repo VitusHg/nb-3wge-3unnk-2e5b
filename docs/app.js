@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 108;
+const APP_VERSION = 109;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7866,14 +7866,9 @@ function tdpUrl(deptId, dateStr) {
   return `https://dienstplan.st.roteskreuz.at/Home/Dienstplan/${dateStr}-00000000-0000-0000-0000-000000000000-${deptId}`;
 }
 let tdpMonth = null; // erster Tag des angezeigten Monats
-/** Dienststellen mit ID; gleiche ID nur einmal (kürzester Name). */
+/** Alle Dienststellen mit ID (auch mehrere Schreibweisen mit gleicher ID). */
 function tdpDepts() {
-  const byId = new Map();
-  (state.dienststellen || []).filter((d) => d.deptId).forEach((d) => {
-    const ex = byId.get(d.deptId);
-    if (!ex || d.name.length < ex.name.length) byId.set(d.deptId, d);
-  });
-  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  return (state.dienststellen || []).filter((d) => d.deptId).slice().sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 /** Tage mit eigenem Dienst (Tagebuch ohne SEG + Dienstplan), als „YYYY-MM-DD“ → Dienststellen-IDs. */
 function tdpDutyDays() {
@@ -7907,12 +7902,14 @@ function renderTdpPopup() {
     return;
   }
   // Vorauswahl: zuletzt gewählt, sonst Dienststelle des laufenden/nächsten Dienstes
-  let sel = lsGet('etb_tdp_dept');
-  if (!depts.some((d) => d.deptId === sel)) {
+  // Auswahl über den Namen merken (gleiche ID kann mehrfach vorkommen)
+  let selName = lsGet('etb_tdp_dept');
+  if (!depts.some((d) => d.name === selName)) {
     const svc = runningService() || state.services.filter((s) => !s.isSeg && parseLocalDt(s.startAt) > new Date()).sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
     const abt = svc && findAbteilung(svc);
-    sel = abt && abt.deptId ? abt.deptId : depts[0].deptId;
+    selName = abt && abt.deptId && depts.some((d) => d.name === abt.name) ? abt.name : depts[0].name;
   }
+  const sel = depts.find((d) => d.name === selName).deptId;
   const duty = tdpDutyDays();
   const m = tdpMonth, y = m.getFullYear(), mo = m.getMonth();
   const first = (new Date(y, mo, 1).getDay() + 6) % 7; // Montag zuerst
@@ -7927,7 +7924,7 @@ function renderTdpPopup() {
     cells += `<a class="${cls}" ${dpLinkAttrs(tdpUrl(sel, ds))} aria-label="Tagesdienstplan ${d}.${mo + 1}.${y}${set ? ' (Dienst)' : ''}">${d}</a>`;
   }
   box.innerHTML = `<label class="tdp-dept"><span>Dienststelle</span>
-      <select id="tdp-dept">${depts.map((d) => `<option value="${escHtml(d.deptId)}"${d.deptId === sel ? ' selected' : ''}>${escHtml(d.name)}</option>`).join('')}</select></label>
+      <select id="tdp-dept">${depts.map((d) => `<option value="${escHtml(d.name)}"${d.name === selName ? ' selected' : ''}>${escHtml(d.name)}</option>`).join('')}</select></label>
     <div class="tdp-cal">
       <div class="tdp-head">
         <button type="button" class="tdp-nav" data-tdp-m="-1" aria-label="Voriger Monat">‹</button>
@@ -7941,7 +7938,7 @@ function renderTdpPopup() {
   box.querySelector('#tdp-dept').onchange = (e) => { lsSet('etb_tdp_dept', e.target.value); renderTdpPopup(); };
   box.querySelectorAll('[data-tdp-m]').forEach((b) => b.addEventListener('click', () => { tdpMonth = new Date(y, mo + +b.dataset.tdpM, 1); renderTdpPopup(); }));
   box.querySelector('#tdp-today').onclick = () => { const n = new Date(); tdpMonth = new Date(n.getFullYear(), n.getMonth(), 1); renderTdpPopup(); };
-  box.querySelectorAll('a.tdp-day').forEach((a) => a.addEventListener('click', () => lsSet('etb_tdp_dept', sel)));
+  box.querySelectorAll('a.tdp-day').forEach((a) => a.addEventListener('click', () => lsSet('etb_tdp_dept', selName)));
 }
 document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#btn-tdp')) openTdpPopup(); });
 
