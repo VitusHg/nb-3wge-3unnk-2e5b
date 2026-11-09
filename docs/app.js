@@ -299,6 +299,7 @@ function saveState() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     checkNewBadges();
+    try { syncNoteChange(); } catch (_) { /* Sync noch nicht geladen */ }
     return true;
   } catch (err) {
     console.error('Speichern fehlgeschlagen:', err);
@@ -3882,7 +3883,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 114;
+const APP_VERSION = 115;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3893,6 +3894,7 @@ const SETTINGS_PAGES = {
   benachrichtigungen: 'Benachrichtigungen',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
+  konto: 'Konto & Sync',
   ueber: 'Über',
 };
 let settingsSub = null;
@@ -3903,6 +3905,7 @@ const SET_ICONS = {
   pin: '<svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>',
   hand: '<svg viewBox="0 0 24 24"><path d="M8.5 12V5.5a1.5 1.5 0 0 1 3 0V11M11.5 10.5V4a1.5 1.5 0 0 1 3 0v6.5M14.5 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.6 6.5-6 6.5-2.4 0-4-1.2-5.2-3.3L4.6 13.4a1.5 1.5 0 0 1 2.5-1.6l1.4 1.7"/></svg>',
   disk: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .4-8A5.5 5.5 0 0 0 7.3 9.2 4.7 4.7 0 0 0 7 18.5z"/><path d="M12 11v5M9.8 13.2 12 11l2.2 2.2"/></svg>',
   bell: '<svg viewBox="0 0 24 24"><path d="M6.5 16V11a5.5 5.5 0 0 1 11 0v5l1.5 1.5h-14z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
   car: '<svg viewBox="0 0 24 24"><path d="M3.5 16.5V9.5a2 2 0 0 1 2-2h8l4.5 4h1a1.5 1.5 0 0 1 1.5 1.5v3.5"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/><path d="M9.5 11.5h-3M8 10v3"/></svg>',
@@ -3987,6 +3990,7 @@ function renderSettings() {
 
     <div class="set-group-header">Daten</div>
     <div class="set-group">
+      ${setRow({ icon: 'cloud', color: 'teal', title: 'Konto &amp; Sync', sub: 'Verschlüsselt sichern, auch am Computer', value: syncOn() ? (lsGet(SYNC_DIRTY_KEY) === '1' ? 'Ungesichert' : 'An') : 'Aus', push: 'konto' })}
       ${setRow({ icon: 'archive', color: 'blue', title: 'Daten &amp; Backup', sub: 'Sichern, Import, Kalender-Export', push: 'daten' })}
       ${setRow({ icon: 'disk', color: 'pink', title: 'Speicher', sub: 'Belegung, Fahrzeuggrafiken', value: iconsOfflineEnabled() ? '' : 'Grafiken ausgelagert', push: 'speicher' })}
     </div>
@@ -4038,6 +4042,7 @@ function renderSettingsPage() {
     orte: settingsPageOrte,
     benachrichtigungen: settingsPageBenachrichtigungen,
     speicher: settingsPageSpeicher,
+    konto: settingsPageKonto,
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
     ueber: settingsPageUeber,
@@ -9476,3 +9481,385 @@ function enableCodeListSwipe(listEl) {
     });
   });
 }
+
+// ── Konto & Synchronisation (Ende-zu-Ende verschlüsselt) ─────────────────────
+// Das Tagebuch wird auf dem Gerät mit AES-256-GCM verschlüsselt; der Schlüssel
+// entsteht aus dem Passwort (PBKDF2, 600 000 Runden) und wird nur hier – nicht
+// auslesbar – in IndexedDB abgelegt. Der Worker sieht nur verschlüsselte Daten.
+// Nicht synchronisiert: Dienstplan-Zugangsschlüssel und die Sync-Anmeldung selbst.
+const SYNC_URL_KEY = 'etb_sync_url';
+const SYNC_USER_KEY = 'etb_sync_user';
+const SYNC_TOKEN_KEY = 'etb_sync_token';
+const SYNC_BASE_KEY = 'etb_sync_base';
+const SYNC_DIRTY_KEY = 'etb_sync_dirty';
+const SYNC_LAST_KEY = 'etb_sync_last';
+const SYNC_DEVICE_KEY = 'etb_sync_device';
+// zusätzlich zu den App-Einstellungen mitsynchronisiert (Gerät ↔ Gerät)
+const SYNC_EXTRA_LS = [DP_WORKER_KEY, 'etb_places_sort', 'etb_abt_sug_hidden', 'etb_tdp_dept', 'etb_badges_seen', BACKUP_KEY];
+let syncApplying = false, syncTimer = 0, syncBusy = false;
+
+const syncOn = () => !!(lsGet(SYNC_TOKEN_KEY) && lsGet(SYNC_URL_KEY));
+const syncDevice = () => lsGet(SYNC_DEVICE_KEY) || (isIOSDevice() ? 'iPhone' : (navigator.userAgentData && navigator.userAgentData.platform) || 'Computer');
+const b64u = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+function bytesToB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+function b64ToBytes(b) { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+
+// — Schlüssel in IndexedDB (nicht exportierbar) —
+function syncDb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('etb-sync', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('keys');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function syncKeyStore(key) {
+  const db = await syncDb();
+  await new Promise((res, rej) => { const t = db.transaction('keys', 'readwrite'); key ? t.objectStore('keys').put(key, 'enc') : t.objectStore('keys').delete('enc'); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function syncKeyLoad() {
+  try {
+    const db = await syncDb();
+    return await new Promise((res) => { const t = db.transaction('keys', 'readonly'); const r = t.objectStore('keys').get('enc'); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); });
+  } catch (_) { return null; }
+}
+/** Passwort → { authKey (an den Server), encKey (bleibt hier) } */
+async function syncDerive(password, saltB64, iter) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64u(saltB64), iterations: iter }, base, 512));
+  const encKey = await crypto.subtle.importKey('raw', bits.slice(32), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  return { authKey: b64u(bits.slice(0, 32)), encKey };
+}
+async function syncApi(path, body, { token = lsGet(SYNC_TOKEN_KEY), url = lsGet(SYNC_URL_KEY) } = {}) {
+  const res = await fetch(url.replace(/\/+$/, '') + path, {
+    method: 'POST', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: JSON.stringify(body || {}),
+  });
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) { const e = new Error(syncErrText(data.error, data)); e.code = data.error; e.status = res.status; e.data = data; throw e; }
+  return data;
+}
+function syncErrText(code, d = {}) {
+  return ({
+    invalid_login: 'Benutzername oder Passwort falsch.', totp_required: 'Bitte den Code aus der Authenticator-App eingeben.',
+    invalid_totp: 'Code falsch oder schon verwendet.', locked: `Zu viele Fehlversuche – bitte in ${Math.ceil((d.retryAfter || 900) / 60)} Minuten erneut versuchen.`,
+    unauthorized: 'Nicht angemeldet oder Zugangsschlüssel falsch.', account_exists: 'Auf diesem Server gibt es schon ein Konto – bitte anmelden.',
+    bad_username: 'Benutzername: 3–40 Zeichen (Buchstaben, Ziffern, . _ -).', conflict: 'Auf einem anderen Gerät wurde inzwischen geändert.',
+    not_found: 'Diese Funktion kennt der Worker noch nicht – bitte den Worker aktualisieren.', too_large: 'Daten zu groß.',
+  })[code] || 'Server-Fehler' + (code ? ` (${code})` : '');
+}
+
+// — Inhalt: ganzer Zustand + Einstellungen (ohne Dienstplan-Schlüssel) —
+function syncCollect() {
+  const ls = {};
+  [...SETTINGS_EXPORT_KEYS, ...SYNC_EXTRA_LS].forEach((k) => { const v = lsGet(k); if (v) ls[k] = v; });
+  return { format: 'etb-sync-1', at: Date.now(), app: APP_VERSION, state, ls };
+}
+async function syncEncrypt(obj) {
+  const key = await syncKeyLoad();
+  if (!key) throw new Error('Schlüssel fehlt – bitte neu anmelden.');
+  let bytes = new TextEncoder().encode(JSON.stringify(obj)), z = false;
+  if (typeof CompressionStream !== 'undefined') {
+    bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); z = true;
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  return { iv: b64u(iv), ct: bytesToB64(ct), z };
+}
+async function syncDecrypt(data, key) {
+  key = key || await syncKeyLoad();
+  let bytes;
+  try { bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64u(data.iv) }, key, b64ToBytes(data.ct))); }
+  catch (_) { throw new Error('Entschlüsseln fehlgeschlagen – falsches Passwort?'); }
+  if (data.z) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function syncApply(obj) {
+  if (!obj || obj.format !== 'etb-sync-1' || !obj.state) throw new Error('Unbekanntes Format.');
+  syncApplying = true;
+  try {
+    state = normalizeState(obj.state);
+    saveState();
+    Object.entries(obj.ls || {}).forEach(([k, v]) => { if ([...SETTINGS_EXPORT_KEYS, ...SYNC_EXTRA_LS].includes(k)) lsSet(k, v); });
+    applyTheme(lsGet('etb_theme') || 'system');
+    applyCompact(lsGet('etb_compact') === '1');
+  } finally { syncApplying = false; }
+  renderTab(activeTab);
+  if (activeTab !== 'einstellungen') renderSettings();
+}
+
+/** Nach jeder lokalen Änderung: als „ungesichert“ markieren, kurz warten, dann hochladen. */
+function syncNoteChange() {
+  if (syncApplying || !syncOn()) return;
+  lsSet(SYNC_DIRTY_KEY, '1');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow({ quiet: true }).catch(() => {}), 20000);
+}
+/** Abgleich: neuer Server-Stand → laden; eigene Änderungen → hochladen; beides → fragen. */
+async function syncNow({ quiet = false, forcePush = false } = {}) {
+  if (!syncOn() || syncBusy) return;
+  syncBusy = true;
+  clearTimeout(syncTimer);
+  try {
+    const st = await syncApi('/sync/state');
+    const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
+    const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
+    if (st.latest > base && !forcePush) {
+      if (!dirty) {
+        const p = await syncApi('/sync/pull', { version: st.latest });
+        syncApply(await syncDecrypt(p.data));
+        lsSet(SYNC_BASE_KEY, String(p.version)); lsSet(SYNC_LAST_KEY, String(Date.now()));
+        if (!quiet) toast('Neuester Stand geladen.', 'success', 1800);
+      } else {
+        syncBusy = false;
+        syncConflict(st);
+        return;
+      }
+    } else if (dirty || forcePush || st.latest === 0) {
+      const r = await syncApi('/sync/push', { base: forcePush ? st.latest : base, data: await syncEncrypt(syncCollect()), device: syncDevice() });
+      lsSet(SYNC_BASE_KEY, String(r.version)); lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_LAST_KEY, String(Date.now()));
+      if (!quiet) toast('Gesichert.', 'success', 1500);
+    } else {
+      lsSet(SYNC_LAST_KEY, String(Date.now()));
+      if (!quiet) toast('Alles aktuell.', 'success', 1500);
+    }
+  } catch (err) {
+    if (err.status === 401 && err.code === 'unauthorized') { lsSet(SYNC_TOKEN_KEY, null); toast('Sync: Anmeldung abgelaufen – bitte neu anmelden.', 'info', 5000); }
+    else if (err.code === 'conflict') { syncBusy = false; syncConflict(err.data || {}); return; }
+    else if (!quiet) toast('Sync: ' + err.message, 'error', 4000);
+  } finally {
+    syncBusy = false;
+    if (settingsSub === 'konto') renderSettingsPage();
+  }
+}
+function syncConflict(info) {
+  const when = info.at ? `${homeDayLabel(new Date(info.at), new Date())}, ${formatTimeHM(new Date(info.at))}` : '';
+  showActionSheet({
+    title: 'Auf einem anderen Gerät geändert',
+    message: `${info.device || 'Anderes Gerät'}${when ? ' · ' + when : ''}. Hier gibt es ebenfalls ungesicherte Änderungen.`,
+    actions: [
+      { icon: '⬇️', label: 'Server-Stand übernehmen', sub: 'Änderungen auf diesem Gerät verwerfen', run: async () => { lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_BASE_KEY, '0'); await syncNow(); } },
+      { icon: '⬆️', label: 'Diesen Stand hochladen', sub: 'Der andere Stand bleibt als ältere Version erhalten', run: () => syncNow({ forcePush: true }) },
+    ],
+  });
+}
+document.addEventListener('visibilitychange', () => {
+  if (!syncOn()) return;
+  if (document.visibilityState === 'hidden' && lsGet(SYNC_DIRTY_KEY) === '1') syncNow({ quiet: true }).catch(() => {});
+  if (document.visibilityState === 'visible') syncNow({ quiet: true }).catch(() => {});
+});
+
+// — Einrichten / Anmelden —
+async function syncRegister({ url, username, password, setupKey }) {
+  const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  const iter = 600000;
+  const { authKey, encKey } = await syncDerive(password, salt, iter);
+  const r = await syncApi('/sync/register', { setupKey, username, authKey, salt, iter, device: syncDevice() }, { token: '', url });
+  await syncKeyStore(encKey);
+  lsSet(SYNC_URL_KEY, url); lsSet(SYNC_USER_KEY, username.trim().toLowerCase()); lsSet(SYNC_TOKEN_KEY, r.token);
+  lsSet(SYNC_BASE_KEY, '0'); lsSet(SYNC_DIRTY_KEY, '1');
+  await syncNow({ quiet: true });
+}
+async function syncLogin({ url, username, password, totp }) {
+  const pre = await syncApi('/sync/prelogin', { username }, { token: '', url });
+  const { authKey, encKey } = await syncDerive(password, pre.salt, pre.iter);
+  const r = await syncApi('/sync/login', { username, authKey, totp, device: syncDevice() }, { token: '', url });
+  // Probe: lässt sich der vorhandene Stand entschlüsseln?
+  const st = await syncApi('/sync/state', {}, { token: r.token, url });
+  let remote = null;
+  if (st.latest) remote = await syncDecrypt((await syncApi('/sync/pull', { version: st.latest }, { token: r.token, url })).data, encKey);
+  await syncKeyStore(encKey);
+  lsSet(SYNC_URL_KEY, url); lsSet(SYNC_USER_KEY, username.trim().toLowerCase()); lsSet(SYNC_TOKEN_KEY, r.token);
+  const localHas = state.services.length > 0;
+  if (remote && (!localHas || confirm(`Auf dem Server liegt ein Stand vom ${new Date(st.at).toLocaleString('de-AT')} (${st.device || 'Gerät'}).\n\nOK = Server-Stand auf dieses Gerät laden (lokale Daten werden ersetzt)\nAbbrechen = diesen Stand hochladen (Server-Stand bleibt als ältere Version)`))) {
+    syncApply(remote); lsSet(SYNC_BASE_KEY, String(st.latest)); lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_LAST_KEY, String(Date.now()));
+  } else {
+    lsSet(SYNC_BASE_KEY, String(st.latest)); lsSet(SYNC_DIRTY_KEY, '1');
+    await syncNow({ quiet: true, forcePush: !!st.latest });
+  }
+}
+async function syncLogout(server = true) {
+  if (server) await syncApi('/sync/logout').catch(() => {});
+  await syncKeyStore(null).catch(() => {});
+  [SYNC_TOKEN_KEY, SYNC_BASE_KEY, SYNC_DIRTY_KEY, SYNC_LAST_KEY].forEach((k) => lsSet(k, null));
+}
+let qrLibPromise = null;
+function loadQrLib() {
+  if (window.qrcode) return Promise.resolve(window.qrcode);
+  if (!qrLibPromise) qrLibPromise = new Promise((res, rej) => { const s = document.createElement('script'); s.src = './vendor/qrcode.js'; s.onload = () => res(window.qrcode); s.onerror = () => { qrLibPromise = null; rej(new Error('QR-Code konnte nicht geladen werden.')); }; document.head.appendChild(s); });
+  return qrLibPromise;
+}
+
+// — Einstellungen → Konto & Sync —
+let syncUi = { mode: 'login', totpPending: null, totpSetup: null, sessions: null, versions: null };
+function settingsPageKonto(el, title) {
+  const on = syncOn();
+  const last = Number(lsGet(SYNC_LAST_KEY)) || 0;
+  if (!on) {
+    const url = lsGet(SYNC_URL_KEY) || lsGet(DP_WORKER_KEY) || '';
+    const reg = syncUi.mode === 'register';
+    el.innerHTML = `${title}
+      <div class="set-group-header">${reg ? 'Konto anlegen' : 'Anmelden'}</div>
+      <div class="set-group">
+        <div class="set-form"><label for="sy-url">Server (Worker-Adresse)</label><input type="url" id="sy-url" value="${escHtml(url)}" placeholder="https://….workers.dev" autocapitalize="off" autocomplete="off" spellcheck="false"></div>
+        <div class="set-form"><label for="sy-user">Benutzername</label><input type="text" id="sy-user" value="${escHtml(lsGet(SYNC_USER_KEY))}" autocapitalize="off" autocomplete="username" spellcheck="false"></div>
+        <div class="set-form"><label for="sy-pw">Passwort</label><input type="password" id="sy-pw" autocomplete="${reg ? 'new-password' : 'current-password'}"></div>
+        ${reg ? `<div class="set-form"><label for="sy-pw2">Passwort wiederholen</label><input type="password" id="sy-pw2" autocomplete="new-password"></div>
+        <div class="set-form"><label for="sy-setup">Zugangsschlüssel des Workers (nur zum Anlegen)</label><input type="password" id="sy-setup" value="${escHtml(lsGet(DP_TOKEN_KEY))}" autocomplete="off"></div>`
+        : `<div class="set-form" id="sy-totp-row" ${syncUi.totpPending ? '' : 'hidden'}><label for="sy-totp">Code (Authenticator)</label><input type="text" id="sy-totp" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code"></div>`}
+        <button type="button" class="set-row set-action" id="sy-go"><span class="set-row-text set-row-title" style="font-weight:600">${reg ? 'Konto anlegen & sichern' : 'Anmelden'}</span></button>
+      </div>
+      <p class="set-group-footer${reg ? ' is-keep' : ''}">${reg
+        ? 'Das Passwort verschlüsselt deine Daten auf dem Gerät – der Server kann sie nicht lesen. <b>Ohne Passwort sind die Server-Daten nicht wiederherstellbar.</b> Mind. 10 Zeichen.'
+        : 'Synchronisiert das Tagebuch samt Stammdaten und Einstellungen Ende-zu-Ende verschlüsselt – auch für den Zugriff vom Computer.'}</p>
+      <div class="set-group"><button type="button" class="set-row set-action" id="sy-mode"><span class="set-row-text set-row-title">${reg ? 'Ich habe schon ein Konto – anmelden' : 'Neues Konto anlegen'}</span></button></div>`;
+    el.querySelector('#sy-mode').onclick = () => { syncUi.mode = reg ? 'login' : 'register'; syncUi.totpPending = null; renderSettingsPage(); };
+    el.querySelector('#sy-go').onclick = async () => {
+      const btn = el.querySelector('#sy-go');
+      const RK = window.RKDienstplan;
+      const raw = el.querySelector('#sy-url').value.trim();
+      const u = raw ? (RK ? RK.normalizeWorkerUrl(raw) : raw.replace(/\/+$/, '')) : '';
+      const user = el.querySelector('#sy-user').value.trim(), pw = el.querySelector('#sy-pw').value;
+      if (!u) { toast('Bitte die Worker-Adresse eingeben.', 'error'); return; }
+      if (!user || !pw) { toast('Bitte Benutzername und Passwort eingeben.', 'error'); return; }
+      btn.disabled = true; btn.querySelector('.set-row-title').textContent = 'Bitte warten …';
+      try {
+        if (reg) {
+          if (pw.length < 10) throw new Error('Das Passwort braucht mindestens 10 Zeichen.');
+          if (pw !== el.querySelector('#sy-pw2').value) throw new Error('Die Passwörter stimmen nicht überein.');
+          await syncRegister({ url: u, username: user, password: pw, setupKey: el.querySelector('#sy-setup').value.trim() });
+          toast('Konto angelegt und gesichert. Jetzt noch die Zwei-Faktor-Anmeldung einrichten.', 'success', 4500);
+        } else {
+          await syncLogin({ url: u, username: user, password: pw, totp: (el.querySelector('#sy-totp') || {}).value });
+          toast('Angemeldet.', 'success', 1800);
+          syncAskDpToken(u);
+        }
+        syncUi = { mode: 'login', totpPending: null, totpSetup: null, sessions: null, versions: null };
+      } catch (err) {
+        btn.disabled = false;
+        btn.querySelector('.set-row-title').textContent = reg ? 'Konto anlegen & sichern' : 'Anmelden';
+        if (err.code === 'totp_required' || err.code === 'invalid_totp') {
+          // Formular nicht neu aufbauen (Eingaben bleiben), nur das Code-Feld zeigen
+          syncUi.totpPending = true;
+          const row = el.querySelector('#sy-totp-row');
+          if (row) { row.hidden = false; const t = row.querySelector('input'); t.value = ''; setTimeout(() => t.focus(), 50); }
+        }
+        toast(err.message, err.code === 'totp_required' ? 'info' : 'error', 4500);
+        return;
+      }
+      renderSettings();
+    };
+    return;
+  }
+  const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
+  el.innerHTML = `${title}
+    <div class="set-group">
+      <div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(lsGet(SYNC_USER_KEY))}</span><span class="set-row-sub">${escHtml(lsGet(SYNC_URL_KEY).replace(/^https:\/\//, ''))}</span></span></div>
+      <div class="set-row"><span class="set-row-text"><span class="set-row-title">${dirty ? 'Ungesicherte Änderungen' : 'Synchronisiert'}</span><span class="set-row-sub">${last ? `Zuletzt ${homeDayLabel(new Date(last), new Date())}, ${formatTimeHM(new Date(last))}` : 'Noch nicht abgeglichen'} · Version ${escHtml(lsGet(SYNC_BASE_KEY) || '0')}</span></span></div>
+      <button type="button" class="set-row set-action" id="sy-now"><span class="set-row-text set-row-title" style="font-weight:600">Jetzt synchronisieren</span></button>
+    </div>
+    <div class="set-group-header">Zwei-Faktor-Anmeldung</div>
+    <div class="set-group" id="sy-totp-box"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+    <div class="set-group-header">Versionen</div>
+    <div class="set-group" id="sy-versions"><button type="button" class="set-row set-action" id="sy-load-versions"><span class="set-row-text set-row-title">Frühere Stände anzeigen</span></button></div>
+    <div class="set-group-header">Angemeldete Geräte</div>
+    <div class="set-group" id="sy-sessions"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+    <div class="set-group">
+      <div class="set-form"><label for="sy-device">Name dieses Geräts</label><input type="text" id="sy-device" value="${escHtml(syncDevice())}" maxlength="40"></div>
+      <button type="button" class="set-row set-destructive" id="sy-logout"><span class="set-row-text set-row-title">Auf diesem Gerät abmelden</span></button>
+    </div>
+    <p class="set-group-footer">Ende-zu-Ende verschlüsselt (AES-256). Nicht synchronisiert wird der Dienstplan-Zugangsschlüssel – der bleibt nur auf dem jeweiligen Gerät.</p>`;
+  el.querySelector('#sy-now').onclick = () => syncNow();
+  el.querySelector('#sy-device').onchange = (e) => lsSet(SYNC_DEVICE_KEY, e.target.value.trim() || null);
+  el.querySelector('#sy-logout').onclick = async () => {
+    if (lsGet(SYNC_DIRTY_KEY) === '1' && !confirm('Es gibt noch ungesicherte Änderungen. Trotzdem abmelden?')) return;
+    await syncLogout(); toast('Abgemeldet. Die Daten bleiben auf diesem Gerät.', 'success'); renderSettingsPage(); renderSettings();
+  };
+  el.querySelector('#sy-load-versions').onclick = () => syncShowVersions(el);
+  syncRenderTotp(el);
+  syncRenderSessions(el);
+}
+async function syncRenderTotp(el) {
+  const box = el.querySelector('#sy-totp-box');
+  if (!box) return;
+  let st;
+  try { st = await syncApi('/sync/state'); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
+  if (st.totp) {
+    box.innerHTML = `<div class="set-row"><span class="set-row-text"><span class="set-row-title">✓ Aktiv (Authenticator-App)</span><span class="set-row-sub">Beim Anmelden auf einem neuen Gerät wird zusätzlich der 6-stellige Code abgefragt.</span></span></div>
+      <button type="button" class="set-row set-destructive" id="sy-totp-off"><span class="set-row-text set-row-title">Ausschalten</span></button>`;
+    box.querySelector('#sy-totp-off').onclick = async () => {
+      const code = prompt('Zum Ausschalten den aktuellen Code eingeben:');
+      if (!code) return;
+      try { await syncApi('/sync/totp/disable', { code }); toast('Zwei-Faktor-Anmeldung ausgeschaltet.', 'success'); syncRenderTotp(el); } catch (e) { toast(e.message, 'error'); }
+    };
+    return;
+  }
+  if (!syncUi.totpSetup) {
+    box.innerHTML = `<button type="button" class="set-row set-action" id="sy-totp-setup"><span class="set-row-text"><span class="set-row-title" style="font-weight:600">Einrichten (empfohlen)</span><span class="set-row-sub">Mit Authenticator-App oder den iOS-Passwörtern – schützt auch, falls das Passwort bekannt wird.</span></span></button>`;
+    box.querySelector('#sy-totp-setup').onclick = async () => {
+      try { syncUi.totpSetup = await syncApi('/sync/totp/setup'); syncRenderTotp(el); } catch (e) { toast(e.message, 'error'); }
+    };
+    return;
+  }
+  const { secret, uri } = syncUi.totpSetup;
+  box.innerHTML = `<div class="sy-totp">
+      <div class="sy-qr" id="sy-qr"></div>
+      <div class="sy-secret">${secret.match(/.{1,4}/g).join(' ')}</div>
+      <a class="btn-secondary sy-otp-link" href="${escHtml(uri)}">In Authenticator / Passwörter öffnen</a>
+      <p class="sy-hint">QR-Code vom Computer scannen, Link am iPhone antippen oder den Schlüssel abtippen. Danach den angezeigten Code eingeben:</p>
+      <div class="sy-code-row"><input type="text" id="sy-totp-code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="123456"><button type="button" class="btn-primary" id="sy-totp-ok">Bestätigen</button></div>
+    </div>`;
+  loadQrLib().then((qr) => { const q = qr(0, 'M'); q.addData(uri); q.make(); const box2 = el.querySelector('#sy-qr'); if (box2) box2.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }).catch(() => {});
+  box.querySelector('#sy-totp-ok').onclick = async () => {
+    try { await syncApi('/sync/totp/enable', { code: box.querySelector('#sy-totp-code').value.trim() }); syncUi.totpSetup = null; toast('Zwei-Faktor-Anmeldung aktiv.', 'success'); syncRenderTotp(el); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+}
+async function syncRenderSessions(el) {
+  const box = el.querySelector('#sy-sessions');
+  if (!box) return;
+  try {
+    const { sessions } = await syncApi('/sync/sessions');
+    box.innerHTML = sessions.map((s) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(s.device)}${s.current ? ' · dieses Gerät' : ''}</span><span class="set-row-sub">angemeldet ${escHtml(new Date(s.created).toLocaleDateString('de-AT'))}</span></span>${s.current ? '' : `<button type="button" class="btn-ghost" data-revoke="${escHtml(s.id)}" style="color:var(--danger)">Abmelden</button>`}</div>`).join('');
+    box.querySelectorAll('[data-revoke]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Dieses Gerät abmelden?')) return;
+      await syncApi('/sync/revoke', { id: b.dataset.revoke }).catch((e) => toast(e.message, 'error'));
+      syncRenderSessions(el);
+    }));
+  } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; }
+}
+async function syncShowVersions(el) {
+  const box = el.querySelector('#sy-versions');
+  try {
+    const { versions, latest } = await syncApi('/sync/versions');
+    box.innerHTML = versions.map((v) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(new Date(v.at).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }))}${v.v === latest ? ' · aktuell' : ''}</span><span class="set-row-sub">${escHtml(v.device || '')} · ${Math.round(v.size / 1024)} KB</span></span>${v.v === latest ? '' : `<button type="button" class="btn-ghost" data-restore="${v.v}">Wiederherstellen</button>`}</div>`).join('') || '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Version.</span></div>';
+    box.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Diesen früheren Stand wiederherstellen? Der aktuelle Stand bleibt als Version erhalten.')) return;
+      try {
+        const p = await syncApi('/sync/pull', { version: +b.dataset.restore });
+        syncApply(await syncDecrypt(p.data));
+        lsSet(SYNC_DIRTY_KEY, '1');
+        await syncNow({ quiet: true, forcePush: true });
+        toast('Früherer Stand wiederhergestellt.', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    }));
+  } catch (e) { toast(e.message, 'error'); }
+}
+/** Nach dem Anmelden: Dienstplan-Zugangsschlüssel separat abfragen (wird nicht synchronisiert). */
+function syncAskDpToken(url) {
+  if (lsGet(DP_TOKEN_KEY)) return;
+  setTimeout(() => {
+    const t = prompt('Dienstplan-Zugangsschlüssel für dieses Gerät (wird nicht synchronisiert, bleibt nur hier gespeichert). Leer lassen, falls nicht gebraucht:');
+    if (!t || !t.trim()) return;
+    if (!lsGet(DP_WORKER_KEY)) lsSet(DP_WORKER_KEY, url);
+    lsSet(DP_TOKEN_KEY, t.trim());
+    invalidateIcsCache();
+    toast('Dienstplan-Schlüssel gespeichert.', 'success');
+    renderSettings();
+  }, 400);
+}
+
+// Beim Start abgleichen (neuer Stand von einem anderen Gerät?)
+setTimeout(() => { if (syncOn()) syncNow({ quiet: true }).catch(() => {}); }, 2000);
