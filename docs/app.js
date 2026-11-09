@@ -2782,9 +2782,10 @@ function renderStats() {
     return `<section class="sx-card" style="--mc:${color}">${head(icon, title, meta, key, items.length)}
       ${!items.length ? empty : `<div class="sx-podium${top.length < 3 ? ' is-short' : ''}">${order.map((i) => { const [l, n] = top[i]; return `
         <div class="sx-pod sx-pod-${i + 1}" title="${escHtml(String(l))}" ${at(l)}>
-          ${ld(l) || `<span class="sx-medal">${['🥇', '🥈', '🥉'][i]}</span>`}
+          ${ld(l)}
           <span class="sx-pod-l">${escHtml(String(l))}</span>
-          <span class="sx-pod-bar"><b>${n}×</b><i>${i + 1}</i></span>
+          <span class="sx-pod-n">${n}×</span>
+          <span class="sx-pod-bar"><i>${i + 1}</i></span>
         </div>`; }).join('')}</div>
       ${rest.length ? `<ol class="sx-rest" start="4">${rest.map(([l, n], i) => `<li ${at(l)}><span class="sx-rest-n">${i + 4}</span>${ld(l)}<span class="sx-rest-l">${escHtml(String(l))}</span>
         <span class="sx-rest-bar"><span style="width:${Math.max(6, Math.round((n / max) * 100))}%"></span></span><span class="sx-rest-c">${n}</span></li>`).join('')}</ol>` : ''}`}
@@ -2830,7 +2831,7 @@ function renderStats() {
   // Wann ist was los? Wochentag × Tageszeit (nur Einsätze mit plausibler Uhrzeit)
   const incX = filteredSvcs.flatMap((sv) => (sv.incidents || []).filter(incFilter).map((inc) => ({ inc, svc: sv })));
   function timeCard() {
-    const wd = Array(7).fill(0), hb = Array(8).fill(0);
+    const grid = Array.from({ length: 7 }, () => Array(8).fill(0));
     let n = 0;
     incX.forEach(({ inc, svc }) => {
       const a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
@@ -2839,15 +2840,35 @@ function renderStats() {
       if (al && a) { c = new Date(a); c.setHours(+al.slice(0, 2), +al.slice(3), 0, 0); if (c < a) c = new Date(c.getTime() + 864e5); }
       if (!c || !a || !e || c < a || c > new Date(e.getTime() + 2 * 3600e3)) c = a; // keine plausible Uhrzeit → Dienstbeginn
       if (!c) return;
-      wd[(c.getDay() + 6) % 7]++; hb[Math.floor(c.getHours() / 3)]++; n++;
+      grid[(c.getDay() + 6) % 7][Math.floor(c.getHours() / 3)]++; n++;
     });
-    const days = ['M', 'D', 'M', 'D', 'F', 'S', 'S'];
-    const bestD = wd.indexOf(Math.max(...wd)), bestH = hb.indexOf(Math.max(...hb));
-    const strip = (arr, best, lbl) => { const mx = Math.max(1, ...arr); return `<div class="sx-mini">${arr.map((v, i) => `<div class="sx-mini-col${i === best && v ? ' is-best' : ''}"><span class="sx-mini-bar" style="height:${v ? Math.max(8, Math.round((v / mx) * 100)) : 0}%"></span><span class="sx-mini-l">${lbl(i)}</span></div>`).join('')}</div>`; };
+    const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
     const hh = (h) => String(h * 3).padStart(2, '0');
-    return `<section class="sx-card" style="--mc:#0a84ff">${head('🕒', 'Wann ist was los?', '')}
-      ${!n ? empty : `<p class="sx-note sx-when"><strong>${WEEKDAY_LONG[(bestD + 1) % 7]}</strong> · <strong>${hh(bestH)}–${hh(bestH + 1)} Uhr</strong></p>
-      <div class="sx-mini-wrap">${strip(wd, bestD, (i) => days[i])}${strip(hb, bestH, (i) => (i % 2 ? '' : hh(i)))}</div>`}
+    let best = [0, 0], bv = 0;
+    grid.forEach((r, d) => r.forEach((v, h) => { if (v > bv) { bv = v; best = [d, h]; } }));
+    const rowSum = grid.map((r) => r.reduce((x, y) => x + y, 0));
+    const colSum = grid[0].map((_, h) => grid.reduce((x, r) => x + r[h], 0));
+    const bestD = rowSum.indexOf(Math.max(...rowSum)), bestH = colSum.indexOf(Math.max(...colSum));
+    const quietH = colSum.indexOf(Math.min(...colSum));
+    const cell = (v, d, h) => { const p = bv ? Math.round((v / bv) * 100) : 0; return `<span class="sx-hm-c${p > 55 ? ' is-hi' : ''}" style="${v ? `background:color-mix(in srgb, var(--mc) ${Math.max(10, p)}%, transparent)` : ''}" title="${WEEKDAY_LONG[(d + 1) % 7]} ${hh(h)}–${hh(h + 1)} Uhr: ${v} Einsätze">${v || ''}</span>`; };
+    return `<section class="sx-card" style="--mc:#0a84ff">${head('🕒', 'Wann ist was los?', n ? `${n} Einsätze` : '')}
+      ${!n ? empty : `<p class="sx-when">Am meisten los: <strong>${WEEKDAY_LONG[(best[0] + 1) % 7]}, ${hh(best[1])}–${hh(best[1] + 1)} Uhr</strong></p>
+      <div class="sx-hm"><span></span>${colSum.map((_, h) => `<span class="sx-hm-x">${hh(h)}</span>`).join('')}
+        ${grid.map((r, d) => `<span class="sx-hm-y${d === bestD ? ' is-best' : ''}">${days[d]}</span>${r.map((v, h) => cell(v, d, h)).join('')}`).join('')}</div>
+      <p class="sx-note sx-small">Zeilen = Wochentag, Spalten = Uhrzeit in 3-Stunden-Blöcken, Zahl = Einsätze. Stärkster Tag: <strong>${WEEKDAY_LONG[(bestD + 1) % 7]}</strong> · stärkste Zeit: <strong>${hh(bestH)}–${hh(bestH + 1)} Uhr</strong> · ruhigste: <strong>${hh(quietH)}–${hh(quietH + 1)} Uhr</strong></p>`}
+    </section>`;
+  }
+
+  // Einsatzzeiten: Ø-Ablauf als ein Balken
+  function timesCard() {
+    const COLS = { 'Ausrücken': '#8e8e93', 'Anfahrt': '#ff9f0a', 'Vor Ort': '#30d158', 'Transport': '#0a84ff' };
+    const ph = timeStats.filter((t) => COLS[t.k] && t.n);
+    const tot = timeStats.find((t) => t.k === 'Gesamt');
+    const span = (t) => (t.min === t.max ? `${t.n}×` : t.max < 60 ? `${t.min}–${t.max} min` : `${hmShort(t.min)}–${hmShort(t.max)} h`);
+    return `<section class="sx-card" style="--mc:#30d158">${head('⏱', 'Einsatzzeiten', `${timesFilled}/${totalInc} Einsätze`)}
+      ${!ph.length ? '<p class="sx-empty">Noch keine Zeiten erfasst</p>' : `${tot && tot.n ? `<div class="sx-tt-top"><b>${fmtMin(tot.avg)}</b><span>Ø vom Alarm bis Einsatzende<small>Spanne ${span(tot)}</small></span></div>` : ''}
+      <div class="sx-tbar">${ph.map((t) => `<span style="flex:${Math.max(1, t.avg)};background:${COLS[t.k]}"></span>`).join('')}</div>
+      <ul class="sx-tleg">${ph.map((t) => `<li><span class="sx-dot" style="background:${COLS[t.k]}"></span><span>${t.k}</span><b>${fmtMin(t.avg)}</b><small>${span(t)}</small></li>`).join('')}</ul>`}
     </section>`;
   }
 
@@ -2856,19 +2877,18 @@ function renderStats() {
   const longestH = nonSegSvcs.reduce((m, x) => Math.max(m, +serviceDurationHours(x)), 0);
   const favCount = allInc.filter((i) => i.favorite).length;
   const lightPct = totalInc ? Math.round((lightsCount / totalInc) * 100) : 0;
+  const maxShift = nonSegSvcs.reduce((m, x) => Math.max(m, (x.incidents || []).filter(incFilter).length), 0);
+  const totT = timeStats.find((t) => t.k === 'Gesamt');
+  const nacaVals = allInc.map((i) => parseInt(i.naca, 10)).filter((v) => v >= 0 && v <= 7);
+  const avgNaca = nacaVals.length ? nacaVals.reduce((x, y) => x + y, 0) / nacaVals.length : null;
+  const kpi = (v, l, sub) => `<div class="sx-kpi"><b>${v}</b><span>${l}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const hero = `<section class="sx-hero">
-    <div class="sx-hero-main">
-      <div class="sx-hero-big">${totalInc}</div><div class="sx-hero-lbl">Einsätze</div>
-      <div class="sx-hero-sub">in <strong>${totalSvcs}</strong> Diensten · <strong>${Math.round(totalHours)}</strong> Stunden</div>
-    </div>
-    <div class="sx-hero-ring">${ring(lightPct, '#64d2ff')}<div><strong>${totalInc ? lightPct + '%' : '–'}</strong><small>Blaulicht</small></div></div>
-    <div class="sx-hero-chips">
-      <span>Ø <strong>${String(avgInc).replace('.', ',')}</strong> pro Dienst</span>
-      <span>🌙 <strong>${nights}</strong> Nachtdienste</span>
-      ${longestH ? `<span>⏱ längster <strong>${fmt1(longestH)} h</strong></span>` : ''}
-      ${favCount ? `<span>★ <strong>${favCount}</strong> Favoriten</span>` : ''}
-      ${segInc ? `<span>⚡ <strong>${segInc}</strong> SEG</span>` : ''}
-    </div>
+    ${kpi(totalInc, 'Einsätze', `${lightPct} % Blaulicht${segInc ? ` · ${segInc} SEG` : ''}`)}
+    ${kpi(totalSvcs, 'Dienste', `${nights} Nacht · ${totalSvcs - nights} Tag`)}
+    ${kpi(Math.round(totalHours), 'Stunden', totalSvcs ? `Ø ${fmt1(totalHours / totalSvcs)} h · max ${fmt1(longestH)} h` : '')}
+    ${kpi(String(avgInc).replace('.', ','), 'pro Dienst', maxShift ? `Rekord: ${maxShift}` : '')}
+    ${totT && totT.n ? kpi(totT.avg < 60 ? `${totT.avg} min` : `${hmShort(totT.avg)} h`, 'Ø Dauer', `${totT.n} mit Zeiten`) : ''}
+    ${avgNaca !== null ? kpi(fmt1(avgNaca), 'Ø NACA', avgAge !== null ? `Ø Alter ${avgAge}` : `${nacaVals.length} erfasst`) : ''}
   </section>`;
 
   const vehLead = (name) => { const src = vehicleIconSrc(name); return src ? `<img class="sx-veh" src="${escHtml(src)}" alt="">` : ''; };
@@ -2895,7 +2915,7 @@ function renderStats() {
       ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
       ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead }) : ''; })()}
       ${timeCard()}
-      ${timesFilled ? `<section class="sx-card sx-wide" style="--mc:#30d158">${head('⏱', 'Einsatzzeiten', `${timesFilled}/${totalInc} Einsätze`)}${timeStatsHtml('tt-grid')}<p class="sx-note sx-small">Durchschnitt, Anzahl und Spanne – aus den erfassten Status-Zeiten</p></section>` : ''}
+      ${timesFilled ? timesCard() : ''}
       ${allTo.length ? podiumCard({ key: 'Top Ziele', title: 'Häufigste Ziele', icon: '🏥', color: '#ff375f', items: allTo, meta: `${routeFilled}/${totalInc} Einsätze` }) : ''}
       ${allFrom.length ? podiumCard({ key: 'Top Startorte', title: 'Häufigste Startorte', icon: '📍', color: '#5e5ce6', items: allFrom }) : ''}
       <div class="stats-group-title sx-group">Kennzahlen &amp; Patient</div>
@@ -3883,7 +3903,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 116;
+const APP_VERSION = 117;
 const APP_VERSION_DATE = '09.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6089,7 +6109,8 @@ function computeBadges() {
     count('notes25', '✍️', 'Chronist:in', '25 Einsätze mit Notiz', notes, 25, 1),
     count('fav10', '⭐', 'Sammler:in', '10 Favoriten', favs, 10, 1),
     count('doc50', '📑', 'Dokumentations-Profi', '50 Einsätze mit NACA, Einsatzart, Statistikkennzahl und PZC', fullDoc, 50, 3),
-    once('seg1', '⚡', 'Großveranstaltung', 'Erster SEG-Einsatz', segs[0], 1),
+    once('seg1', '📟', 'Einspringer:in', 'Erster SEG-Einsatz – aus der Freizeit alarmiert', segs[0], 1),
+    once('manv', '🆘', 'Großschadenslage', 'Einsatz mit MANV-Stichwort', incs.find((x) => /manv/i.test(x.inc.alarmCode || '')), 3),
     once('marathon', '🏃', 'Marathon', '3 Schichten am Stück (Dienstblock)', marathon ? { startAt: marathon.items[marathon.items.length - 1].startAt } : null, 2),
     once('wild', '🌪️', 'Wilder Ritt', '8 Einsätze in einer Schicht', wild, 2),
     once('long24', '⏱️', 'Durchgemacht', 'Eine Schicht mit 24 Stunden oder mehr', long, 2),
@@ -6116,12 +6137,13 @@ function badgeTileHtml(b, i = 0) {
 function badgesSectionHtml() {
   const all = computeBadges();
   const done = all.filter((b) => b.done).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const next = all.filter((b) => !b.done).sort((a, b) => b.cur / b.goal - a.cur / a.goal).slice(0, Math.max(0, 6 - Math.min(done.length, 3)));
-  const shown = [...done.slice(0, 3), ...next].slice(0, 6);
+  const next = all.filter((b) => !b.done).sort((a, b) => b.cur / b.goal - a.cur / a.goal).slice(0, 2);
   return `<section class="bd-card">
     <div class="bd-head"><span class="bd-head-ic">🏅</span><h4>Abzeichen</h4><span class="bd-count">${done.length}/${all.length}</span><button type="button" class="bd-all" data-badges-all>Alle ›</button></div>
-    <div class="bd-bar"><span style="width:${Math.round((done.length / all.length) * 100)}%"></span></div>
-    <div class="bd-grid">${shown.map(badgeTileHtml).join('')}</div>
+    <div class="bd-compact">
+      ${done.length ? `<div class="bd-strip">${done.slice(0, 10).map((b, i) => `<button type="button" class="bd-mini bd-t${b.tier}" style="--i:${i}" data-badge="${b.id}" title="${escHtml(b.title)}" aria-label="${escHtml(b.title)}">${b.icon}</button>`).join('')}${done.length > 10 ? `<button type="button" class="bd-mini is-more" data-badges-all>+${done.length - 10}</button>` : ''}</div>` : ''}
+      ${next.map((b) => `<button type="button" class="bd-next" data-badge="${b.id}"><span class="bd-next-ic">${b.icon}</span><span class="bd-next-t"><b>${escHtml(b.title)}</b><small>${escHtml(b.desc)}</small></span><span class="bd-next-p"><span class="bd-p"><span style="width:${Math.round((b.cur / b.goal) * 100)}%"></span></span><small>${b.cur}/${b.goal}</small></span></button>`).join('')}
+    </div>
   </section>`;
 }
 
