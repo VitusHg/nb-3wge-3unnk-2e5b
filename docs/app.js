@@ -202,7 +202,7 @@ function defaultState() {
     pzcCodes: [],
     vehicleCategories: [],
     vehicleAssignments: {},
-    abteilungen: [],
+    dienststellen: [],
     places: [],
   };
 }
@@ -215,7 +215,10 @@ function normalizeState(s) {
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
-  s.abteilungen = Array.isArray(s.abteilungen) ? s.abteilungen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? ''), ...(toDisplayName(a.address) ? { address: toDisplayName(a.address) } : {}) })) : [];
+  // früher „abteilungen“ – jetzt eine Liste der Dienststellen (Name, Dienstplan-ID, Standort)
+  if (!Array.isArray(s.dienststellen) && Array.isArray(s.abteilungen)) s.dienststellen = s.abteilungen;
+  delete s.abteilungen;
+  s.dienststellen = Array.isArray(s.dienststellen) ? s.dienststellen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? ''), ...(toDisplayName(a.address) ? { address: toDisplayName(a.address) } : {}) })) : [];
   // Einträge ohne Objektform (null, Zahlen …) verwerfen statt später abzustürzen
   s.services = objList(s.services);
   s.alarmCodes = Array.isArray(s.alarmCodes) ? s.alarmCodes.filter((c) => typeof c === 'string') : [];
@@ -235,7 +238,9 @@ function normalizeState(s) {
     svc.endAt = str(svc.endAt);
     svc.vehicle = txt(svc.vehicle);
     svc.location = txt(svc.location);
-    svc.abteilung = txt(svc.abteilung);
+    // Feld „Abteilung“ entfällt: ohne Dienststelle wird es zur Dienststelle
+    if (!svc.isSeg && !txt(svc.location) && txt(svc.abteilung)) svc.location = txt(svc.abteilung);
+    delete svc.abteilung;
     svc.note = txt(svc.note);
     svc.isSeg = !!svc.isSeg;
     if (svc.dpUid !== undefined) svc.dpUid = str(svc.dpUid);
@@ -661,15 +666,15 @@ function serviceDurationHours(svc) {
   return ((end - start) / 3600000).toFixed(1);
 }
 
-/** Abteilung/Dienststelle zu einem Dienst (Name exakt, sonst unscharf wie RKTel). */
+/** Eintrag der Dienststellen-Liste zu einem Dienst (Name exakt, sonst unscharf wie RKTel). */
 function findAbteilung(svc) {
-  const abtName = (svc && (svc.abteilung || svc.location)) || '';
+  const abtName = (svc && svc.location) || '';
   if (!abtName) return null;
-  let abt = (state.abteilungen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
-  if (!abt && window.RKDienstplan && (state.abteilungen || []).length) {
+  let abt = (state.dienststellen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
+  if (!abt && window.RKDienstplan && (state.dienststellen || []).length) {
     try {
-      const match = window.RKDienstplan.createDepartmentMatcher(state.abteilungen);
-      abt = (svc.abteilung && match(svc.abteilung)) || (svc.location && match(svc.location)) || null;
+      const match = window.RKDienstplan.createDepartmentMatcher(state.dienststellen);
+      abt = match(abtName) || null;
     } catch (_) { abt = null; }
   }
   return abt || null;
@@ -698,15 +703,7 @@ function homeNavBtnsHtml(svcLike) {
 }
 
 function dienstplanUrl(svc) {
-  const abtName = svc.abteilung || svc.location || '';
-  let abt = (state.abteilungen || []).find((a) => a.name && a.name.toLowerCase() === abtName.toLowerCase());
-  // sonst unscharf wie in RKTel („MINA RKZ“ → „MINA“, Groß-/Kleinschreibung, Kurzformen)
-  if (!abt && window.RKDienstplan && (state.abteilungen || []).length) {
-    try {
-      const match = window.RKDienstplan.createDepartmentMatcher(state.abteilungen);
-      abt = (svc.abteilung && match(svc.abteilung)) || (svc.location && match(svc.location)) || null;
-    } catch (_) { abt = null; }
-  }
+  const abt = findAbteilung(svc);
   if (!abt || !abt.deptId) return null;
   const dateStr = (svc.startAt || '').slice(0, 10);
   if (!dateStr) return null;
@@ -974,7 +971,7 @@ function renderServiceList() {
       const haystack = [
         svc.startAt || '', d ? d.toLocaleDateString('de-AT', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) : '',
         d ? d.toLocaleDateString('de-AT', { month: 'long' }) : '',
-        svc.location || '', svc.abteilung || '', svc.vehicle || '',
+        svc.location || '', svc.vehicle || '',
         svc.note || '', (svc.colleagues || []).join(' '),
       ].join(' ').toLowerCase();
       return haystack.includes(q);
@@ -1166,7 +1163,6 @@ function renderServiceDetailContent() {
     </div>
     ${planChangeBannerHtml(svc)}
     <div class="dv-group">
-      ${svc.abteilung ? row('Abteilung', escHtml(svc.abteilung)) : ''}
       ${row('Dienststelle', escHtml(svc.location || '—'))}
       ${row('Besatzung', crew.length ? crew.map((c) => `<button type="button" class="crew-link" data-colleague="${escHtml(c)}">${escHtml(c)}</button>`).join('<br>') : '<span class="dv-muted">—</span>', 'is-multi')}
       ${svc.note ? row('Notiz', linkifyHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
@@ -1710,7 +1706,6 @@ function openServiceDialog(serviceId, prefill = null) {
     const st = parseLocalDt(startEl.value);
     if (st) endEl.value = localDtStr(new Date(st.getTime() + 12 * 3600000));
   }
-  document.getElementById('svc-abteilung').value = svc ? (svc.abteilung || '') : (prefill?.abteilung || '');
   document.getElementById('svc-location').value = svc ? (svc.location || '') : (prefill?.location || '');
   document.getElementById('svc-vehicle').value = svc ? (svc.vehicle || '') : (prefill?.vehicle || '');
   document.getElementById('svc-note').value = svc ? (svc.note || '') : '';
@@ -1760,20 +1755,9 @@ function openServiceDialog(serviceId, prefill = null) {
   openDialog('dialog-service');
 
   // Vorschläge nach Häufigkeit
-  const abteilungen = [...new Set([
-    ...rankByFrequency(state.services.map((s) => s.abteilung).filter(Boolean)),
-    ...(state.abteilungen || []).map((a) => a.name).filter(Boolean),
-  ])];
-  const regular = state.services.filter((s) => !s.isSeg);
-  mountSuggestions(document.getElementById('svc-abteilung'), document.getElementById('svc-abteilung-suggestions'), abteilungen, 8, true);
-  mountSuggestions(document.getElementById('svc-location'), document.getElementById('svc-location-suggestions'), rankByFrequency(regular.map((s) => s.location).filter(Boolean)), 8, true);
+  mountSuggestions(document.getElementById('svc-location'), document.getElementById('svc-location-suggestions'), [...new Set([...rankByFrequency(regular.map((s) => s.location).filter(Boolean)), ...(state.dienststellen || []).map((a) => a.name).filter(Boolean)])], 8, true);
   mountSuggestions(document.getElementById('svc-vehicle'), document.getElementById('svc-vehicle-suggestions'), rankByFrequency(regular.map((s) => s.vehicle).filter(Boolean)), 8, true);
   bindVehicleIconPreview('svc-vehicle', 'svc-vehicle-icon');
-  // Dienststelle aus Abteilung übernehmen, solange leer
-  document.getElementById('svc-abteilung').onchange = () => {
-    const locEl = document.getElementById('svc-location');
-    if (!locEl.value.trim()) locEl.value = document.getElementById('svc-abteilung').value.trim();
-  };
   svcChips = setupChipInput({
     inputId: 'svc-colleague-input', tagsId: 'svc-colleague-tags', dropId: 'svc-colleague-suggestions',
     list: svcColleagues, suggestions: rankByFrequency(state.services.flatMap((s) => s.colleagues || [])),
@@ -1795,7 +1779,6 @@ function saveService() {
   if (svcChips) svcChips.commitPending();
   const data = {
     startAt: startVal, endAt: endVal,
-    abteilung: document.getElementById('svc-abteilung').value.trim(),
     location: document.getElementById('svc-location').value.trim(),
     vehicle: document.getElementById('svc-vehicle').value.trim(),
     note: document.getElementById('svc-note').value.trim(),
@@ -2356,7 +2339,7 @@ function saveIncident() {
       colleagues: [...segColleagues],
     };
     if (!svc) {
-      svc = { id: uid(), ...segData, abteilung: '', note: '', incidents: [], isSeg: true };
+      svc = { id: uid(), ...segData, note: '', incidents: [], isSeg: true };
       state.services.push(svc);
     } else Object.assign(svc, segData);
   }
@@ -3580,7 +3563,7 @@ function homeNextCardHtml(item, now) {
     const navs = homeNavBtnsHtml(item.svc);
     return `<section class="hm-card hm-hero${navs ? ' has-navs' : ''}">${navs}<button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
   }
-  const icsNavs = homeNavBtnsHtml({ abteilung: '', location });
+  const icsNavs = homeNavBtnsHtml({ location });
   return `<section class="hm-card hm-hero${icsNavs ? ' has-navs' : ''}">${icsNavs}<div class="hm-hero-open is-static">${inner}</div>
     <button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button>
   </section>`;
@@ -3899,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 106;
+const APP_VERSION = 107;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -3990,7 +3973,7 @@ function renderSettings() {
 
     <div class="set-group-header">Dienstplan</div>
     <div class="set-group">
-      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Abteilungen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
+      ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Dienststellen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
       ${setRow({ icon: 'bell', color: 'red', title: 'Benachrichtigungen', sub: 'Neuer Einsatz?, Dienstplan-Änderungen', value: quickPushEnabled() ? 'An' : 'Aus', push: 'benachrichtigungen' })}
     </div>
 
@@ -3998,7 +3981,7 @@ function renderSettings() {
     <div class="set-group">
       ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, id: 'btn-open-vehicles-popup' })}
       ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, id: 'btn-open-codes-popup' })}
-      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: abtRowValue(), id: 'btn-open-abt-popup' })}
+      ${setRow({ icon: 'building', color: 'blue', title: 'Dienststellen', value: abtRowValue(), id: 'btn-open-abt-popup' })}
       ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
     </div>
 
@@ -4192,9 +4175,9 @@ function settingsPageDienstplan(el, title) {
     <p class="set-group-footer">Wird nicht mehr gebraucht – der Dienstplan kommt über den Worker.</p>` : ''}
 
     <div class="set-group">
-      ${setRow({ icon: 'building', color: 'blue', title: 'Abteilungen', value: abtRowValue(), id: 'btn-dp-open-abt' })}
+      ${setRow({ icon: 'building', color: 'blue', title: 'Dienststellen', value: abtRowValue(), id: 'btn-dp-open-abt' })}
     </div>
-    <p class="set-group-footer">Verknüpft den Abteilungsnamen eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag. Ob Links in Safari oder in der App aufgehen, stellst du unter <strong>Einstellungen → Bedienung</strong> ein.</p>`;
+    <p class="set-group-footer">Verknüpft die Dienststelle eines Dienstes mit der Dienstplan-ID – so öffnet „Tagesdienstplan“ direkt den richtigen Tag. Ob Links in Safari oder in der App aufgehen, stellst du unter <strong>Einstellungen → Bedienung</strong> ein.</p>`;
   el.querySelector('#btn-dp-open-abt').addEventListener('click', openAbteilungenPopup);
 
   const urlEl = el.querySelector('#dp-worker-url');
@@ -4482,7 +4465,7 @@ async function renderStorageOverview(root) {
   // localStorage: Zeichen × 2 Byte (Safari zählt UTF-16)
   const ls = (k) => { try { const v = localStorage.getItem(k); return v ? (k.length + v.length) * 2 : 0; } catch (_) { return 0; } };
   const size = (x) => (x === undefined ? 0 : JSON.stringify(x).length * 2);
-  const listKeys = ['alarmCodes', 'pzcCodes', 'alarmBlaulicht', 'abteilungen'];
+  const listKeys = ['alarmCodes', 'pzcCodes', 'alarmBlaulicht', 'dienststellen'];
   const diary = size(state.services);
   const lists = listKeys.reduce((n, k) => n + size(state[k]), 0);
   const stateTotal = ls(STORAGE_KEY);
@@ -4716,10 +4699,10 @@ function refreshVehicleAssignList() {
   enableCodeListSwipe(el);
 }
 
-// ── Abteilungen (Aufbau wie Stichwörter & PZC) ────────────────────────────
-function abtRowValue() { const n = (state.abteilungen || []).length, k = abteilungSuggestions().length; return k ? `${n} · ${k} Vorschl.` : String(n); }
+// ── Dienststellen (Aufbau wie Stichwörter & PZC) ────────────────────────────
+function abtRowValue() { const n = (state.dienststellen || []).length, k = abteilungSuggestions().length; return k ? `${n} · ${k} Vorschl.` : String(n); }
 function abtSuggestHidden() { try { const a = JSON.parse(lsGet('etb_abt_sug_hidden') || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
-/** Dienststellen aus Tagebuch/Dienstplan ohne passenden Abteilungs-Eintrag. */
+/** Dienststellen aus Tagebuch/Dienstplan ohne Eintrag in der Liste. */
 function abteilungSuggestions() {
   const hidden = new Set(abtSuggestHidden());
   const map = new Map();
@@ -4732,11 +4715,11 @@ function abteilungSuggestions() {
     if (n.length < e.name.length) e.name = n;
     e.n++; e[src]++; map.set(k, e);
   };
-  state.services.filter((s) => !s.isSeg).forEach((s) => add(s.abteilung || s.location, 'tb'));
+  state.services.filter((s) => !s.isSeg).forEach((s) => add(s.location, 'tb'));
   const cache = readIcsCache();
   ((cache && cache.shifts) || []).forEach((x) => add(x.location, 'dp'));
   return [...map.values()]
-    .filter((e) => !hidden.has(e.name.toLowerCase()) && !findAbteilung({ abteilung: e.name }))
+    .filter((e) => !hidden.has(e.name.toLowerCase()) && !findAbteilung({ location: e.name }))
     .map((e) => ({ ...e, src: e.tb && e.dp ? 'Tagebuch & Dienstplan' : e.tb ? 'im Tagebuch' : 'im Dienstplan' }))
     .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'de'))
     .slice(0, 30);
@@ -4751,10 +4734,10 @@ function openAbteilungenPopup() {
 function renderAbteilungenPopup() {
   const body = document.querySelector('#dialog-abteilungen .abt-popup');
   if (!body) return;
-  const list = state.abteilungen || [];
+  const list = state.dienststellen || [];
   const editing = _abtEditIdx !== null ? list[_abtEditIdx] : null;
   body.innerHTML = `
-    <h4 class="popup-col-title">Abteilungen <span class="popup-col-count">${list.length}</span></h4>
+    <h4 class="popup-col-title">Dienststellen <span class="popup-col-count">${list.length}</span></h4>
     <div class="settings-row codes-popup-import-row">
       <button id="btn-import-abt" class="btn-secondary">JSON importieren</button>
       ${list.length ? '<button id="btn-export-abt" class="btn-secondary">Exportieren</button>' : ''}
@@ -4767,10 +4750,10 @@ function renderAbteilungenPopup() {
     </div>
     <input type="text" id="new-abt-addr" class="abt-addr-input" placeholder="📍 Standort (Adresse oder Maps-Link)" value="${escHtml(editing ? editing.address || '' : '')}" autocomplete="off">
     ${editing ? '<button type="button" id="btn-abt-cancel" class="btn-ghost" style="align-self:flex-start">Bearbeiten abbrechen</button>' : ''}
-    <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Abteilungen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
+    <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Dienststellen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="abt-list" style="margin-top:4px"></div>
     <div id="abt-suggest"></div>
-    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheinen auf Start beim aktuellen bzw. nächsten Dienst Knöpfe für Google Maps und BusBahnBim. Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
+    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheinen auf Start beim aktuellen bzw. nächsten Dienst Knöpfe für Google Maps und BusBahnBim. Antippen zum Bearbeiten. Mehrere Schreibweisen (z. B. „MINA RKZ“, „MINA West“) dürfen dieselbe ID haben. Import: Liste <code>[{ "name", "deptId" }]</code> oder <code>{ "dienststellen": […] }</code>.</p>`;
 
   const refreshList = () => {
     const el = body.querySelector('#abt-list');
@@ -4789,7 +4772,7 @@ function renderAbteilungenPopup() {
     }));
     el.querySelectorAll('.btn-code-del').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
-      list.splice(+b.dataset.idx, 1); state.abteilungen = list;
+      list.splice(+b.dataset.idx, 1); state.dienststellen = list;
       _abtEditIdx = null; saveState(); renderAbteilungenPopup(); renderSettings();
     }));
     enableCodeListSwipe(el);
@@ -4829,7 +4812,7 @@ function renderAbteilungenPopup() {
     const name = nameEl.value.trim(), deptId = idEl.value.trim();
     const address = body.querySelector('#new-abt-addr').value.trim();
     if (!name || (!deptId && !address)) { toast('Bitte Name und ID oder Standort eingeben.', 'error'); return; }
-    state.abteilungen = list;
+    state.dienststellen = list;
     const entry = { name, deptId, ...(address ? { address } : {}) };
     const clash = list.findIndex((a, i) => a.name.toLowerCase() === name.toLowerCase() && i !== _abtEditIdx);
     if (clash >= 0) list.splice(clash, 1, entry);
@@ -4848,7 +4831,7 @@ function renderAbteilungenPopup() {
   const importFile = async (file) => {
     try {
       const data = parseJsonText(await file.text());
-      const raw = Array.isArray(data) ? data : (data.abteilungen || data.departments || []);
+      const raw = Array.isArray(data) ? data : (data.dienststellen || data.abteilungen || data.departments || []);
       const valid = raw.filter((a) => a && (a.name || '').trim() && (String(a.deptId ?? a.id ?? '').trim() || String(a.address || '').trim()))
         .map((a) => ({ name: a.name.trim(), deptId: String(a.deptId ?? a.id ?? '').trim(), ...(String(a.address || '').trim() ? { address: String(a.address).trim() } : {}) }));
       const byName = new Map(list.map((a) => [a.name.toLowerCase(), a]));
@@ -4859,15 +4842,15 @@ function renderAbteilungenPopup() {
         else if (ex.deptId !== a.deptId || (a.address && ex.address !== a.address)) { if (a.deptId) ex.deptId = a.deptId; if (a.address) ex.address = a.address; updated++; }
       });
       list.sort((a, b) => a.name.localeCompare(b.name, 'de'));
-      state.abteilungen = list; saveState(); _abtFilter = ''; renderAbteilungenPopup(); renderSettings();
-      toast(`${added} Abteilungen importiert${updated ? `, ${updated} aktualisiert` : ''}.`, 'success');
+      state.dienststellen = list; saveState(); _abtFilter = ''; renderAbteilungenPopup(); renderSettings();
+      toast(`${added} Dienststellen importiert${updated ? `, ${updated} aktualisiert` : ''}.`, 'success');
     } catch (err) { toast('Fehler: ' + err.message, 'error', 5000); }
   };
   body.querySelector('#btn-import-abt').addEventListener('click', () => body.querySelector('#file-abt-json').click());
   body.querySelector('#file-abt-json').addEventListener('change', (e) => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; });
   const exp = body.querySelector('#btn-export-abt');
   if (exp) exp.addEventListener('click', () => {
-    saveFile(new Blob([JSON.stringify({ abteilungen: list }, null, 2)], { type: 'application/json' }), 'abteilungen.json');
+    saveFile(new Blob([JSON.stringify({ dienststellen: list }, null, 2)], { type: 'application/json' }), 'dienststellen.json');
   });
   setupDropZone(body, importFile);
 }
@@ -4881,7 +4864,7 @@ function resetSections() {
     { id: 'favorites', icon: '★', label: 'Nur Favoriten-Markierungen', count: favCount, run: () => state.services.forEach((s) => (s.incidents || []).forEach((i) => { i.favorite = false; })) },
     { id: 'profile', icon: '👤', label: 'Profil (Anzeigename)', run: () => { state.profile = { displayName: '' }; } },
     { id: 'calendar', icon: '📅', label: 'Dienstplan-Verbindung & Zwischenspeicher', run: () => { lsSet(DP_WORKER_KEY, ''); lsSet(DP_TOKEN_KEY, ''); lsSet(LEGACY_ICS_KEY, ''); invalidateIcsCache(); } },
-    { id: 'abteilungen', icon: '🏢', label: 'Abteilungen', count: (state.abteilungen || []).length, run: () => { state.abteilungen = []; } },
+    { id: 'dienststellen', icon: '🏢', label: 'Dienststellen', count: (state.dienststellen || []).length, run: () => { state.dienststellen = []; } },
     { id: 'vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: (state.vehicleCategories || []).length, run: () => { state.vehicleCategories = []; state.vehicleAssignments = {}; } },
     { id: 'alarm', icon: '🚨', label: 'Einsatzstichwörter', count: (state.alarmCodes || []).length, run: () => { state.alarmCodes = []; state.alarmBlaulicht = {}; } },
     { id: 'pzc', icon: '🏥', label: 'PZC-Codes', count: (state.pzcCodes || []).length, run: () => { state.pzcCodes = []; } },
@@ -5082,7 +5065,6 @@ function toCompatExport() {
       endTime: svc.endAt || '',
       duration: serviceDurationHours(svc),
       location: svc.location || '',
-      abteilung: svc.abteilung || '',
       resource: svc.vehicle || '',
       tip: svc.isSeg ? 'seg' : '',
       note: svc.note || '',
@@ -5119,10 +5101,8 @@ function fromCompatibleImport(data) {
     id: shift.shiftId || uid(),
     startAt: utcIsoToLocalDtStr(shift.startTime) || shift.startTime || '',
     endAt: utcIsoToLocalDtStr(shift.endTime) || shift.endTime || '',
-    // Abteilung fehlt (z. B. Henri-Export, alte Sicherung) oder ist leer → Dienststelle übernehmen
-    // (nicht bei SEG-Diensten: dort ist „location" der Anlass, keine Dienststelle)
-    abteilung: toDisplayName(shift.abteilung) || (shift.tip === 'seg' ? '' : toDisplayName(shift.location)),
-    location: toDisplayName(shift.location) || '',
+    // ältere Sicherungen: Abteilung nur noch als Ersatz, wenn keine Dienststelle da ist
+    location: toDisplayName(shift.location) || (shift.tip === 'seg' ? '' : toDisplayName(shift.abteilung)) || '',
     vehicle: shift.resource || '',
     note: shift.note || '',
     isSeg: shift.tip === 'seg',
@@ -5196,7 +5176,7 @@ const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_compact', 'etb_stats_style', 'et
 function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
-  if (sel.profile) payload.abteilungen = state.abteilungen || [];
+  if (sel.profile) payload.dienststellen = state.dienststellen || [];
   if (sel.profile) payload.places = state.places || [];
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
@@ -5236,7 +5216,7 @@ function openImportDialog(file) {
         // new selective format — show checklist
         const sections = [
           { key: 'services',          id: 'imp-services', icon: '📋', label: 'Dienste & Einsätze',          count: Array.isArray(data.services) ? data.services.length : null },
-          { key: 'profile',           id: 'imp-profile',  icon: '👤', label: 'Profil, Abteilungen & Orte',   count: null },
+          { key: 'profile',           id: 'imp-profile',  icon: '👤', label: 'Profil, Dienststellen & Orte', count: null },
           { key: 'settings',          id: 'imp-settings', icon: '⚙️', label: 'App-Einstellungen',            count: null },
           { key: data.dienstplanWorker !== undefined ? 'dienstplanWorker' : 'calendarUrl', id: 'imp-calendar', icon: '📅', label: 'Dienstplan-Worker', count: null },
           { key: 'vehicleCategories', id: 'imp-vehicles', icon: '🚑', label: 'Fahrzeug-Icons & Zuweisungen', count: Array.isArray(data.vehicleCategories) ? data.vehicleCategories.length : null },
@@ -5288,7 +5268,7 @@ function doSelectiveImport(data, chosen) {
   if (chosen['imp-profile'] && data.profile) {
     const n = toDisplayName(data.profile.displayName);
     if (n) state.profile.displayName = n;
-    if (data.abteilungen) state.abteilungen = data.abteilungen;
+    if (Array.isArray(data.dienststellen || data.abteilungen)) state.dienststellen = data.dienststellen || data.abteilungen; // ältere Sicherungen: „abteilungen“
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     msgs.push('Profil');
   }
@@ -7657,7 +7637,7 @@ function renderDpShifts(shifts, container) {
     for (const s of dayShifts) {
       const saved = findSavedServiceForShift(s);
       const savedChange = saved ? pendingPlanChange(saved) : null;
-      const dpLink = (saved && dienstplanUrl(saved)) || dienstplanUrl({ abteilung: '', location: s.location || '', startAt: localDtStr(new Date(s.start)) });
+      const dpLink = (saved && dienstplanUrl(saved)) || dienstplanUrl({ location: s.location || '', startAt: localDtStr(new Date(s.start)) });
       const chg = dpChangeFor(s, changes);
       const histKey = historyKeyForShift(s, hist);
       const card = document.createElement('div');
