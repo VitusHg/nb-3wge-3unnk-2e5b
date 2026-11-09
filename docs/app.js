@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 113;
+const APP_VERSION = 114;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7691,6 +7691,10 @@ function findSavedServiceForShift(shift) {
     // 1. gemerkte Termin-ID, 2. Zuordnung über Verlauf/Beginnzeit (auch wenn sich die Zeit verschoben hat)
     const byId = svcs.find((x) => x.dpUid === shift.uid);
     if (byId) return byId;
+    // umgeplanter Termin: Tagebuch kennt noch die alte ID
+    const h = Object.values(readDpHistory()).find((x) => x.uid === shift.uid && (x.prevUids || []).length);
+    const byPrev = h && svcs.find((x) => x.dpUid && h.prevUids.includes(x.dpUid));
+    if (byPrev) return byPrev;
     const viaPlan = svcs.find((x) => { const p = planShiftForService(x); return p && p.uid === shift.uid && p.start === shift.start; });
     if (viaPlan) return viaPlan;
   }
@@ -7759,7 +7763,13 @@ function planShiftForService(svc) {
     if (hits.length <= 1 || !st) return hits[0] || null;
     return hits.sort((a, b) => Math.abs(new Date(a.start) - st) - Math.abs(new Date(b.start) - st))[0];
   };
-  if (svc.dpUid) return byUid(svc.dpUid);
+  if (svc.dpUid) {
+    const hit = byUid(svc.dpUid);
+    if (hit) return hit;
+    // Termin wurde umgeplant (neue ID im Dienstplan): über den Verlauf weiterverfolgen
+    const moved = Object.values(readDpHistory()).find((h) => (h.prevUids || []).includes(svc.dpUid));
+    if (moved && moved.uid) { const s2 = byUid(moved.uid); if (s2) return s2; }
+  }
   // ältere Dienste ohne Termin-ID: über den Verlauf oder gleiche Beginnzeit (±90 min)
   const hk = historyKeyForService(svc);
   const hist = hk ? readDpHistory()[hk] : null;
@@ -8402,7 +8412,11 @@ function dpInboxRowsHtml(items) {
     const [ic, lbl] = meta[type] || meta.updated;
     const s = new Date(x.s);
     const title = [x.t || 'Dienst', x.l].filter(Boolean).join(' · ');
-    const old = moved && first ? `vorher ${localDateStr(new Date(first.s)) === localDateStr(s) ? '' : homeDayLabel(new Date(first.s), now) + ' '}${range(first)}` : '';
+    const parts = [];
+    if (list.some((c) => c.readded)) parts.push('wieder eingetragen');
+    if (first && list.some((c) => c.moved) && (first.t !== x.t || first.l !== x.l)) parts.push(`vorher ${[first.t, first.l].filter(Boolean).join(' · ')}`);
+    if (moved && first) parts.push(`${parts.some((p) => p.startsWith('vorher')) ? '' : 'vorher '}${localDateStr(new Date(first.s)) === localDateStr(s) ? '' : homeDayLabel(new Date(first.s), now) + ' '}${range(first)}`);
+    const old = parts.join(' · ');
     const n = list.length;
     return `<button type="button" class="ib-row is-${type}${unread ? ' is-unread' : ''}" data-inbox-key="${escHtml(key)}" aria-label="${escHtml(lbl + ': ' + title)}${unread ? ' (ungelesen)' : ''}">
       <span class="ib-ic" aria-hidden="true">${ic}</span>
