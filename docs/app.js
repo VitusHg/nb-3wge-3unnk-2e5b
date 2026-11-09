@@ -3883,8 +3883,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 115;
-const APP_VERSION_DATE = '07.11.2026';
+const APP_VERSION = 116;
+const APP_VERSION_DATE = '09.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -9591,60 +9591,243 @@ function syncApply(obj) {
 }
 
 /** Nach jeder lokalen Änderung: als „ungesichert“ markieren, kurz warten, dann hochladen. */
+let syncRev = 0; // zählt lokale Änderungen – nur was hochgeladen wurde, gilt als gesichert
 function syncNoteChange() {
   if (syncApplying || !syncOn()) return;
+  syncRev++;
   lsSet(SYNC_DIRTY_KEY, '1');
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => syncNow({ quiet: true }).catch(() => {}), 20000);
 }
-/** Abgleich: neuer Server-Stand → laden; eigene Änderungen → hochladen; beides → fragen. */
-async function syncNow({ quiet = false, forcePush = false } = {}) {
+// — Zusammenführen (3-Wege): Basis = zuletzt gemeinsamer Stand, „ours“ = dieses
+// Gerät, „theirs“ = Server. Pro Eintrag (Dienst, Einsatz, Kürzel, Einstellung …):
+// nur auf einer Seite geändert → übernehmen; auf beiden gleich → egal;
+// auf beiden unterschiedlich → Rückfrage (ohne Antwort gilt „dieses Gerät“).
+const MERGE_IDS = ['id', 'code', 'name'];
+const isPlain = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+function stableStr(x) {
+  if (Array.isArray(x)) return '[' + x.map(stableStr).join(',') + ']';
+  if (isPlain(x)) return '{' + Object.keys(x).sort().map((k) => JSON.stringify(k) + ':' + stableStr(x[k])).join(',') + '}';
+  return JSON.stringify(x === undefined ? null : x);
+}
+const same = (a, b) => stableStr(a) === stableStr(b);
+function arrayKey(...arrs) {
+  const all = arrs.flatMap((a) => (Array.isArray(a) ? a : []));
+  if (!all.length) return null;
+  return MERGE_IDS.find((k) => all.every((o) => isPlain(o) && o[k] !== undefined && o[k] !== null && o[k] !== '')) || null;
+}
+function merge3(base, ours, theirs, path, ctx) {
+  if (same(ours, theirs)) return ours;
+  if (base !== undefined && same(ours, base)) return theirs;
+  if (base !== undefined && same(theirs, base)) return ours;
+  if (isPlain(ours) && isPlain(theirs)) {
+    const b = isPlain(base) ? base : {};
+    const out = {};
+    const keys = [...new Set([...Object.keys(theirs), ...Object.keys(ours), ...Object.keys(b)])];
+    for (const k of keys) {
+      const v = mergeSlot(k in b ? b[k] : undefined, k in ours ? ours[k] : undefined, k in theirs ? theirs[k] : undefined, [...path, k], ctx);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  if (Array.isArray(ours) && Array.isArray(theirs)) {
+    const b = Array.isArray(base) ? base : [];
+    const key = arrayKey(b, ours, theirs);
+    if (key) {
+      const map = (arr) => new Map(arr.map((o) => [String(o[key]), o]));
+      const mb = map(b), mo = map(ours), mt = map(theirs);
+      const order = [...new Set([...theirs.map((o) => String(o[key])), ...ours.map((o) => String(o[key]))])];
+      const out = [];
+      for (const id of order) {
+        const v = mergeSlot(mb.get(id), mo.get(id), mt.get(id), [...path, `${key}=${id}`], ctx);
+        if (v !== undefined) out.push(v);
+      }
+      return out;
+    }
+    if ([...b, ...ours, ...theirs].every((x) => !x || typeof x !== 'object')) {
+      // Listen von Texten/Zahlen: Hinzufügen und Entfernen beider Seiten übernehmen
+      const has = (arr, x) => arr.some((y) => y === x);
+      const removedByOurs = b.filter((x) => !has(ours, x));
+      const out = theirs.filter((x) => !has(removedByOurs, x));
+      ours.forEach((x) => { if (!has(b, x) && !has(out, x)) out.push(x); });
+      return out;
+    }
+  }
+  return ctx.resolve(path, base, ours, theirs);
+}
+/** Ein Feld/Eintrag, der auf einer Seite fehlen kann (gelöscht oder neu). */
+function mergeSlot(b, o, t, path, ctx) {
+  if (o === undefined && t === undefined) return undefined;
+  if (o === undefined) {
+    if (b === undefined) return t;            // nur dort neu
+    if (same(t, b)) return undefined;          // hier gelöscht, dort unverändert
+    return ctx.resolve(path, b, undefined, t); // hier gelöscht, dort geändert
+  }
+  if (t === undefined) {
+    if (b === undefined) return o;
+    if (same(o, b)) return undefined;
+    return ctx.resolve(path, b, o, undefined);
+  }
+  return merge3(b, o, t, path, ctx);
+}
+function syncMerge(baseObj, ours, theirs, choices = {}) {
+  const conflicts = [];
+  const ctx = {
+    resolve(path, b, o, t) {
+      const key = path.join('/');
+      // Geräte-Einstellungen nicht nachfragen: Zeitstempel → jüngerer, sonst dieses Gerät
+      if (path[0] === 'ls') return /^\d{10,}$/.test(String(o)) && /^\d{10,}$/.test(String(t)) ? String(Math.max(+o, +t)) : (o === undefined ? t : o);
+      conflicts.push({ key, path, ours: o, theirs: t });
+      return choices[key] === 'theirs' ? t : o;
+    },
+  };
+  const pick = (x) => ({ state: x ? x.state : undefined, ls: x ? x.ls || {} : {} });
+  const B = baseObj ? pick(baseObj) : { state: undefined, ls: undefined };
+  const O = pick(ours), T = pick(theirs);
+  const state = merge3(B.state, O.state, T.state, ['state'], ctx);
+  const ls = merge3(B.ls, O.ls, T.ls, ['ls'], ctx);
+  return { result: { ...ours, at: Date.now(), state, ls }, conflicts };
+}
+// — Konflikte verständlich benennen —
+const MERGE_FIELD = { note: 'Notiz', alarmCode: 'Stichwort', vehicle: 'Fahrzeug', location: 'Dienststelle', startAt: 'Beginn', endAt: 'Ende', colleagues: 'Besatzung', times: 'Zeiten', from: 'Start', to: 'Ziel', pzc: 'PZC', naca: 'NACA', einsatzart: 'Einsatzart', statKz: 'Statistik-KZ', lights: 'Blaulicht', favorite: 'Favorit', links: 'Links', extraVehicles: 'weitere Fahrzeuge', displayName: 'Anzeigename', places: 'Orte & Ziele', dienststellen: 'Dienststellen', alarmCodes: 'Stichwörter', pzcCodes: 'PZC-Liste', vehicleCategories: 'Fahrzeug-Icons', vehicleAssignments: 'Fahrzeug-Zuweisung' };
+function mergeLabel(c, ours, theirs) {
+  const p = c.path;
+  const find = (root, segs) => { let cur = root; for (const s of segs) { if (cur === undefined || cur === null) return undefined; if (Array.isArray(cur) && s.includes('=')) { const [k, v] = s.split('='); cur = cur.find((o) => String(o[k]) === v); } else cur = cur[s]; } return cur; };
+  const parts = [];
+  if (p[0] === 'ls') return 'Einstellung ' + (p[1] || '');
+  if (p[1] === 'services' && p[2]) {
+    const svc = find(ours.state, p.slice(1, 3)) || find(theirs.state, p.slice(1, 3)) || {};
+    const d = parseLocalDt(svc.startAt);
+    parts.push(svc.isSeg ? 'SEG' : `Dienst ${svc.vehicle || ''}`.trim(), d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }) : '');
+    if (p[3] === 'incidents' && p[4]) {
+      const inc = find(ours.state, p.slice(1, 5)) || find(theirs.state, p.slice(1, 5)) || {};
+      parts.push('· Einsatz ' + (inc.alarmCode || ''));
+      if (p[5]) parts.push('· ' + (MERGE_FIELD[p[5]] || p[5]));
+    } else if (p[3]) parts.push('· ' + (MERGE_FIELD[p[3]] || p[3]));
+    return parts.filter(Boolean).join(' ');
+  }
+  return p.slice(1).map((s) => MERGE_FIELD[s] || s.replace(/^\w+=/, '')).join(' · ');
+}
+function mergeShow(v) {
+  if (v === undefined) return 'gelöscht';
+  if (v === null || v === '') return 'leer';
+  if (typeof v === 'boolean') return v ? 'ja' : 'nein';
+  if (typeof v !== 'object') return String(v).length > 60 ? String(v).slice(0, 59) + '…' : String(v);
+  if (v.alarmCode || v.vehicle) return [v.alarmCode || v.vehicle, v.note].filter(Boolean).join(' · ').slice(0, 60);
+  const s = Array.isArray(v) ? v.map((x) => (typeof x === 'object' ? (x.name || x.alarmCode || '…') : x)).join(', ') : Object.entries(v).map(([k, x]) => `${MERGE_FIELD[k] || k}: ${typeof x === 'object' ? '…' : x}`).join(', ');
+  return s.length > 60 ? s.slice(0, 59) + '…' : s || '—';
+}
+/** Rückfrage je Konflikt: „Dieses Gerät“ oder „Anderes Gerät“. */
+function askMergeChoices(conflicts, ours, theirs, otherDevice) {
+  return new Promise((resolve) => {
+    const choices = {};
+    const ov = document.createElement('div');
+    ov.className = 'dialog-overlay';
+    ov.style.cssText = 'display:flex;z-index:3000';
+    ov.innerHTML = `<div class="dialog-box dialog-box-wide"><div class="dialog-header"><h3>Änderungen zusammenführen</h3></div>
+      <div class="dialog-body">
+        <p class="mg-intro">Alles andere wurde automatisch zusammengeführt. Diese ${conflicts.length === 1 ? 'Stelle wurde' : `${conflicts.length} Stellen wurden`} auf beiden Geräten unterschiedlich geändert – was soll gelten?</p>
+        ${conflicts.map((c, i) => `<div class="mg-item"><div class="mg-label">${escHtml(mergeLabel(c, ours, theirs))}</div>
+          <div class="mg-opts" data-i="${i}">
+            <button type="button" class="mg-opt is-on" data-v="ours"><small>Dieses Gerät</small><span>${escHtml(mergeShow(c.ours))}</span></button>
+            <button type="button" class="mg-opt" data-v="theirs"><small>${escHtml(otherDevice || 'Anderes Gerät')}</small><span>${escHtml(mergeShow(c.theirs))}</span></button>
+          </div></div>`).join('')}
+        <button type="button" class="btn-primary" id="mg-ok">Zusammenführen</button>
+        <p class="mg-intro">Der bisherige Stand dieses Geräts wird zusätzlich am Server aufgehoben.</p>
+      </div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelectorAll('.mg-opts').forEach((row) => row.addEventListener('click', (e) => {
+      const b = e.target.closest('.mg-opt'); if (!b) return;
+      row.querySelectorAll('.mg-opt').forEach((x) => x.classList.toggle('is-on', x === b));
+      choices[conflicts[+row.dataset.i].key] = b.dataset.v;
+    }));
+    ov.querySelector('#mg-ok').onclick = () => { ov.remove(); resolve(choices); };
+  });
+}
+// — Gemeinsamer Stand („Basis“) für das Zusammenführen, lokal in IndexedDB —
+async function syncSnapSave(v, obj) {
+  try { const db = await syncDb(); await new Promise((res, rej) => { const t = db.transaction('keys', 'readwrite'); t.objectStore('keys').put({ v, obj }, 'snap'); t.oncomplete = res; t.onerror = () => rej(t.error); }); } catch (_) {}
+}
+async function syncSnapLoad() {
+  try { const db = await syncDb(); return await new Promise((res) => { const t = db.transaction('keys', 'readonly'); const r = t.objectStore('keys').get('snap'); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch (_) { return null; }
+}
+
+async function syncSetBase(v, obj, rev) {
+  lsSet(SYNC_BASE_KEY, String(v)); lsSet(SYNC_LAST_KEY, String(Date.now()));
+  if (rev === undefined || rev === syncRev) lsSet(SYNC_DIRTY_KEY, null); // inzwischen weiter geändert → bleibt „ungesichert“
+  await syncSnapSave(v, obj);
+}
+/**
+ * Abgleich mit dem Server:
+ *  - neuer Server-Stand, hier nichts geändert → übernehmen
+ *  - hier geändert, Server unverändert → hochladen
+ *  - beides → pro Eintrag zusammenführen (Rückfrage nur bei echten Widersprüchen),
+ *    bisherigen Gerätestand am Server aufheben, Ergebnis hochladen
+ * Der Server legt eine neue Version nur an, wenn die Basis noch stimmt – sonst
+ * wird erneut abgeglichen. So kann kein Gerät ein anderes überschreiben.
+ */
+async function syncNow({ quiet = false } = {}) {
   if (!syncOn() || syncBusy) return;
   syncBusy = true;
   clearTimeout(syncTimer);
   try {
-    const st = await syncApi('/sync/state');
-    const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
-    const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
-    if (st.latest > base && !forcePush) {
-      if (!dirty) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const st = await syncApi('/sync/state');
+      const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
+      const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
+      if (st.latest > base) {
         const p = await syncApi('/sync/pull', { version: st.latest });
-        syncApply(await syncDecrypt(p.data));
-        lsSet(SYNC_BASE_KEY, String(p.version)); lsSet(SYNC_LAST_KEY, String(Date.now()));
-        if (!quiet) toast('Neuester Stand geladen.', 'success', 1800);
-      } else {
-        syncBusy = false;
-        syncConflict(st);
-        return;
+        const remote = await syncDecrypt(p.data);
+        if (!dirty) {
+          syncApply(remote);
+          await syncSetBase(p.version, remote);
+          if (!quiet) toast('Neuester Stand geladen.', 'success', 1800);
+          return;
+        }
+        const rev = syncRev;
+        const local = syncCollect();
+        const snap = await syncSnapLoad();
+        const baseObj = snap && snap.v === base ? snap.obj : null;
+        let { result, conflicts } = syncMerge(baseObj, local, remote);
+        if (conflicts.length) ({ result } = syncMerge(baseObj, local, remote, await askMergeChoices(conflicts, local, remote, p.device)));
+        await syncApi('/sync/aside', { data: await syncEncrypt(local), device: syncDevice() }).catch(() => {});
+        syncApply(result);
+        lsSet(SYNC_BASE_KEY, String(p.version));
+        await syncSnapSave(p.version, remote);
+        try {
+          const r = await syncApi('/sync/push', { base: p.version, data: await syncEncrypt(result), device: syncDevice() });
+          await syncSetBase(r.version, result, rev);
+          toast(conflicts.length ? 'Zusammengeführt.' : 'Änderungen beider Geräte zusammengeführt.', 'success', 2200);
+          return;
+        } catch (e) { if (e.code !== 'conflict') throw e; lsSet(SYNC_DIRTY_KEY, '1'); continue; }
       }
-    } else if (dirty || forcePush || st.latest === 0) {
-      const r = await syncApi('/sync/push', { base: forcePush ? st.latest : base, data: await syncEncrypt(syncCollect()), device: syncDevice() });
-      lsSet(SYNC_BASE_KEY, String(r.version)); lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_LAST_KEY, String(Date.now()));
-      if (!quiet) toast('Gesichert.', 'success', 1500);
-    } else {
+      if (dirty || st.latest === 0) {
+        const rev = syncRev;
+        const obj = syncCollect();
+        try {
+          const r = await syncApi('/sync/push', { base: st.latest, data: await syncEncrypt(obj), device: syncDevice() });
+          await syncSetBase(r.version, obj, rev);
+          if (!quiet) toast('Gesichert.', 'success', 1500);
+          return;
+        } catch (e) { if (e.code !== 'conflict') throw e; continue; } // jemand war schneller → neu abgleichen
+      }
       lsSet(SYNC_LAST_KEY, String(Date.now()));
       if (!quiet) toast('Alles aktuell.', 'success', 1500);
+      return;
     }
   } catch (err) {
     if (err.status === 401 && err.code === 'unauthorized') { lsSet(SYNC_TOKEN_KEY, null); toast('Sync: Anmeldung abgelaufen – bitte neu anmelden.', 'info', 5000); }
-    else if (err.code === 'conflict') { syncBusy = false; syncConflict(err.data || {}); return; }
     else if (!quiet) toast('Sync: ' + err.message, 'error', 4000);
   } finally {
     syncBusy = false;
-    if (settingsSub === 'konto') renderSettingsPage();
+    if (settingsSub === 'konto' && activeTab === 'einstellungen') renderSettingsPage();
   }
 }
-function syncConflict(info) {
-  const when = info.at ? `${homeDayLabel(new Date(info.at), new Date())}, ${formatTimeHM(new Date(info.at))}` : '';
-  showActionSheet({
-    title: 'Auf einem anderen Gerät geändert',
-    message: `${info.device || 'Anderes Gerät'}${when ? ' · ' + when : ''}. Hier gibt es ebenfalls ungesicherte Änderungen.`,
-    actions: [
-      { icon: '⬇️', label: 'Server-Stand übernehmen', sub: 'Änderungen auf diesem Gerät verwerfen', run: async () => { lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_BASE_KEY, '0'); await syncNow(); } },
-      { icon: '⬆️', label: 'Diesen Stand hochladen', sub: 'Der andere Stand bleibt als ältere Version erhalten', run: () => syncNow({ forcePush: true }) },
-    ],
-  });
-}
+// offen gelassene App bzw. Browser-Tab: jede Minute nachsehen (nicht während Eingaben/Fenstern)
+setInterval(() => {
+  if (!syncOn() || syncBusy || document.visibilityState !== 'visible' || isTypingSomewhere() || topVisibleOverlay()) return;
+  syncNow({ quiet: true }).catch(() => {});
+}, 60000);
 document.addEventListener('visibilitychange', () => {
   if (!syncOn()) return;
   if (document.visibilityState === 'hidden' && lsGet(SYNC_DIRTY_KEY) === '1') syncNow({ quiet: true }).catch(() => {});
@@ -9659,7 +9842,7 @@ async function syncRegister({ url, username, password, setupKey }) {
   const r = await syncApi('/sync/register', { setupKey, username, authKey, salt, iter, device: syncDevice() }, { token: '', url });
   await syncKeyStore(encKey);
   lsSet(SYNC_URL_KEY, url); lsSet(SYNC_USER_KEY, username.trim().toLowerCase()); lsSet(SYNC_TOKEN_KEY, r.token);
-  lsSet(SYNC_BASE_KEY, '0'); lsSet(SYNC_DIRTY_KEY, '1');
+  lsSet(SYNC_BASE_KEY, '0'); lsSet(SYNC_DIRTY_KEY, '1'); await syncSnapSave(-1, null);
   await syncNow({ quiet: true });
 }
 async function syncLogin({ url, username, password, totp }) {
@@ -9672,13 +9855,13 @@ async function syncLogin({ url, username, password, totp }) {
   if (st.latest) remote = await syncDecrypt((await syncApi('/sync/pull', { version: st.latest }, { token: r.token, url })).data, encKey);
   await syncKeyStore(encKey);
   lsSet(SYNC_URL_KEY, url); lsSet(SYNC_USER_KEY, username.trim().toLowerCase()); lsSet(SYNC_TOKEN_KEY, r.token);
-  const localHas = state.services.length > 0;
-  if (remote && (!localHas || confirm(`Auf dem Server liegt ein Stand vom ${new Date(st.at).toLocaleString('de-AT')} (${st.device || 'Gerät'}).\n\nOK = Server-Stand auf dieses Gerät laden (lokale Daten werden ersetzt)\nAbbrechen = diesen Stand hochladen (Server-Stand bleibt als ältere Version)`))) {
-    syncApply(remote); lsSet(SYNC_BASE_KEY, String(st.latest)); lsSet(SYNC_DIRTY_KEY, null); lsSet(SYNC_LAST_KEY, String(Date.now()));
-  } else {
-    lsSet(SYNC_BASE_KEY, String(st.latest)); lsSet(SYNC_DIRTY_KEY, '1');
-    await syncNow({ quiet: true, forcePush: !!st.latest });
+  if (!remote) { lsSet(SYNC_BASE_KEY, '0'); lsSet(SYNC_DIRTY_KEY, '1'); await syncNow({ quiet: true }); return; }
+  if (!state.services.length) {
+    syncApply(remote); await syncSetBase(st.latest, remote); return;
   }
+  // Auf diesem Gerät gibt es schon Daten → mit dem Server-Stand zusammenführen
+  lsSet(SYNC_BASE_KEY, '0'); lsSet(SYNC_DIRTY_KEY, '1'); await syncSnapSave(-1, null);
+  await syncNow({ quiet: true });
 }
 async function syncLogout(server = true) {
   if (server) await syncApi('/sync/logout').catch(() => {});
@@ -9770,6 +9953,7 @@ function settingsPageKonto(el, title) {
       <div class="set-form"><label for="sy-device">Name dieses Geräts</label><input type="text" id="sy-device" value="${escHtml(syncDevice())}" maxlength="40"></div>
       <button type="button" class="set-row set-destructive" id="sy-logout"><span class="set-row-text set-row-title">Auf diesem Gerät abmelden</span></button>
     </div>
+    <p class="set-group-footer is-keep" id="sy-storage"></p>
     <p class="set-group-footer">Ende-zu-Ende verschlüsselt (AES-256). Nicht synchronisiert wird der Dienstplan-Zugangsschlüssel – der bleibt nur auf dem jeweiligen Gerät.</p>`;
   el.querySelector('#sy-now').onclick = () => syncNow();
   el.querySelector('#sy-device').onchange = (e) => lsSet(SYNC_DEVICE_KEY, e.target.value.trim() || null);
@@ -9786,6 +9970,10 @@ async function syncRenderTotp(el) {
   if (!box) return;
   let st;
   try { st = await syncApi('/sync/state'); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
+  const stor = el.querySelector('#sy-storage');
+  if (stor) stor.innerHTML = st.atomic
+    ? '✓ Speicher: D1-Datenbank – gleichzeitiges Hochladen ist ausgeschlossen.'
+    : '⚠︎ Speicher: KV (Rückfall). Für vollständigen Schutz vor gleichzeitigem Hochladen im Worker die D1-Datenbank <b>SYNC_DB</b> verbinden.';
   if (st.totp) {
     box.innerHTML = `<div class="set-row"><span class="set-row-text"><span class="set-row-title">✓ Aktiv (Authenticator-App)</span><span class="set-row-sub">Beim Anmelden auf einem neuen Gerät wird zusätzlich der 6-stellige Code abgefragt.</span></span></div>
       <button type="button" class="set-row set-destructive" id="sy-totp-off"><span class="set-row-text set-row-title">Ausschalten</span></button>`;
@@ -9832,19 +10020,27 @@ async function syncRenderSessions(el) {
 }
 async function syncShowVersions(el) {
   const box = el.querySelector('#sy-versions');
+  const fmt = (at) => new Date(at).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   try {
-    const { versions, latest } = await syncApi('/sync/versions');
-    box.innerHTML = versions.map((v) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(new Date(v.at).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }))}${v.v === latest ? ' · aktuell' : ''}</span><span class="set-row-sub">${escHtml(v.device || '')} · ${Math.round(v.size / 1024)} KB</span></span>${v.v === latest ? '' : `<button type="button" class="btn-ghost" data-restore="${v.v}">Wiederherstellen</button>`}</div>`).join('') || '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Version.</span></div>';
-    box.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+    const { versions, latest, aside } = await syncApi('/sync/versions');
+    box.innerHTML = (versions.map((v) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(fmt(v.at))}${v.v === latest ? ' · aktuell' : ''}</span><span class="set-row-sub">Version ${v.v} · ${escHtml(v.device || '')} · ${Math.round(v.size / 1024)} KB</span></span>${v.v === latest ? '' : `<button type="button" class="btn-ghost" data-restore="${v.v}">Wiederherstellen</button>`}</div>`).join('')
+      + (aside || []).map((a) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(fmt(a.at))} · vor Zusammenführung</span><span class="set-row-sub">Stand von ${escHtml(a.device || 'Gerät')} · ${Math.round(a.size / 1024)} KB</span></span><button type="button" class="btn-ghost" data-restore-aside="${a.id}">Wiederherstellen</button></div>`).join(''))
+      || '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Version.</span></div>';
+    const restore = async (body) => {
       if (!confirm('Diesen früheren Stand wiederherstellen? Der aktuelle Stand bleibt als Version erhalten.')) return;
       try {
-        const p = await syncApi('/sync/pull', { version: +b.dataset.restore });
+        const p = await syncApi('/sync/pull', body);
         syncApply(await syncDecrypt(p.data));
         lsSet(SYNC_DIRTY_KEY, '1');
-        await syncNow({ quiet: true, forcePush: true });
+        // Basis = aktueller Server-Stand, damit der wiederhergestellte Stand als neue Version gilt
+        const st = await syncApi('/sync/state');
+        lsSet(SYNC_BASE_KEY, String(st.latest)); await syncSnapSave(-1, null);
+        await syncNow({ quiet: true });
         toast('Früherer Stand wiederhergestellt.', 'success');
       } catch (e) { toast(e.message, 'error'); }
-    }));
+    };
+    box.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', () => restore({ version: +b.dataset.restore })));
+    box.querySelectorAll('[data-restore-aside]').forEach((b) => b.addEventListener('click', () => restore({ aside: +b.dataset.restoreAside })));
   } catch (e) { toast(e.message, 'error'); }
 }
 /** Nach dem Anmelden: Dienstplan-Zugangsschlüssel separat abfragen (wird nicht synchronisiert). */

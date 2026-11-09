@@ -3877,3 +3877,13 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .sy-hint { margin: 0; font-size: 13px; color: var(--text2); text-align: center; }
 .sy-code-row { display: flex; gap: 8px; width: 100%; }
 .sy-code-row input { flex: 1; min-width: 0; text-align: center; font-size: 20px; letter-spacing: 3px; font-variant-numeric: tabular-nums; }
+
+/* Zusammenführen */
+.mg-intro { margin: 0; font-size: 14px; color: var(--text2); line-height: 1.4; }
+.mg-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 0.5px solid var(--separator); }
+.mg-label { font-size: 14px; font-weight: 700; }
+.mg-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mg-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1.5px solid transparent; border-radius: 12px; background: var(--fill); color: var(--text); font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.mg-opt small { font-size: 11px; color: var(--text2); font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.mg-opt span { font-size: 14px; overflow-wrap: anywhere; }
+.mg-opt.is-on { border-color: var(--accent); background: var(--accent-soft); }
