@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 109;
+const APP_VERSION = 110;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7923,6 +7923,8 @@ function renderTdpPopup() {
     const cls = ['tdp-day', set ? 'is-duty' : '', set && set.has(sel) ? 'is-here' : '', ds === today ? 'is-today' : ''].filter(Boolean).join(' ');
     cells += `<a class="${cls}" ${dpLinkAttrs(tdpUrl(sel, ds))} aria-label="Tagesdienstplan ${d}.${mo + 1}.${y}${set ? ' (Dienst)' : ''}">${d}</a>`;
   }
+  // immer 6 Wochen zeigen, damit das Fenster beim Blättern gleich hoch bleibt
+  for (let i = first + nDays; i < 42; i++) cells += '<span class="tdp-day is-empty"></span>';
   box.innerHTML = `<label class="tdp-dept"><span>Dienststelle</span>
       <select id="tdp-dept">${depts.map((d) => `<option value="${escHtml(d.name)}"${d.name === selName ? ' selected' : ''}>${escHtml(d.name)}</option>`).join('')}</select></label>
     <div class="tdp-cal">
