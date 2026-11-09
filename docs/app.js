@@ -676,11 +676,20 @@ function mapsRouteUrl(address) {
   if (/^https?:\/\//i.test(a)) return a;
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(a)}&travelmode=driving`;
 }
-function homeNavBtnHtml(svcLike) {
+const ICON_CAR_FRONT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.2 5.8A2.5 2.5 0 0 1 8.6 4h6.8a2.5 2.5 0 0 1 2.4 1.8L19 10h.5a1.5 1.5 0 0 1 1.5 1.5V17a1 1 0 0 1-1 1h-.5v1.5a1 1 0 0 1-1 1h-1.5a1 1 0 0 1-1-1V18H8v1.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V18H4a1 1 0 0 1-1-1v-5.5A1.5 1.5 0 0 1 4.5 10H5zm1.3 4.2h9l-1-3.4a.9.9 0 0 0-.9-.6H9.4a.9.9 0 0 0-.9.6zM6.5 15.3a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6zm11 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6z" fill="currentColor"/></svg>';
+const ICON_BUS_FRONT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2.5h10A2.5 2.5 0 0 1 19.5 5v13a1 1 0 0 1-1 1h-.5v1.5a1 1 0 0 1-1 1h-1.5a1 1 0 0 1-1-1V19h-5v1.5a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V19h-.5a1 1 0 0 1-1-1V5A2.5 2.5 0 0 1 7 2.5zM9 4.2a.6.6 0 0 0 0 1.2h6a.6.6 0 0 0 0-1.2zM6.6 7v5.2h10.8V7zm1.2 9.9a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm8.4 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zM3 8.2h1v3H3zm17 0h1v3h-1z" fill="currentColor"/></svg>';
+/** Navigation rechts oben in der Dienstkarte: Auto (Google Maps) und Öffis (BusBahnBim). */
+function homeNavBtnsHtml(svcLike) {
   const abt = findAbteilung(svcLike);
-  const url = abt && mapsRouteUrl(abt.address);
-  if (!url) return '';
-  return `<a class="hm-nav" href="${escHtml(url)}" target="_blank" rel="noopener" aria-label="Route zu ${escHtml(abt.name)} in Google Maps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19.5 21 12 17l-7.5 4z" fill="currentColor"/></svg><span>Route</span></a>`;
+  const addr = abt && String(abt.address || '').trim();
+  if (!addr) return '';
+  const car = mapsRouteUrl(addr);
+  const isLink = /^https?:\/\//i.test(addr);
+  const bus = isLink ? '' : `https://verkehrsauskunft.verbundlinie.at/?Z=${encodeURIComponent(addr)}`;
+  return `<div class="hm-navs">
+    <a class="hm-navbtn is-car" href="${escHtml(car)}" target="_blank" rel="noopener" aria-label="Mit dem Auto zu ${escHtml(abt.name)} (Google Maps)">${ICON_CAR_FRONT}</a>
+    ${bus ? `<a class="hm-navbtn is-bus" href="${escHtml(bus)}" target="_blank" rel="noopener" aria-label="Öffentlich zu ${escHtml(abt.name)} (BusBahnBim)">${ICON_BUS_FRONT}</a>` : ''}
+  </div>`;
 }
 
 function dienstplanUrl(svc) {
@@ -3506,7 +3515,8 @@ function homeActiveCardHtml(svc, now) {
   const lights = incs.filter((i) => i.lights).length;
   const shown = incs.slice().reverse().slice(0, 4);
   const crew = (svc.colleagues || []).filter(Boolean);
-  return `<section class="hm-card hm-hero is-active" data-svc="${escHtml(svc.id)}" data-end="${escHtml(svc.endAt || '')}">
+  const navs = homeNavBtnsHtml(svc);
+  return `<section class="hm-card hm-hero is-active${navs ? ' has-navs' : ''}" data-svc="${escHtml(svc.id)}" data-end="${escHtml(svc.endAt || '')}">${navs}
     <button type="button" class="hm-hero-open" data-open-svc="${escHtml(svc.id)}" aria-label="Dienst öffnen">
       <div class="hm-hero-top">
         <span class="hm-live"><span class="home-active-pulse"></span>Im Dienst</span>
@@ -3530,7 +3540,7 @@ function homeActiveCardHtml(svc, now) {
     </button>
     <div class="hm-hero-incs-hd">
       <span>${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${lights ? ` · <span class="hm-blue">🔵 ${lights}</span>` : ''}</span>
-      <span class="hm-inc-btns">${homeNavBtnHtml(svc)}<button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button></span>
+      <button type="button" class="btn-primary hm-add-inc" data-add-inc="${escHtml(svc.id)}">+ Einsatz</button>
     </div>
     ${shown.length ? `<div class="hm-list is-flush">${shown.map((i) => homeIncRowHtml(i, svc, false)).join('')}</div>` : ''}
     ${incs.length > shown.length ? `<button type="button" class="hm-more" data-open-svc="${escHtml(svc.id)}">Alle ${incs.length} Einsätze anzeigen</button>` : ''}
@@ -3562,11 +3572,12 @@ function homeNextCardHtml(item, now) {
       </div>
       ${crew.length ? `<div class="hm-crew">👥 ${escHtml(crew.join(' · '))}</div>` : ''}`;
   if (item.svc) {
-    const nav = homeNavBtnHtml(item.svc);
-    return `<section class="hm-card hm-hero"><button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button>${nav ? `<div class="hm-hero-acts">${nav}</div>` : ''}</section>`;
+    const navs = homeNavBtnsHtml(item.svc);
+    return `<section class="hm-card hm-hero${navs ? ' has-navs' : ''}">${navs}<button type="button" class="hm-hero-open" data-open-svc="${escHtml(item.svc.id)}">${inner}</button></section>`;
   }
-  return `<section class="hm-card hm-hero"><div class="hm-hero-open is-static">${inner}</div>
-    <div class="hm-hero-acts">${homeNavBtnHtml({ abteilung: '', location: location })}<button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button></div>
+  const icsNavs = homeNavBtnsHtml({ abteilung: '', location });
+  return `<section class="hm-card hm-hero${icsNavs ? ' has-navs' : ''}">${icsNavs}<div class="hm-hero-open is-static">${inner}</div>
+    <button type="button" class="btn-secondary hm-hero-btn" data-save-ics="${escHtml(JSON.stringify(item.ics))}">Ins Tagebuch übernehmen</button>
   </section>`;
 }
 
@@ -3883,7 +3894,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 104;
+const APP_VERSION = 105;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4754,7 +4765,7 @@ function renderAbteilungenPopup() {
     <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Abteilungen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="abt-list" style="margin-top:4px"></div>
     <div id="abt-suggest"></div>
-    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheint auf Start beim aktuellen bzw. nächsten Dienst „Route“ (Google Maps). Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
+    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheinen auf Start beim aktuellen bzw. nächsten Dienst Knöpfe für Google Maps und BusBahnBim. Antippen zum Bearbeiten. Import: Liste <code>[{ "name", "deptId" }]</code> oder RKTel-Datei <code>{ "abteilungen": […] }</code>.</p>`;
 
   const refreshList = () => {
     const el = body.querySelector('#abt-list');

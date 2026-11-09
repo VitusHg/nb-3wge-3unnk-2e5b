@@ -3833,3 +3833,15 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .abt-addr { display: block; font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .abt-sug { align-items: center; }
 .abt-sug .abt-sug-add { padding: 5px 12px; font-size: 13px; flex-shrink: 0; }
+
+/* Navigation rechts oben in der Dienstkarte */
+.hm-hero { position: relative; }
+.hm-navs { position: absolute; top: 10px; right: 12px; z-index: 2; display: flex; gap: 8px; }
+.hm-navbtn { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--fill); text-decoration: none; }
+.hm-navbtn svg { width: 21px; height: 21px; }
+.hm-navbtn.is-car { color: var(--blue); }
+.hm-navbtn.is-bus { color: var(--green-light); }
+.hm-hero.has-navs .hm-hero-top { padding-right: 92px; min-height: 26px; }
+[data-compact] .hm-hero.has-navs .hm-hero-text { padding-right: 92px; }
+[data-compact] .hm-navs { top: 8px; }
+[data-compact] .hm-hero.has-navs .hm-hero-body > .hm-chev { visibility: hidden; }
