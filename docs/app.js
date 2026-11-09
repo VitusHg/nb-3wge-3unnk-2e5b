@@ -539,6 +539,11 @@ function dpLinkMode() {
   return isIOSDevice() ? 'safari' : 'app'; // Standard wie in RKTel
 }
 /** href/target-Attribute für einen Link zum Online Dienstplan. */
+/** Immer in Safari öffnen (iOS: x-safari-https://, ab iOS 17), sonst neuer Tab. */
+function safariLinkAttrs(url) {
+  if (isIOSDevice() && /^https:\/\//.test(url)) return `href="${escHtml('x-safari-' + url)}"`;
+  return `href="${escHtml(url)}" target="_blank" rel="noopener noreferrer"`;
+}
 function dpLinkAttrs(url) {
   if (dpLinkMode() === 'safari' && isIOSDevice() && /^https:\/\//.test(url)) {
     // x-safari-https:// öffnet Safari direkt (ab iOS 17) – dort bleibt man angemeldet
@@ -688,7 +693,7 @@ function homeNavBtnsHtml(svcLike) {
   const bus = isLink ? '' : `https://verkehrsauskunft.verbundlinie.at/?Z=${encodeURIComponent(addr)}`;
   return `<div class="hm-navs">
     <a class="hm-navbtn is-car" href="${escHtml(car)}" target="_blank" rel="noopener" aria-label="Mit dem Auto zu ${escHtml(abt.name)} (Google Maps)">${ICON_CAR_FRONT}</a>
-    ${bus ? `<a class="hm-navbtn is-bus" href="${escHtml(bus)}" target="_blank" rel="noopener" aria-label="Öffentlich zu ${escHtml(abt.name)} (BusBahnBim)">${ICON_BUS_FRONT}</a>` : ''}
+    ${bus ? `<a class="hm-navbtn is-bus" ${safariLinkAttrs(bus)} aria-label="Öffentlich zu ${escHtml(abt.name)} (BusBahnBim)">${ICON_BUS_FRONT}</a>` : ''}
   </div>`;
 }
 
@@ -3894,7 +3899,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 105;
+const APP_VERSION = 106;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
