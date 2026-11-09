@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 112;
+const APP_VERSION = 113;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7888,11 +7888,11 @@ function tdpDutyDays() {
   ((cache && cache.shifts) || []).forEach((x) => add(new Date(x.start), x.location));
   return days;
 }
-/** Jahre zur Auswahl: vom ersten eigenen Dienst bis nächstes Jahr. */
+/** Jahre zur Auswahl: 15 Jahre zurück (bzw. ab dem ersten Dienst) bis 3 Jahre voraus. */
 function tdpYears(cur) {
   const now = new Date().getFullYear();
   const firsts = state.services.map((s) => parseLocalDt(s.startAt)).filter(Boolean).map((d) => d.getFullYear());
-  const from = Math.min(cur, now - 1, ...firsts), to = Math.max(cur, now + 1);
+  const from = Math.min(cur, now - 15, ...firsts), to = Math.max(cur, now + 3);
   const out = [];
   for (let v = to; v >= from; v--) out.push(v);
   return out;
