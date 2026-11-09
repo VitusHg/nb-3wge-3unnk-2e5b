@@ -137,6 +137,9 @@
           <div class="dp-titlebar">
             <h1 class="large-title">Dienstplan</h1>
             <div class="dp-head-actions" id="dp-head-actions">
+              <button id="btn-tdp" class="icon-round" type="button" aria-label="Tagesdienstplan nachsehen" title="Tagesdienstplan">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="15" r="2.2" fill="currentColor"/></svg>
+              </button>
               <button id="btn-dp-reload" class="icon-round" type="button" aria-label="Dienstplan aktualisieren" title="Aktualisieren">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
@@ -578,6 +581,14 @@
         <div class="codes-popup-left popup-col"></div>
         <div class="codes-popup-right popup-col"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Tagesdienstplan nachsehen -->
+  <div id="dialog-tdp" class="dialog-overlay" style="display:none">
+    <div class="dialog-box">
+      <div class="dialog-header"><h3>Tagesdienstplan</h3><button class="dialog-close" data-close="dialog-tdp" aria-label="Schließen">✕</button></div>
+      <div class="dialog-body" id="tdp-body"></div>
     </div>
   </div>
 

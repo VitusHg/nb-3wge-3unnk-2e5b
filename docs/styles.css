@@ -3845,3 +3845,23 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .hm-hero.has-navs .hm-hero-text { padding-right: 92px; }
 [data-compact] .hm-navs { top: 8px; }
 [data-compact] .hm-hero.has-navs .hm-hero-body > .hm-chev { visibility: hidden; }
+
+/* Tagesdienstplan nachsehen */
+.tdp-dept { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 10px; margin: 0; }
+.tdp-dept > span { flex: none; font-size: 14px; color: var(--text2); }
+.tdp-dept select { flex: 1; min-width: 0; }
+.tdp-cal { border-radius: 14px; background: var(--fill); padding: 10px; }
+.tdp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tdp-head strong { font-size: 16px; }
+.tdp-nav { width: 36px; height: 36px; border: none; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 22px; line-height: 1; }
+.tdp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.tdp-wd { text-align: center; font-size: 11px; font-weight: 700; color: var(--text3); padding-bottom: 2px; }
+.tdp-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; text-decoration: none; }
+.tdp-day:not(.is-empty):active { background: var(--fill2); }
+.tdp-day.is-duty { background: color-mix(in srgb, var(--accent) 35%, transparent); color: #fff; font-weight: 700; }
+.tdp-day.is-duty.is-here { background: var(--accent); }
+.tdp-day.is-today { box-shadow: inset 0 0 0 2px var(--text2); }
+.tdp-legend { margin: 0; font-size: 12.5px; color: var(--text2); display: flex; align-items: center; gap: 6px; }
+.tdp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.tdp-today { align-self: center; }
+.dp-head-actions .icon-round[hidden] { display: none !important; }

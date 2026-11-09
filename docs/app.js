@@ -707,7 +707,7 @@ function dienstplanUrl(svc) {
   if (!abt || !abt.deptId) return null;
   const dateStr = (svc.startAt || '').slice(0, 10);
   if (!dateStr) return null;
-  return `https://dienstplan.st.roteskreuz.at/Home/Dienstplan/${dateStr}-00000000-0000-0000-0000-000000000000-${abt.deptId}`;
+  return tdpUrl(abt.deptId, dateStr);
 }
 
 // Convert UTC ISO string (from Henri export) to local datetime string "YYYY-MM-DDTHH:MM"
@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 107;
+const APP_VERSION = 108;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7575,7 +7575,8 @@ async function loadDpShifts(force = false) {
   const toolbar = document.getElementById('dienstplan-toolbar');
   if (toolbar) toolbar.hidden = !dpConfigured();
   const headActions = document.getElementById('dp-head-actions');
-  if (headActions) headActions.hidden = !dpConfigured();
+  if (headActions) headActions.hidden = false; // Tagesdienstplan geht auch ohne Kalender
+  ['btn-dp-reload', 'btn-dp-inbox'].forEach((id) => { const b = document.getElementById(id); if (b) b.hidden = !dpConfigured(); });
   if (!dpConfigured()) {
     if (statusEl) statusEl.textContent = '—';
     container.innerHTML = '<div class="empty-hint">Noch kein Dienstplan verbunden.<br><button type="button" class="btn-primary dp-connect" style="margin-top:14px">Dienstplan verbinden</button></div>';
@@ -7859,6 +7860,90 @@ document.addEventListener('click', (e) => {
   const ig = e.target.closest && e.target.closest('[data-pc-ignore]');
   if (ig) { e.stopPropagation(); ignorePlanChange(ig.dataset.pcIgnore); }
 });
+
+// ── Tagesdienstplan nachsehen: Dienststelle + Kalender ─────────────────────
+function tdpUrl(deptId, dateStr) {
+  return `https://dienstplan.st.roteskreuz.at/Home/Dienstplan/${dateStr}-00000000-0000-0000-0000-000000000000-${deptId}`;
+}
+let tdpMonth = null; // erster Tag des angezeigten Monats
+/** Dienststellen mit ID; gleiche ID nur einmal (kürzester Name). */
+function tdpDepts() {
+  const byId = new Map();
+  (state.dienststellen || []).filter((d) => d.deptId).forEach((d) => {
+    const ex = byId.get(d.deptId);
+    if (!ex || d.name.length < ex.name.length) byId.set(d.deptId, d);
+  });
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+/** Tage mit eigenem Dienst (Tagebuch ohne SEG + Dienstplan), als „YYYY-MM-DD“ → Dienststellen-IDs. */
+function tdpDutyDays() {
+  const days = new Map();
+  const add = (d, loc) => {
+    if (!d || isNaN(d)) return;
+    const k = localDateStr(d);
+    const abt = findAbteilung({ location: loc || '' });
+    if (!days.has(k)) days.set(k, new Set());
+    if (abt && abt.deptId) days.get(k).add(abt.deptId);
+  };
+  state.services.filter((s) => !s.isSeg).forEach((s) => add(parseLocalDt(s.startAt), s.location));
+  const cache = readIcsCache();
+  ((cache && cache.shifts) || []).forEach((x) => add(new Date(x.start), x.location));
+  return days;
+}
+function openTdpPopup() {
+  const now = new Date();
+  tdpMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  renderTdpPopup();
+  openDialog('dialog-tdp');
+}
+function renderTdpPopup() {
+  const box = document.getElementById('tdp-body');
+  if (!box) return;
+  const depts = tdpDepts();
+  if (!depts.length) {
+    box.innerHTML = `<div class="list-empty"><div class="list-empty-icon">🏢</div><strong>Keine Dienststelle mit ID</strong><span>Unter Einstellungen → Dienststellen eine Dienststelle mit Dienstplan-ID anlegen.</span></div>
+      <button type="button" class="btn-secondary" id="tdp-to-settings">Dienststellen öffnen</button>`;
+    box.querySelector('#tdp-to-settings').onclick = () => { closeDialog('dialog-tdp'); setTimeout(openAbteilungenPopup, 250); };
+    return;
+  }
+  // Vorauswahl: zuletzt gewählt, sonst Dienststelle des laufenden/nächsten Dienstes
+  let sel = lsGet('etb_tdp_dept');
+  if (!depts.some((d) => d.deptId === sel)) {
+    const svc = runningService() || state.services.filter((s) => !s.isSeg && parseLocalDt(s.startAt) > new Date()).sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+    const abt = svc && findAbteilung(svc);
+    sel = abt && abt.deptId ? abt.deptId : depts[0].deptId;
+  }
+  const duty = tdpDutyDays();
+  const m = tdpMonth, y = m.getFullYear(), mo = m.getMonth();
+  const first = (new Date(y, mo, 1).getDay() + 6) % 7; // Montag zuerst
+  const nDays = new Date(y, mo + 1, 0).getDate();
+  const today = localDateStr(new Date());
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<span class="tdp-day is-empty"></span>';
+  for (let d = 1; d <= nDays; d++) {
+    const ds = `${y}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const set = duty.get(ds);
+    const cls = ['tdp-day', set ? 'is-duty' : '', set && set.has(sel) ? 'is-here' : '', ds === today ? 'is-today' : ''].filter(Boolean).join(' ');
+    cells += `<a class="${cls}" ${dpLinkAttrs(tdpUrl(sel, ds))} aria-label="Tagesdienstplan ${d}.${mo + 1}.${y}${set ? ' (Dienst)' : ''}">${d}</a>`;
+  }
+  box.innerHTML = `<label class="tdp-dept"><span>Dienststelle</span>
+      <select id="tdp-dept">${depts.map((d) => `<option value="${escHtml(d.deptId)}"${d.deptId === sel ? ' selected' : ''}>${escHtml(d.name)}</option>`).join('')}</select></label>
+    <div class="tdp-cal">
+      <div class="tdp-head">
+        <button type="button" class="tdp-nav" data-tdp-m="-1" aria-label="Voriger Monat">‹</button>
+        <strong>${m.toLocaleDateString('de-AT', { month: 'long', year: 'numeric' })}</strong>
+        <button type="button" class="tdp-nav" data-tdp-m="1" aria-label="Nächster Monat">›</button>
+      </div>
+      <div class="tdp-grid">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((w) => `<span class="tdp-wd">${w}</span>`).join('')}${cells}</div>
+    </div>
+    <p class="tdp-legend"><span class="tdp-dot"></span> eigener Dienst · Tag antippen öffnet den Tagesdienstplan</p>
+    <button type="button" class="btn-ghost tdp-today" id="tdp-today">Heute</button>`;
+  box.querySelector('#tdp-dept').onchange = (e) => { lsSet('etb_tdp_dept', e.target.value); renderTdpPopup(); };
+  box.querySelectorAll('[data-tdp-m]').forEach((b) => b.addEventListener('click', () => { tdpMonth = new Date(y, mo + +b.dataset.tdpM, 1); renderTdpPopup(); }));
+  box.querySelector('#tdp-today').onclick = () => { const n = new Date(); tdpMonth = new Date(n.getFullYear(), n.getMonth(), 1); renderTdpPopup(); };
+  box.querySelectorAll('a.tdp-day').forEach((a) => a.addEventListener('click', () => lsSet('etb_tdp_dept', sel)));
+}
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#btn-tdp')) openTdpPopup(); });
 
 function initDpButtons() {
   const inboxBtn = document.getElementById('btn-dp-inbox');
