@@ -594,6 +594,15 @@ function incTimeSummary(times) {
   ].filter(([, m]) => m !== null && m < 12 * 60); // über 12 h ist eher ein Tippfehler
   return parts;
 }
+/** Alarmzeit eines Einsatzes (Status-Zeit oder Anlegezeit), nur wenn sie zum Dienst passt – sonst null. */
+function incAlarmAt(inc, svc) {
+  const a = parseLocalDt(svc.startAt), e = parseLocalDt(svc.endAt);
+  let c = inc.createdAt ? new Date(inc.createdAt) : null;
+  const al = (inc.times || {}).erhalten || (inc.times || {}).anfahrt;
+  if (al && a) { c = new Date(a); c.setHours(+al.slice(0, 2), +al.slice(3), 0, 0); if (c < a) c = new Date(c.getTime() + 864e5); }
+  if (!c || !a || !e || isNaN(c) || c < a || c > new Date(e.getTime() + 2 * 3600e3)) return null;
+  return c;
+}
 /** Kompakte Zeitleiste für die Einsatzansicht: Von–Bis, Dauer, Phasenbalken; Einzelzeiten per Tipp. */
 const INC_PHASES = { erhalten: ['Ausrücken', '#8e8e93'], anfahrt: ['Anfahrt', '#ff9f0a'], ort: ['Vor Ort', '#30d158'], transport: ['Transport', '#0a84ff'], ziel: ['Am Ziel', '#bf5af2'] };
 function incTimesViewHtml(times) {
@@ -1000,6 +1009,23 @@ function renderServiceList() {
       listEl.appendChild(sec);
     }
   }
+  // Fahrzeuge (eigene und weitere Einsatzmittel) → Profil
+  if (q) {
+    const vm = new Map();
+    const hit = (name, k) => { if (!name || !String(name).toLowerCase().includes(q)) return; const key = String(name).trim().toLowerCase(); const e = vm.get(key) || { name: String(name).trim(), svc: 0, inc: 0 }; e[k]++; vm.set(key, e); };
+    state.services.forEach((sv) => { hit(sv.vehicle, 'svc'); (sv.incidents || []).forEach((i) => (i.extraVehicles || []).forEach((v) => hit(v, 'inc'))); });
+    const list = [...vm.values()].sort((a, b) => b.svc + b.inc - a.svc - a.inc).slice(0, 8);
+    if (list.length) {
+      const sec = document.createElement('div');
+      sec.className = 'srch-section';
+      sec.innerHTML = `<div class="svc-month"><span>Fahrzeuge</span><span class="svc-month-meta">${vm.size} Treffer</span></div>
+        <div class="srch-people">${list.map((v) => { const ic = vehicleIconSrc(v.name); return `<button type="button" class="srch-person" data-vehicle="${escHtml(v.name)}">
+          ${ic ? `<img class="srch-veh" src="${escHtml(ic)}" alt="">` : '<span class="srch-av srch-av-veh">🚑</span>'}
+          <span class="srch-person-t"><b>${escHtml(v.name)}</b><small>${[v.svc ? `${v.svc} ${v.svc === 1 ? 'Dienst' : 'Dienste'}` : '', v.inc ? `${v.inc} gemeinsame ${v.inc === 1 ? 'Einsatz' : 'Einsätze'}` : ''].filter(Boolean).join(' · ')}</small></span>
+          <span class="srch-person-c">›</span></button>`; }).join('')}</div>`;
+      listEl.appendChild(sec);
+    }
+  }
   if (q && incHits.length) {
     const sec = document.createElement('div');
     sec.className = 'srch-section';
@@ -1158,7 +1184,7 @@ function renderServiceDetailContent() {
     <div class="svc-detail-header">
       <div class="svc-detail-title">
         ${vehicleIconSrc(svc.vehicle) ? `<span class="svc-detail-veh${globalLightsOn ? ' sosi' : ''}" title="${escHtml(svc.vehicle)}"><img src="${escHtml(vehicleIconSrc(svc.vehicle, true))}" alt="" /></span>` : ''}
-        <div><h2>${escHtml(svc.vehicle || label)}</h2><div class="svc-detail-sub">${shiftCodeHtml(svc.startAt, 'is-small')}<span>${escHtml(svcWhenText(svc))}</span></div></div>
+        <div><h2>${svc.vehicle ? `<span class="veh-link" role="button" data-vehicle="${escHtml(svc.vehicle)}">${escHtml(svc.vehicle)}</span>` : escHtml(label)}</h2><div class="svc-detail-sub">${shiftCodeHtml(svc.startAt, 'is-small')}<span>${escHtml(svcWhenText(svc))}</span></div></div>
       </div>
       <button class="btn-secondary dv-edit" id="btn-edit-svc">Bearbeiten</button>
     </div>
@@ -1309,7 +1335,7 @@ function renderIncidentView() {
   const extra = (inc.extraVehicles || []).length
     ? `<div class="iv-vehicles">${inc.extraVehicles.map((v) => {
         const src = vehicleIconSrc(v, !!inc.lights);
-        return `<span class="iv-veh">${src ? `<img src="${escHtml(src)}" alt="" />` : '<span class="iv-veh-noicon">🚑</span>'}<span class="iv-veh-name">${escHtml(v)}</span></span>`;
+        return `<span class="iv-veh" role="button" data-vehicle="${escHtml(v)}">${src ? `<img src="${escHtml(src)}" alt="" />` : '<span class="iv-veh-noicon">🚑</span>'}<span class="iv-veh-name">${escHtml(v)}</span></span>`;
       }).join('')}</div>`
     : '';
 
@@ -1344,12 +1370,12 @@ function renderIncidentView() {
         row('Zeitraum', escHtml(svcWhen || '—')),
         segDur && row('Dauer', escHtml(segDur)),
         svc.location && row('Ort', escHtml(svc.location)),
-        svc.vehicle && row('Fahrzeug', escHtml(svc.vehicle)),
+        svc.vehicle && row('Fahrzeug', `<span class="crew-link" role="button" data-vehicle="${escHtml(svc.vehicle)}">${escHtml(svc.vehicle)}</span>`),
         (svc.colleagues || []).length && row('Kolleg:innen', svc.colleagues.map(escHtml).join('<br>')),
       ])
       : group('Dienst', [
         row('Zeitraum', escHtml(svcWhen || '—')),
-        svc.vehicle && row('Fahrzeug', escHtml(svc.vehicle)),
+        svc.vehicle && row('Fahrzeug', `<span class="crew-link" role="button" data-vehicle="${escHtml(svc.vehicle)}">${escHtml(svc.vehicle)}</span>`),
         svc.location && row('Dienststelle', escHtml(svc.location)),
         createdStr && row('Erfasst', escHtml(createdStr)),
         `<button type="button" class="iv-jump" id="btn-iv-jump">Dienst öffnen<span aria-hidden="true">›</span></button>`,
@@ -2525,7 +2551,7 @@ function showListPopup(title, items, meta = {}) {
   const total = items.reduce((n, [, c]) => n + c, 0);
   const max = items.length ? items[0][1] : 1;
   const medal = ['🥇', '🥈', '🥉'];
-  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}>
+  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}${meta.vehicle ? ` data-vehicle="${escHtml(String(label))}"` : ''}>
       <span class="lp-n">${i < 3 ? medal[i] : i + 1}</span>
       ${meta.lead ? meta.lead(label) : ''}
       <span class="lp-main"><span class="lp-l">${escHtml(String(label))}</span>
@@ -2910,10 +2936,10 @@ function renderStats() {
     ${hero}
     <div class="sx-grid">
       ${podiumCard({ key: 'Top Einsätze', title: 'Top-Stichwörter', icon: '🚨', color: '#ff453a', items: allAlarm })}
-      ${podiumCard({ key: 'Top Fahrzeug', title: 'Fahrzeuge', icon: '🚑', color: '#0a84ff', items: allVehicle.filter(([k]) => k !== '-'), lead: vehLead })}
+      ${podiumCard({ key: 'Top Fahrzeug', title: 'Fahrzeuge', icon: '🚑', color: '#0a84ff', items: allVehicle.filter(([k]) => k !== '-'), lead: vehLead, attr: (l) => `data-vehicle="${escHtml(String(l))}"` })}
       ${podiumCard({ key: 'Top Kolleg:innen', title: 'Crew', icon: '🤝', color: '#30d158', items: allColleagues, lead: avLead, attr: (l) => `data-colleague="${escHtml(String(l))}"` })}
       ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
-      ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead }) : ''; })()}
+      ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead, attr: (l) => `data-vehicle="${escHtml(String(l))}"` }) : ''; })()}
       ${timeCard()}
       ${timesFilled ? timesCard() : ''}
       ${allTo.length ? podiumCard({ key: 'Top Ziele', title: 'Häufigste Ziele', icon: '🏥', color: '#ff375f', items: allTo, meta: `${routeFilled}/${totalInc} Einsätze` }) : ''}
@@ -2969,11 +2995,11 @@ function renderStats() {
     'Einsatzart': { icon: '🧭', color: '#0a84ff', unit: 'Einsätze' },
     'Statistikkennzahl': { icon: '📊', color: '#30d158', unit: 'Einsätze' },
     'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv, colleague: true },
-    'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh },
+    'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh, vehicle: true },
     'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste' },
     'Top Ziele': { icon: '🏥', color: '#ff375f', unit: 'Einsätze' },
     'Top Startorte': { icon: '📍', color: '#5e5ce6', unit: 'Einsätze' },
-    'Companions': { icon: '🚨', color: '#64d2ff', unit: 'Einsätze', lead: popupVeh },
+    'Companions': { icon: '🚨', color: '#64d2ff', unit: 'Einsätze', lead: popupVeh, vehicle: true },
   };
   container.querySelectorAll('.btn-show-all').forEach((btn) => {
     btn.addEventListener('click', () => showListPopup(btn.dataset.title, popupData[btn.dataset.title] || [], popupMeta[btn.dataset.title]));
@@ -3903,7 +3929,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 117;
+const APP_VERSION = 118;
 const APP_VERSION_DATE = '09.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5921,7 +5947,10 @@ function computeReview(period) {
     lightsRecord: duty.map((x) => ({ svc: x, n: (x.incidents || []).filter((i) => i.lights).length })).sort((a, b) => b.n - a.n)[0] || null,
     perWeekday,
     vehStats, vehStreak, perHour, crewChem, longestGap, perYear,
-    prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0 },
+    prev: { label: prev.label, services: prevList.filter((x) => !x.isSeg).length, incidents: prevInc, has: prevList.length > 0,
+      hours: prevList.filter((x) => !x.isSeg).reduce((n, x) => n + +serviceDurationHours(x), 0),
+      lights: prevList.reduce((n, x) => n + (x.incidents || []).filter((i) => i.lights).length, 0),
+      nights: prevList.filter((x) => { if (x.isSeg) return false; const c = shiftCode(x.startAt); return c && !c.day; }).length },
   };
 }
 
@@ -5993,6 +6022,22 @@ const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || 
 function colleagueInitials(name) { return String(name).replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?'; }
 function colleagueHue(name) { return [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); }
 
+/** Dienst-Zeile für Profile: Datum, Schicht, Fahrzeug bzw. Dienststelle, Uhrzeit, Besatzung, Einsätze. */
+function cpSvcRowHtml(x, { vehicle, person } = {}) {
+  const d = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt);
+  const hm = (t) => `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const date = d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+  const incs = x.incidents || [];
+  const lights = incs.filter((i) => i.lights).length;
+  const crew = (x.colleagues || []).filter((c) => !person || !sameName(c, person));
+  const title = x.isSeg ? (incs[0] || {}).alarmCode || 'SEG-Einsatz' : vehicle ? x.location || 'Dienst' : x.vehicle || 'Dienst';
+  const sub = [x.isSeg ? `SEG${x.location ? ' · ' + x.location : ''}` : vehicle ? '' : x.location || '', d && e ? `${hm(d)}–${hm(e)}` : '', crew.length ? `👥 ${crew.join(', ')}` : ''].filter(Boolean).join(' · ');
+  return `<button type="button" class="cp-svc is-rich" data-cp-svc="${escHtml(x.id)}">
+    <span class="cp-svc-d">${shiftCodeHtml(x.startAt, 'is-small')}<span>${escHtml(date)}</span></span>
+    <span class="cp-svc-m"><span class="cp-svc-t">${escHtml(title)}</span>${sub ? `<small>${escHtml(sub)}</small>` : ''}</span>
+    <span class="cp-svc-r"><span class="cp-svc-n">${incs.length}</span>${lights ? `<small>🔵 ${lights}</small>` : ''}</span></button>`;
+}
+
 function openColleagueProfile(name) {
   const box = document.getElementById('colleague-body');
   if (!box) return;
@@ -6010,13 +6055,18 @@ function openColleagueProfile(name) {
   const avgWith = duty.length ? duty.reduce((n, x) => n + (x.incidents || []).length, 0) / duty.length : 0;
   const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
   const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
-  const others = countTop(shared.flatMap((x) => (x.colleagues || []).filter((c) => !sameName(c, name))), 3);
+  const others = countTop(shared.flatMap((x) => (x.colleagues || []).filter((c) => !sameName(c, name))), 4);
+  const vehs = countTop(duty.map((x) => x.vehicle), 5);
+  const places = countTop(shared.map((x) => x.location), 3);
+  const comps = countTop(incs.flatMap((i) => i.extraVehicles || []), 4);
+  const wild = duty.slice().sort((a, b) => (b.incidents || []).length - (a.incidents || []).length)[0];
+  const span = shared.length ? `seit ${day(shared[shared.length - 1])} gemeinsam unterwegs${shared.length > 1 ? ` · zuletzt ${day(shared[0])}` : ''}` : 'noch kein gemeinsamer Dienst';
   const vic = veh ? vehicleIconSrc(veh[0]) : '';
-  const vibe = !duty.length ? '' : avgWith >= avgAll + 0.5 ? `🌪️ Mit ${escHtml(name.split(/\s|,/)[0])} wird’s wild – mehr los als sonst.` : avgWith <= avgAll - 0.5 ? '🍀 Glücksbringer:in – mit euch bleibt’s ruhiger.' : '⚖️ Ganz normales Pensum.';
+  const vibe = !duty.length ? '' : avgWith >= avgAll + 0.5 ? '🌪️ wilder' : avgWith <= avgAll - 0.5 ? '🍀 ruhiger' : '⚖️ wie immer';
   document.getElementById('colleague-title').textContent = 'Kolleg:in';
   box.innerHTML = `<div class="cp-head">
       <span class="cp-av" style="--h:${colleagueHue(name)}">${escHtml(colleagueInitials(name))}</span>
-      <div><h3>${escHtml(name)}</h3><span>${shared.length ? `seit ${escHtml(day(shared[shared.length - 1]))} gemeinsam` : 'noch kein gemeinsamer Dienst'}</span></div>
+      <div><h3>${escHtml(name)}</h3><span>${escHtml(span)}</span></div>
     </div>
     <div class="cp-tiles">
       <div><strong>${duty.length}</strong><small>Dienste</small></div>
@@ -6024,15 +6074,16 @@ function openColleagueProfile(name) {
       <div><strong>${incs.length}</strong><small>Einsätze</small></div>
       <div><strong>${incs.length ? Math.round((lights / incs.length) * 100) + '%' : '–'}</strong><small>Blaulicht</small></div>
     </div>
-    ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(avgWith)}</strong> Einsätze pro Dienst (dein Schnitt ${fmt1(avgAll)}) · 🌙 ${nights} Nachtdienste</p><p class="cp-line">${vibe}</p>` : ''}
-    ${veh ? `<div class="cp-veh">${vic ? `<img src="${escHtml(vic)}" alt="">` : '🚑'}<span>Meist zusammen auf <strong>${escHtml(veh[0])}</strong> · ${veh[1]}×</span></div>` : ''}
+    ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(avgWith)}</strong> Einsätze/Dienst (sonst ${fmt1(avgAll)}) · ${vibe} · 🌙 ${nights} Nächte</p>` : ''}
+    ${veh ? `<div class="cp-veh">${vic ? `<img src="${escHtml(vic)}" alt="">` : '🚑'}<span>Meist zusammen auf <strong class="crew-link" role="button" data-vehicle="${escHtml(veh[0])}">${escHtml(veh[0])}</strong> · ${veh[1]}×</span></div>` : ''}
     ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${kws.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${wild && (wild.incidents || []).length > 1 ? `<p class="cp-line">🔥 Wildester gemeinsamer Dienst: <strong>${wild.incidents.length} Einsätze</strong> am ${escHtml(day(wild))}</p>` : ''}
+    ${vehs.length > 1 ? `<div class="cp-sub">Gemeinsame Fahrzeuge</div><div class="cp-chips">${vehs.map(([k, n]) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${places.length ? `<div class="cp-sub">Dienststellen</div><div class="cp-chips">${places.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${comps.length ? `<div class="cp-sub">Gemeinsam getroffen</div><div class="cp-chips">${comps.map(([k, n]) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${others.length ? `<div class="cp-sub">Oft auch dabei</div><div class="cp-chips">${others.map(([k, n]) => `<span class="crew-link" role="button" data-colleague="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
-    <div class="cp-sub">Gemeinsame Dienste</div>
-    <div class="cp-list">${shared.slice(0, 40).map((x) => `<button type="button" class="cp-svc" data-cp-svc="${escHtml(x.id)}">
-      <span class="cp-svc-d">${shiftCodeHtml(x.startAt, 'is-small')}<span>${escHtml(day(x))}</span></span>
-      <span class="cp-svc-t">${escHtml(x.isSeg ? ((x.incidents || [])[0] || {}).alarmCode || 'SEG' : x.vehicle || 'Dienst')}</span>
-      <span class="cp-svc-n">${(x.incidents || []).length}</span></button>`).join('')}
+    <div class="cp-sub">Gemeinsame Dienste · ${shared.length}</div>
+    <div class="cp-list">${shared.slice(0, 40).map((x) => cpSvcRowHtml(x, { person: name })).join('')}
       ${shared.length > 40 ? `<p class="cp-line">… und ${shared.length - 40} weitere</p>` : ''}</div>`;
   box.querySelectorAll('[data-cp-svc]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.cpSvc;
@@ -6045,6 +6096,70 @@ function openColleagueProfile(name) {
   box.scrollTop = 0;
   openDialog('dialog-colleague');
 }
+// ── Fahrzeug-Profil ─────────────────────────────────────────────────────────
+function openVehicleProfile(name) {
+  const box = document.getElementById('colleague-body');
+  if (!box || !name) return;
+  const sorted = state.services.slice().sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
+  const own = sorted.filter((x) => sameName(x.vehicle, name));
+  const duty = own.filter((x) => !x.isSeg);
+  const ownIncs = own.flatMap((x) => x.incidents || []);
+  const joint = sorted.flatMap((x) => (x.incidents || []).filter((i) => (i.extraVehicles || []).some((v) => sameName(v, name))).map((inc) => ({ inc, svc: x })));
+  const hours = duty.reduce((n, x) => n + +serviceDurationHours(x), 0);
+  const lights = ownIncs.filter((i) => i.lights).length;
+  const nights = duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length;
+  const crew = countTop(own.flatMap((x) => x.colleagues || []), 8);
+  const kws = countTop(ownIncs.map((i) => i.alarmCode), 3);
+  const comps = countTop(ownIncs.flatMap((i) => i.extraVehicles || []).filter((v) => !sameName(v, name)), 4);
+  const jointKws = countTop(joint.map((x) => x.inc.alarmCode), 3);
+  const jointMine = countTop(joint.map((x) => x.svc.vehicle), 3);
+  const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
+  const firstSeen = [...own, ...joint.map((x) => x.svc)].sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''))[0];
+  const ic = vehicleIconSrc(name);
+  const vlink = (k, n) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`;
+  const sub = [own.length ? `${duty.length} ${duty.length === 1 ? 'Dienst' : 'Dienste'}` : '', joint.length ? `${joint.length} gemeinsame ${joint.length === 1 ? 'Einsatz' : 'Einsätze'}` : ''].filter(Boolean).join(' · ');
+  document.getElementById('colleague-title').textContent = 'Fahrzeug';
+  box.innerHTML = `<div class="cp-head">
+      <span class="cp-vimg">${ic ? `<img src="${escHtml(ic)}" alt="">` : '🚑'}</span>
+      <div><h3>${escHtml(name)}</h3><span>${sub || 'noch keine Einträge'}${firstSeen ? ` · seit ${escHtml(day(firstSeen))}` : ''}</span></div>
+    </div>
+    ${own.length ? `<div class="cp-tiles">
+      <div><strong>${duty.length}</strong><small>Dienste</small></div>
+      <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
+      <div><strong>${ownIncs.length}</strong><small>Einsätze</small></div>
+      <div><strong>${ownIncs.length ? Math.round((lights / ownIncs.length) * 100) + '%' : '–'}</strong><small>Blaulicht</small></div>
+    </div>
+    ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(ownIncs.length / duty.length)}</strong> Einsätze pro Dienst · 🌙 ${nights} Nachtdienste</p>` : ''}` : ''}
+    ${crew.length ? `<div class="cp-sub">Am öftesten mit dir drauf</div><div class="cp-chips">${crew.map(([k, n]) => `<span class="crew-link" role="button" data-colleague="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${kws.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${comps.length ? `<div class="cp-sub">Oft zusammen mit</div><div class="cp-chips">${comps.map(([k, n]) => vlink(k, n)).join('')}</div>` : ''}
+    ${joint.length ? `<div class="cp-sub">Gemeinsame Einsätze · ${joint.length}</div>
+      ${jointMine.length ? `<p class="cp-line">Du warst dabei auf ${jointMine.map(([k, n]) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)}</span> (${n}×)`).join(', ')}${jointKws.length ? ` · meist ${jointKws.map(([k]) => escHtml(k)).join(', ')}` : ''}</p>` : ''}
+      <div class="cp-list">${joint.slice(0, 40).map((x) => `<button type="button" class="cp-svc" data-vp-inc="${escHtml(x.inc.id)}" data-vp-svc="${escHtml(x.svc.id)}">
+        <span class="cp-svc-d">${shiftCodeHtml(x.svc.startAt, 'is-small')}<span>${escHtml(day(x.svc))}</span></span>
+        <span class="cp-svc-t">${x.inc.lights ? '🔵 ' : ''}${escHtml(x.inc.alarmCode || 'Einsatz')}</span>
+        <span class="cp-svc-n">${escHtml(x.svc.vehicle || '')}</span></button>`).join('')}
+        ${joint.length > 40 ? `<p class="cp-line">… und ${joint.length - 40} weitere</p>` : ''}</div>` : ''}
+    ${own.length ? `<div class="cp-sub">Deine Dienste darauf · ${own.length}</div>
+    <div class="cp-list">${own.slice(0, 40).map((x) => cpSvcRowHtml(x, { vehicle: name })).join('')}
+      ${own.length > 40 ? `<p class="cp-line">… und ${own.length - 40} weitere</p>` : ''}</div>` : ''}`;
+  const leave = (fn) => { closeDialog('dialog-colleague'); document.querySelectorAll('.lp-ov').forEach((x) => x.remove()); if (story) closeStory(); setTimeout(fn, 260); };
+  box.querySelectorAll('[data-cp-svc]').forEach((b) => b.addEventListener('click', () => {
+    const sv = state.services.find((x) => x.id === b.dataset.cpSvc);
+    leave(() => { if (sv && sv.isSeg) openIncidentView(sv.id, (sv.incidents[0] || {}).id); else if (sv) openServiceDetail(sv.id); });
+  }));
+  box.querySelectorAll('[data-vp-inc]').forEach((b) => b.addEventListener('click', () => leave(() => openIncidentView(b.dataset.vpSvc, b.dataset.vpInc))));
+  box.scrollTop = 0;
+  openDialog('dialog-colleague');
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest && e.target.closest('[data-vehicle]');
+  if (!v) return;
+  e.stopPropagation(); e.preventDefault();
+  openVehicleProfile(v.dataset.vehicle);
+}, true);
+
 // Namen überall anklickbar (vor anderen Klick-Handlern)
 document.addEventListener('click', (e) => {
   const c = e.target.closest && e.target.closest('[data-colleague]');
@@ -6088,6 +6203,27 @@ function computeBadges() {
   // NACA-Sammler: Stufen 0–6 je einmal
   const firstNaca = {}; incs.forEach((x) => { const n = String(x.inc.naca); if (/^[0-6]$/.test(n) && !firstNaca[n]) firstNaca[n] = dOf(x); });
   const nacaSeen = Object.keys(firstNaca).length;
+  // ── neue Abzeichen ──
+  const T = (x) => x.inc.times || {};
+  const quick = incs.filter((x) => { const m = hmDiff(T(x).erhalten, T(x).anfahrt); return m !== null && m <= 1; });
+  const transports = incs.filter((x) => has(x.inc.to) || T(x).transport);
+  const distinctBy = (getKey, goal) => { const seen = new Set(); for (const x of incs) { const k = getKey(x); if (k) seen.add(k); if (seen.size >= goal) return { n: seen.size, date: dOf(x) }; } return { n: seen.size, date: '' }; };
+  const normPlace = (v) => (has(v) ? String(v).trim().toLowerCase() : '');
+  const places25 = distinctBy((x) => normPlace(x.inc.to), 25);
+  let regular = { n: 0, date: '' };
+  { const m = new Map(); for (const x of incs) { const k = normPlace(x.inc.to); if (!k) continue; const v = (m.get(k) || 0) + 1; m.set(k, v); if (v > regular.n) regular = { n: v, date: v === 20 ? dOf(x) : regular.date }; } }
+  const exv = (x) => (x.inc.extraVehicles || []).map((v) => String(v).toLowerCase());
+  const RX_AIR = /rth|christophorus|hubschrauber|heli|\bc\s?\d{1,2}\b/, RX_POL = /polizei|\bpol\b|funkstreife|\bstw\b|cobra|\bpi\b/, RX_FW = /\bfw\b|feuerwehr|\bff\b|tlf|hlf|rlf|klf|kdo|lfb/;
+  const air = incs.find((x) => exv(x).some((v) => RX_AIR.test(v)));
+  const bluefam = incs.find((x) => exv(x).some((v) => RX_POL.test(v)) && exv(x).some((v) => RX_FW.test(v)));
+  const ageOf = (x) => { const a = parseInt((x.inc.pzc || {}).age, 10); return a >= 0 && a < 120 ? a : null; };
+  const kids = incs.filter((x) => { const a = ageOf(x); return a !== null && a < 18; });
+  const old90 = incs.find((x) => ageOf(x) !== null && ageOf(x) > 90), baby = incs.find((x) => ageOf(x) === 0);
+  const gens = old90 && baby ? [dOf(old90), dOf(baby)].sort().pop() : '';
+  const early = incs.filter((x) => { const c = incAlarmAt(x.inc, x.svc); return c && c.getHours() >= 4 && c.getHours() < 6; });
+  const holiday = duty.find((x) => { const a = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt) || a; if (!a) return false; for (let d = new Date(a.getFullYear(), a.getMonth(), a.getDate()); d <= e; d = new Date(d.getTime() + 864e5)) { const md = d.getMonth() * 100 + d.getDate(); if (md === 1124 || md === 1125 || md === 1131) return true; } return false; });
+  const isFull = (i) => has(i.naca) && has(i.einsatzart) && has(i.statKz) && has((i.pzc || {}).diag);
+  const gapless = duty.find((x) => (x.incidents || []).length >= 3 && x.incidents.every(isFull));
   const first = svcs[0] ? parseLocalDt(svcs[0].startAt) : null;
   const anniv = first && Date.now() - first >= 365 * 864e5;
   const annivDate = first ? new Date(first.getTime() + 365 * 864e5).toISOString().slice(0, 16) : '';
@@ -6121,6 +6257,18 @@ function computeBadges() {
     { id: 'dream25', icon: '💞', title: 'Dreamteam', desc: '25 Dienste mit derselben Person', cur: Math.min(dream.n, 25), goal: 25, date: dream.n >= 25 ? dream.date : '', tier: 2 },
     { id: 'fleet5', icon: '🚐', title: 'Fuhrpark-Kenner:in', desc: '5 verschiedene Fahrzeuge gefahren', cur: Math.min(fleet5.n, 5), goal: 5, date: fleet5.n >= 5 ? fleet5.date : '', tier: 1 },
     { id: 'loyal10', icon: '💍', title: 'Treue Seele', desc: '10 Schichten in Folge auf demselben Fahrzeug', cur: Math.min(streak.n, 10), goal: 10, date: streak.n >= 10 ? streak.date : '', tier: 2 },
+    count('quick10', '🚀', 'Blitzstart', '10× in höchstens 1 Minute ausgerückt', quick, 10, 2),
+    { id: 'places25', icon: '🧭', title: 'Ortskundig', desc: '25 verschiedene Zielorte', cur: Math.min(places25.n, 25), goal: 25, date: places25.n >= 25 ? places25.date : '', tier: 2 },
+    count('trans100', '🛣️', 'Kilometerfresser:in', '100 Transporte', transports, 100, 2),
+    once('air', '🚁', 'Luftunterstützung', 'Einsatz gemeinsam mit dem Notarzthubschrauber', air, 2),
+    once('bluefam', '👮', 'Blaulicht-Familie', 'Einsatz mit Polizei und Feuerwehr gleichzeitig', bluefam, 2),
+    count('kids10', '👶', 'Kleine Held:innen', '10 Kinder und Jugendliche (unter 18)', kids, 10, 2),
+    { id: 'gens', icon: '🧓', title: 'Generationen', desc: 'Patient:innen über 90 und unter 1 Jahr', cur: (old90 ? 1 : 0) + (baby ? 1 : 0), goal: 2, date: gens, tier: 3 },
+    count('early25', '🌅', 'Frühaufsteher:in', '25 Einsätze zwischen 4 und 6 Uhr', early, 25, 2),
+    once('holiday', '🎄', 'Feiertagsdienst', 'Dienst am 24., 25. oder 31. Dezember', holiday, 2),
+    count('seg10', '📟', 'Dauer-Einspringer:in', '10 SEG-Einsätze', segs, 10, 3),
+    once('gapless', '📝', 'Lückenlos', 'Ein Dienst (ab 3 Einsätzen) mit komplett dokumentierten Einsätzen', gapless, 2),
+    { id: 'regular20', icon: '🔁', title: 'Stammgast', desc: '20 Mal dasselbe Ziel', cur: Math.min(regular.n, 20), goal: 20, date: regular.n >= 20 ? regular.date : '', tier: 1 },
     { id: 'anniv', icon: '🎂', title: 'Ein Jahr Tagebuch', desc: 'Seit einem Jahr dabei', cur: anniv ? 1 : 0, goal: 1, date: anniv ? annivDate : '', tier: 2 },
   ].map((b) => ({ ...b, done: b.cur >= b.goal }));
 }
@@ -6640,6 +6788,75 @@ function buildStorySlides(r) {
       <p class="st-text st-q-hint">Tippe auf deine Antwort – die Story wartet.</p>
       <p class="st-text st-q-answer" hidden>${qz.answer}</p>` });
   });
+
+  // Deine schnellste Anfahrt
+  {
+    const rows = r.incs.map((x) => { const t = x.inc.times || {}; return { x, m: hmDiff(t.anfahrt || t.erhalten, t.ort) }; }).filter((o) => o.m !== null && o.m > 0 && o.m < 120);
+    if (rows.length >= 3) {
+      const best = rows.reduce((a, b) => (b.m < a.m ? b : a));
+      const avg = Math.round(rows.reduce((n, o) => n + o.m, 0) / rows.length);
+      const { inc, svc } = best.x;
+      pool.push({ bg: 'st-bg-4', fx: inc.lights ? 'sosi' : '', html: `<div class="st-kicker">Deine schnellste Anfahrt</div><div class="st-emoji">⚡</div>
+        ${big(best.m)}<p class="st-lead">${best.m === 1 ? 'Minute' : 'Minuten'} bis zum Einsatzort</p>
+        <p class="st-text"><strong>${escHtml(inc.alarmCode || 'Einsatz')}</strong>${inc.lights ? ' 🔵' : ''}<br>${escHtml(fmtDay(svc))}${svc.vehicle ? ' · ' + escHtml(svc.vehicle) : ''}</p>
+        <div class="st-chip">Ø Anfahrt ${zr}: ${avg} min</div>
+        <button type="button" class="st-link" data-st-inc="${escHtml(inc.id)}" data-st-svc="${escHtml(svc.id)}">Einsatz ansehen ›</button>` });
+    }
+  }
+  // Dein längster Einsatz
+  {
+    const rows = r.incs.map((x) => ({ x, m: (incTimeSummary(x.inc.times).find(([l]) => l === 'Gesamt') || [])[1] })).filter((o) => o.m);
+    if (rows.length >= 3) {
+      const best = rows.reduce((a, b) => (b.m > a.m ? b : a));
+      const { inc, svc } = best.x;
+      const route = inc.from && inc.to ? `${escHtml(inc.from)} → ${escHtml(inc.to)}` : inc.to ? `nach ${escHtml(inc.to)}` : inc.from ? `ab ${escHtml(inc.from)}` : '';
+      pool.push({ bg: 'st-bg-6', rain: '⏳', html: `<div class="st-kicker">Dein längster Einsatz</div><div class="st-emoji">⏳</div>
+        <h2 class="st-title">${best.m < 60 ? `${best.m} min` : `${hmShort(best.m)} h`}</h2><p class="st-lead">vom Alarm bis zum Ende</p>
+        <p class="st-text"><strong>${escHtml(inc.alarmCode || 'Einsatz')}</strong><br>${escHtml(fmtDay(svc))}${svc.vehicle ? ' · ' + escHtml(svc.vehicle) : ''}</p>${route ? `<p class="st-text">${route}</p>` : ''}
+        <button type="button" class="st-link" data-st-inc="${escHtml(inc.id)}" data-st-svc="${escHtml(svc.id)}">Einsatz ansehen ›</button>` });
+    }
+  }
+  // Deine häufigste Strecke
+  {
+    const m = new Map();
+    r.incs.forEach(({ inc }) => { if (!inc.from || !inc.to) return; const k = `${inc.from.trim().toLowerCase()}→${inc.to.trim().toLowerCase()}`; const e = m.get(k) || { from: inc.from.trim(), to: inc.to.trim(), n: 0 }; e.n++; m.set(k, e); });
+    const top = [...m.values()].sort((a, b) => b.n - a.n);
+    if (top.length && top[0].n >= 2) {
+      const t = top[0];
+      pool.push({ bg: 'st-bg-7', html: `<div class="st-kicker">Deine häufigste Strecke</div><div class="st-emoji">🛣️</div>
+        <div class="st-route"><b>${escHtml(t.from)}</b><span>↓</span><b>${escHtml(t.to)}</b></div>
+        ${big(t.n)}<p class="st-lead">Mal ${zr}</p>
+        ${top.length > 1 ? `<p class="st-text">Danach: ${top.slice(1, 3).map((x) => `${escHtml(x.from)} → ${escHtml(x.to)} (${x.n}×)`).join('<br>')}</p>` : ''}` });
+    }
+  }
+  // Vergleich mit dem Zeitraum davor
+  if (!isAll && r.prev.has && r.duty.length) {
+    const cur = { s: r.duty.length, i: r.incs.length, h: Math.round(r.hours), l: r.lights, n: r.nights };
+    const pv = { s: r.prev.services, i: r.prev.incidents, h: Math.round(r.prev.hours), l: r.prev.lights, n: r.prev.nights };
+    const rowC = (label, a, b, i) => { const d = a - b; return `<li style="--i:${i}"><span class="st-cmp-l">${label}</span><span class="st-cmp-p">${fmtNum(b)}</span><span class="st-cmp-a">→</span><span class="st-cmp-c">${fmtNum(a)}</span><span class="st-cmp-d ${d > 0 ? 'is-up' : d < 0 ? 'is-down' : ''}">${d > 0 ? '▲ ' + fmtNum(d) : d < 0 ? '▼ ' + fmtNum(-d) : '='}</span></li>`; };
+    const more = cur.i - pv.i;
+    pool.push({ bg: 'st-bg-11', html: `<div class="st-kicker">Im Vergleich zu ${escHtml(r.prev.label)}</div><div class="st-emoji">${more > 0 ? '📈' : more < 0 ? '📉' : '⚖️'}</div>
+      <ul class="st-cmp">${rowC('Schichten', cur.s, pv.s, 0)}${rowC('Einsätze', cur.i, pv.i, 1)}${rowC('Stunden', cur.h, pv.h, 2)}${rowC('Blaulicht', cur.l, pv.l, 3)}${rowC('Nachtdienste', cur.n, pv.n, 4)}</ul>
+      <p class="st-text">${more > 0 ? 'Mehr los als davor – die Sirene hatte Hochsaison. 🚨' : more < 0 ? 'Etwas ruhiger als davor – gönn dir. ☕' : 'Exakt gleich viele Einsätze – Präzisionsarbeit. 🎯'}</p>` });
+  }
+  // Dein Wochentag: Raster Wochentag × Tageszeit
+  {
+    const grid = Array.from({ length: 7 }, () => Array(8).fill(0)); let n = 0;
+    r.incs.forEach(({ inc, svc }) => { const c = incAlarmAt(inc, svc) || parseLocalDt(svc.startAt); if (!c) return; grid[(c.getDay() + 6) % 7][Math.floor(c.getHours() / 3)]++; n++; });
+    if (n >= 10) {
+      const rowSum = grid.map((row) => row.reduce((a, b) => a + b, 0));
+      const d = rowSum.indexOf(Math.max(...rowSum));
+      const h = grid[d].indexOf(Math.max(...grid[d]));
+      const mx = Math.max(1, ...grid.flat());
+      const hh = (x) => String(x * 3).padStart(2, '0');
+      const DN = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+      pool.push({ bg: 'st-bg-9', html: `<div class="st-kicker">Dein Wochentag</div>
+        <h2 class="st-title">${WEEKDAY_LONG[(d + 1) % 7]}</h2><p class="st-lead">${rowSum[d]} Einsätze · am meisten ${hh(h)}–${hh(h + 1)} Uhr</p>
+        <div class="st-grid">${grid.map((row, di) => `<span class="st-grid-y${di === d ? ' is-best' : ''}">${DN[di]}</span>${row.map((v, hi) => `<span class="st-grid-c${di === d && hi === h ? ' is-best' : ''}" style="--a:${(v / mx).toFixed(2)};--i:${di * 8 + hi}"></span>`).join('')}`).join('')}</div>
+        <div class="st-grid-x"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
+        <p class="st-text">${d >= 5 ? 'Wochenende? Für dich eher Hauptsaison. 🎉' : d === 0 ? 'Montag – der Klassiker. ☕' : d === 4 ? 'Freitag: alle wollen ins Wochenende, du fährst Einsätze. 🚑' : 'Mitten in der Woche geht’s rund. 🔄'}</p>` });
+    }
+  }
 
   // Abzeichen, die in diesem Zeitraum erreicht wurden
   {

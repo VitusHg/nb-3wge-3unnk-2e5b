@@ -3942,3 +3942,43 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .sx-kpi small, [data-compact] .bd-next-t small { display: none; }
 [data-compact] .sx-kpi { padding: 6px 10px; }
 [data-compact] .sx-kpi b { font-size: 18px; }
+
+/* Fahrzeug-Profil */
+.cp-vimg { width: 76px; height: 60px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 16px; background: var(--fill); font-size: 30px; }
+.cp-vimg img { width: 68px; height: 44px; object-fit: contain; }
+.srch-veh { width: 38px; height: 38px; flex: none; object-fit: contain; }
+.srch-av.srch-av-veh { background: var(--fill); font-size: 20px; }
+.veh-link { cursor: pointer; }
+.veh-link:active { opacity: .6; }
+.iv-veh[data-vehicle] { cursor: pointer; }
+.sx-pod[data-vehicle], .sx-rest li[data-vehicle], .lp-row[data-vehicle] { cursor: pointer; }
+.sx-pod[data-vehicle]:active, .sx-rest li[data-vehicle]:active, .lp-row[data-vehicle]:active { opacity: .7; }
+
+/* Stories: Strecke, Vergleich, Wochentag-Raster */
+.st-route { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 6px 0 4px; }
+.st-route b { font-size: 20px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.st-route span { font-size: 20px; opacity: .7; }
+.st-cmp { list-style: none; margin: 10px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.st-cmp li { display: grid; grid-template-columns: 1fr auto auto auto 64px; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 14px; background: rgba(255, 255, 255, .16); font-variant-numeric: tabular-nums; animation: st-slide .5s var(--ease-ios) both; animation-delay: calc(var(--i) * .12s + .15s); }
+.st-cmp-l { font-size: 16px; font-weight: 700; }
+.st-cmp-p { font-size: 15px; opacity: .7; }
+.st-cmp-a { opacity: .5; }
+.st-cmp-c { font-size: 18px; font-weight: 800; }
+.st-cmp-d { justify-self: end; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, .15); }
+.st-cmp-d.is-up { background: rgba(48, 209, 88, .35); }
+.st-cmp-d.is-down { background: rgba(255, 69, 58, .35); }
+.st-grid { display: grid; grid-template-columns: 26px repeat(8, 1fr); gap: 4px; margin: 14px 0 4px; align-items: center; }
+.st-grid-y { font-size: 12px; font-weight: 700; opacity: .7; text-align: left; }
+.st-grid-y.is-best { opacity: 1; }
+.st-grid-c { height: 22px; border-radius: 5px; background: rgba(255, 255, 255, calc(.08 + var(--a) * .8)); animation: st-gpop .4s var(--ease-ios) both; animation-delay: calc(var(--i) * 8ms + .2s); }
+.st-grid-c.is-best { box-shadow: 0 0 0 2px #fff; }
+.st-grid-x { display: flex; justify-content: space-between; margin-left: 30px; font-size: 11px; opacity: .7; }
+@keyframes st-gpop { from { opacity: 0; transform: scale(.4); } }
+
+/* Profile: ausführlichere Dienstzeilen */
+.cp-svc.is-rich { align-items: center; padding: 8px 10px; }
+.cp-svc.is-rich .cp-svc-d { width: 74px; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 12px; }
+.cp-svc-m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.cp-svc-m small { font-size: 12px; line-height: 1.3; color: var(--text2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cp-svc-r { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.cp-svc-r small { font-size: 10.5px; color: var(--text2); white-space: nowrap; }
