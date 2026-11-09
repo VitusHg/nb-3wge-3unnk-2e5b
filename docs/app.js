@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 111;
+const APP_VERSION = 112;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7416,9 +7416,12 @@ function closeDialog(id) {
 function finalizeDialogClose(el) {
   clearTimeout(el._closeTimer);
   el.classList.remove('closing');
+  // Fokus aus dem geschlossenen Fenster nehmen – sonst bleibt die Tab Bar ausgeblendet
+  if (document.activeElement && el.contains(document.activeElement)) document.activeElement.blur();
   if (el.id) el.style.display = 'none';
   else el.remove();
   resetSheetStyles(el);
+  syncKbOpen();
 }
 
 function resetSheetStyles(overlay) {
@@ -9183,7 +9186,12 @@ function resetToHome() {
 
 function isTypingSomewhere() {
   const a = document.activeElement;
-  return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+  // nur sichtbare, noch vorhandene Felder zählen (geschlossene Dialoge behalten sonst den Fokus)
+  return !!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.isConnected && a.offsetParent !== null);
+}
+/** Tab Bar wieder einblenden, wenn kein Eingabefeld mehr aktiv ist. */
+function syncKbOpen() {
+  if (!isTypingSomewhere()) document.body.classList.remove('kb-open');
 }
 
 // Ansicht auffrischen (z. B. Countdown, laufender Dienst), ohne den
@@ -9264,7 +9272,8 @@ function initAppLifecycle() {
 
   // Bildschirmtastatur: Tab Bar ausblenden, Eingabefeld sichtbar halten
   document.addEventListener('focusin', (e) => {
-    if (!isMobile() || !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    // Auswahllisten (SELECT) öffnen keine Tastatur → Tab Bar bleibt
+    if (!isMobile() || !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (/^(checkbox|radio|button|submit|file|range|color)$/i.test(e.target.type || '')) return;
     document.body.classList.add('kb-open');
     setTimeout(() => {
