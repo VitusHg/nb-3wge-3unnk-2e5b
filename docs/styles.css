@@ -3865,3 +3865,5 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .tdp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .tdp-today { align-self: center; }
 .dp-head-actions .icon-round[hidden] { display: none !important; }
+.tdp-pick { display: flex; gap: 6px; min-width: 0; }
+.tdp-pick select { width: auto; min-width: 0; padding: 6px 26px 6px 10px; font-size: 15px; font-weight: 700; }

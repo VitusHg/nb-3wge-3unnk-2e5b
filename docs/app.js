@@ -3882,7 +3882,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 110;
+const APP_VERSION = 111;
 const APP_VERSION_DATE = '07.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -7885,6 +7885,15 @@ function tdpDutyDays() {
   ((cache && cache.shifts) || []).forEach((x) => add(new Date(x.start), x.location));
   return days;
 }
+/** Jahre zur Auswahl: vom ersten eigenen Dienst bis nächstes Jahr. */
+function tdpYears(cur) {
+  const now = new Date().getFullYear();
+  const firsts = state.services.map((s) => parseLocalDt(s.startAt)).filter(Boolean).map((d) => d.getFullYear());
+  const from = Math.min(cur, now - 1, ...firsts), to = Math.max(cur, now + 1);
+  const out = [];
+  for (let v = to; v >= from; v--) out.push(v);
+  return out;
+}
 function openTdpPopup() {
   const now = new Date();
   tdpMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -7930,7 +7939,10 @@ function renderTdpPopup() {
     <div class="tdp-cal">
       <div class="tdp-head">
         <button type="button" class="tdp-nav" data-tdp-m="-1" aria-label="Voriger Monat">‹</button>
-        <strong>${m.toLocaleDateString('de-AT', { month: 'long', year: 'numeric' })}</strong>
+        <span class="tdp-pick">
+          <select id="tdp-month" aria-label="Monat">${Array.from({ length: 12 }, (_, i) => `<option value="${i}"${i === mo ? ' selected' : ''}>${new Date(2000, i, 1).toLocaleDateString('de-AT', { month: 'long' })}</option>`).join('')}</select>
+          <select id="tdp-year" aria-label="Jahr">${tdpYears(y).map((v) => `<option value="${v}"${v === y ? ' selected' : ''}>${v}</option>`).join('')}</select>
+        </span>
         <button type="button" class="tdp-nav" data-tdp-m="1" aria-label="Nächster Monat">›</button>
       </div>
       <div class="tdp-grid">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((w) => `<span class="tdp-wd">${w}</span>`).join('')}${cells}</div>
@@ -7939,6 +7951,9 @@ function renderTdpPopup() {
     <button type="button" class="btn-ghost tdp-today" id="tdp-today">Heute</button>`;
   box.querySelector('#tdp-dept').onchange = (e) => { lsSet('etb_tdp_dept', e.target.value); renderTdpPopup(); };
   box.querySelectorAll('[data-tdp-m]').forEach((b) => b.addEventListener('click', () => { tdpMonth = new Date(y, mo + +b.dataset.tdpM, 1); renderTdpPopup(); }));
+  const jump = () => { tdpMonth = new Date(+box.querySelector('#tdp-year').value, +box.querySelector('#tdp-month').value, 1); renderTdpPopup(); };
+  box.querySelector('#tdp-month').onchange = jump;
+  box.querySelector('#tdp-year').onchange = jump;
   box.querySelector('#tdp-today').onclick = () => { const n = new Date(); tdpMonth = new Date(n.getFullYear(), n.getMonth(), 1); renderTdpPopup(); };
   box.querySelectorAll('a.tdp-day').forEach((a) => a.addEventListener('click', () => lsSet('etb_tdp_dept', selName)));
 }
