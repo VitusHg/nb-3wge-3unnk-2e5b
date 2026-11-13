@@ -36,14 +36,27 @@ const EINSATZART_CODES = [
   ['2', 'Heimtransport stationär'],
   ['3', 'Hintransport ambulant'],
   ['4', 'Heimtransport ambulant'],
+  ['5', 'Kombination Hintransport/Heimtransport stationär'],
+  ['6', 'Kombination Hintransport/Heimtransport ambulant'],
   ['7', 'Verlegung'],
+  ['8', 'Zwischentransport'],
+  ['9', 'Anschlusstransport'],
   ['10', 'Übergabe NAH'],
   ['11', 'Übergabe NAW'],
   ['12', 'Mitfahrt verweigert'],
   ['13', 'Leerfahrt'],
   ['14', 'Übergabe RTW von RTW'],
   ['15', 'Belassung vor Ort'],
+  ['16', 'Erste Hilfe-Einsatz'],
   ['17', 'Dialyse'],
+  ['51', 'LKH West ↔ BHB 1 Pat.'],
+  ['52', 'LKH West ↔ BHB 2 Pat.'],
+  ['53', 'LKH West ↔ BHB 3 Pat.'],
+  ['54', 'LKH West → BHB II'],
+  ['55', 'AUKH → BHB II'],
+  ['56', 'LKH West 1 Pat.'],
+  ['57', 'LKH West 2 Pat.'],
+  ['58', 'LKH West 3 Pat.'],
   ['59', 'Einsatzrücknahme'],
   ['99', 'sonstiger Transport'],
 ];
@@ -51,7 +64,7 @@ const EINSATZART_CODES = [
 const STATKZ_CODES = [
   ['1', 'Alkoholmissbrauch'],
   ['2', 'Ambulanz'],
-  ['3', 'Anpassung Heilbefehle'],
+  ['3', 'Anpassung Heilbehelfe'],
   ['4', 'Arbeitsunfall'],
   ['5', 'Augenklinik'],
   ['6', 'Berufskrankheit'],
@@ -67,8 +80,10 @@ const STATKZ_CODES = [
   ['16', 'Freizeit/Unfall'],
   ['17', 'Gefäßchirurgie'],
   ['18', 'Geisteskrankheit'],
+  ['19', 'Gesundheitsvorsorge'],
   ['20', 'Gewalt/Verbrechen'],
   ['21', 'Haushalt/Unfall'],
+  ['22', 'Hilfeleistung'],
   ['23', 'Hundebiss'],
   ['24', 'Infektion'],
   ['25', 'K-Einsatzübung'],
@@ -81,15 +96,18 @@ const STATKZ_CODES = [
   ['32', 'Plastische Chirurgie'],
   ['33', 'Raufhandel'],
   ['34', 'Rehabilitation (Reha)'],
-  ['36', 'Schritmacherkontrolle'],
+  ['35', 'Schnellschnitt'],
+  ['36', 'Schrittmacherkontrolle'],
   ['37', 'Selbstmord'],
   ['38', 'Sozialdienst'],
   ['39', 'Sport/Spiel Unfall'],
   ['40', 'Strahlen/Chemo Therapie'],
   ['41', 'Stromunfall'],
   ['42', 'Suchtgiftmissbrauch'],
+  ['43', 'Therapie'],
   ['44', 'Tierverletzung allgemein'],
   ['45', 'Tod angetroffen'],
+  ['46', 'Tod fraglich'],
   ['47', 'Vergiftung'],
   ['48', 'Verkehr/Unfall'],
   ['49', 'Wagengeburt'],
@@ -3929,8 +3947,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 118;
-const APP_VERSION_DATE = '09.11.2026';
+const APP_VERSION = 119;
+const APP_VERSION_DATE = '13.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
