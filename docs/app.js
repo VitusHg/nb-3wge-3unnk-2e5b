@@ -3947,7 +3947,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 120;
+const APP_VERSION = 121;
 const APP_VERSION_DATE = '14.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -9752,7 +9752,8 @@ const SYNC_DIRTY_KEY = 'etb_sync_dirty';
 const SYNC_LAST_KEY = 'etb_sync_last';
 const SYNC_DEVICE_KEY = 'etb_sync_device';
 // zusätzlich zu den App-Einstellungen mitsynchronisiert (Gerät ↔ Gerät)
-const SYNC_EXTRA_LS = [DP_WORKER_KEY, 'etb_places_sort', 'etb_abt_sug_hidden', 'etb_tdp_dept', 'etb_badges_seen', BACKUP_KEY];
+const CAL_FEED_KEY = 'etb_cal_feed'; // Kalender-Abo: { id, key, crew } – wird (verschlüsselt) mitsynchronisiert
+const SYNC_EXTRA_LS = [CAL_FEED_KEY, DP_WORKER_KEY, 'etb_places_sort', 'etb_abt_sug_hidden', 'etb_tdp_dept', 'etb_badges_seen', BACKUP_KEY];
 let syncApplying = false, syncTimer = 0, syncBusy = false;
 
 const syncOn = () => !!(lsGet(SYNC_TOKEN_KEY) && lsGet(SYNC_URL_KEY));
@@ -10027,9 +10028,11 @@ async function syncNow({ quiet = false } = {}) {
   if (!syncOn() || syncBusy) return;
   syncBusy = true;
   clearTimeout(syncTimer);
+  let failed = false;
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const st = await syncApi('/sync/state', { device: syncDevice() }); // meldet nebenbei den Gerätenamen
+      if (attempt === 0) calAlert(st.cal);
       const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
       const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
       if (st.latest > base) {
@@ -10073,10 +10076,12 @@ async function syncNow({ quiet = false } = {}) {
       return;
     }
   } catch (err) {
+    failed = true;
     if (err.status === 401 && err.code === 'unauthorized') { lsSet(SYNC_TOKEN_KEY, null); toast('Sync: Anmeldung abgelaufen – bitte neu anmelden.', 'info', 5000); }
     else if (!quiet) toast('Sync: ' + err.message, 'error', 4000);
   } finally {
     syncBusy = false;
+    if (!failed) calPublish().catch(() => {});
     // nicht neu aufbauen, solange auf der Konto-Seite getippt wird (sonst geht die Eingabe verloren)
     const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#sy-device, .set-form input');
     if (settingsSub === 'konto' && activeTab === 'einstellungen' && !typing) renderSettingsPage();
@@ -10092,6 +10097,157 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden' && lsGet(SYNC_DIRTY_KEY) === '1') syncNow({ quiet: true }).catch(() => {});
   if (document.visibilityState === 'visible') syncNow({ quiet: true }).catch(() => {});
 });
+
+// ── Kalender-Abo ────────────────────────────────────────────────────────────
+// Die App erstellt den Kalender (Dienste aus dem Tagebuch, Stufe 2: Fahrzeug,
+// Dienststelle, Zeiten, Besatzung, Anzahl der Einsätze – keine Einsatzdetails),
+// verschlüsselt ihn mit einem eigenen Schlüssel und lädt ihn auf den Worker.
+// Der Schlüssel steht nur im Abo-Link. Geplante Dienste ergänzt der Worker live.
+const CAL_HASH_KEY = 'etb_cal_hash';   // zuletzt hochgeladener Stand (nur lokal)
+const CAL_SEEN_KEY = 'etb_cal_seen';   // zuletzt gemeldete Sperre (nur lokal)
+const CAL_PAST_DAYS = 92;
+function calCfg() { try { const c = JSON.parse(lsGet(CAL_FEED_KEY) || 'null'); return c && c.id && c.key ? c : null; } catch (_) { return null; } }
+function calLink(cfg = calCfg(), webcal = false) {
+  if (!cfg) return '';
+  const u = `${String(lsGet(SYNC_URL_KEY) || '').replace(/\/+$/, '')}/cal/${cfg.id}/${cfg.key}.ics`;
+  return webcal ? u.replace(/^https?:/, 'webcal:') : u;
+}
+/** Kalendertext für das Abo – bewusst ohne Einsatzdetails, Notizen und Patientendaten. */
+function buildFeedIcs(cfg) {
+  const esc = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  const dt = (s) => s.replace(/-/g, '').replace(/:/g, '') + '00';
+  const from = Date.now() - CAL_PAST_DAYS * 864e5;
+  const list = state.services.filter((x) => x.startAt && (parseLocalDt(x.endAt || x.startAt) || 0) >= from)
+    .sort((a, b) => a.startAt.localeCompare(b.startAt) || String(a.id).localeCompare(String(b.id)));
+  const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Einsatztagebuch//DE'];
+  for (const x of list) {
+    const a = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt) || a;
+    const n = (x.incidents || []).length;
+    const desc = [];
+    if (cfg.crew !== false && (x.colleagues || []).length && !x.isSeg) desc.push(x.colleagues.join(', '));
+    if (n) desc.push(`${n} ${n === 1 ? 'Einsatz' : 'Einsätze'}`);
+    out.push('BEGIN:VEVENT', `UID:${String(x.id).replace(/[^A-Za-z0-9_-]/g, '')}@einsatztagebuch`, `DTSTAMP:${dt(x.startAt)}`, `DTSTART:${dt(x.startAt)}`);
+    if (x.endAt) out.push(`DTEND:${dt(x.endAt)}`);
+    out.push(`SUMMARY:${esc(x.isSeg ? 'SEG-Einsatz' : x.vehicle || 'Dienst')}`);
+    if (x.location && !x.isSeg) out.push(`LOCATION:${esc(x.location)}`); // SEG: Ort kann eine Einsatzadresse sein
+    if (desc.length) out.push(`DESCRIPTION:${esc(desc.join('\n'))}`);
+    if (x.dpUid) out.push(`X-ETB-PLAN:${String(x.dpUid).replace(/[\r\n]/g, '')}`);
+    if (a && e) out.push(`X-ETB-SPAN:${a.getTime()}-${e.getTime()}`);
+    out.push('END:VEVENT');
+  }
+  out.push('END:VCALENDAR');
+  return out.join('\r\n') + '\r\n';
+}
+async function calEncrypt(text, keyB64u) {
+  const key = await crypto.subtle.importKey('raw', unb64u(keyB64u), 'AES-GCM', false, ['encrypt']);
+  let bytes = new TextEncoder().encode(text), z = false;
+  if (typeof CompressionStream !== 'undefined') { bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); z = true; }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  return { iv: b64u(iv), ct: bytesToB64(ct), z };
+}
+const calKeyHash = async (key) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('etb-cal|' + key)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+let calBusy = false;
+/** Kalender hochladen, wenn er sich geändert hat (oder erzwungen / mit neuem Link). */
+async function calPublish({ force = false, replace = false, extra = {} } = {}) {
+  const cfg = calCfg();
+  if (!cfg || !syncOn() || calBusy) return false;
+  calBusy = true;
+  try {
+    const text = buildFeedIcs(cfg);
+    const hash = cfg.id + ':' + await calKeyHash(text);
+    if (!force && !replace && lsGet(CAL_HASH_KEY) === hash) return false;
+    try {
+      await syncApi('/sync/cal/put', { id: cfg.id, keyHash: await calKeyHash(cfg.key), data: await calEncrypt(text, cfg.key), replace, crew: cfg.crew !== false, ...extra });
+    } catch (e) {
+      // anderes Gerät hat inzwischen einen neuen Link erzeugt → kommt mit dem nächsten Abgleich
+      if (e.code === 'cal_other') { lsSet(CAL_HASH_KEY, null); return false; }
+      throw e;
+    }
+    lsSet(CAL_HASH_KEY, hash);
+    return true;
+  } finally { calBusy = false; }
+}
+/** Abo-Einstellungen sofort auf die anderen Geräte bringen. */
+function calSyncSoon() { syncNoteChange(); setTimeout(() => syncNow({ quiet: true }).catch(() => {}), 300); }
+async function calCreate() {
+  const cfg = { id: b64u(crypto.getRandomValues(new Uint8Array(18))), key: b64u(crypto.getRandomValues(new Uint8Array(32))), crew: (calCfg() || {}).crew !== false };
+  const old = lsGet(CAL_FEED_KEY);
+  lsSet(CAL_FEED_KEY, JSON.stringify(cfg));
+  try { await calPublish({ replace: true, extra: { geo: 'at', plan: true } }); }
+  catch (e) { lsSet(CAL_FEED_KEY, old); throw e; }
+  calSyncSoon(); // Link-Daten auf die anderen Geräte bringen
+  return cfg;
+}
+function calAlert(info) {
+  if (!info || !info.on || !info.lastBlocked) return;
+  if (Number(lsGet(CAL_SEEN_KEY) || 0) >= info.lastBlocked) return;
+  lsSet(CAL_SEEN_KEY, String(info.lastBlocked));
+  toast('⚠︎ Kalender-Abo: Abruf von außerhalb Österreichs bzw. mit falschem Link – Details unter Konto & Sync.', 'info', 6000);
+}
+const CAL_WHY = { geo: 'gesperrt – außerhalb Österreichs', foreign: 'außerhalb Österreichs (nur protokolliert)', link: 'falscher Link' };
+const flagOf = (c) => (/^[A-Z]{2}$/.test(c) ? String.fromCodePoint(...[...c].map((ch) => 0x1f1a5 + ch.charCodeAt(0))) : '🌐');
+function calUaLabel(ua) {
+  ua = String(ua || '');
+  if (/iOS|iPhone|iPad|dataaccessd|CFNetwork/i.test(ua)) return 'iPhone/iPad-Kalender';
+  if (/Macintosh|macOS|CalendarAgent/i.test(ua)) return 'Mac-Kalender';
+  if (/Google/i.test(ua)) return 'Google Kalender';
+  if (/Outlook|Microsoft/i.test(ua)) return 'Outlook';
+  if (/Android/i.test(ua)) return 'Android';
+  return ua ? ua.slice(0, 40) : 'unbekannt';
+}
+async function syncRenderCal(el) {
+  const box = el.querySelector('#sy-cal');
+  if (!box) return;
+  const cfg = calCfg();
+  const fmt = (t) => new Date(t).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let info = { on: false };
+  try { info = await syncApi('/sync/cal/info'); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
+  if (!info.on || !cfg || cfg.id !== info.id) {
+    box.innerHTML = `<button type="button" class="set-row set-action" id="cal-create"><span class="set-row-text set-row-title">Kalender-Abo einrichten</span></button>`;
+    box.querySelector('#cal-create').onclick = async () => {
+      try { await calCreate(); toast('Kalender-Abo eingerichtet.', 'success'); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
+    };
+    return;
+  }
+  const blocked = info.blocked || [], clients = info.clients || [];
+  box.innerHTML = `
+    <a class="set-row set-action" id="cal-sub" href="${escHtml(calLink(cfg, true))}"><span class="set-row-text set-row-title">Im Kalender abonnieren</span></a>
+    <button type="button" class="set-row set-action" id="cal-copy"><span class="set-row-text set-row-title">Link kopieren</span></button>
+    <label class="set-row set-row-switch"><span class="set-row-text"><span class="set-row-title">Besatzung anzeigen</span><span class="set-row-sub">Namen der Kolleg:innen im Termin</span></span><input type="checkbox" class="set-switch" id="cal-crew" ${cfg.crew !== false ? 'checked' : ''}></label>
+    <label class="set-row set-row-switch"><span class="set-row-text"><span class="set-row-title">Nur aus Österreich abrufbar</span><span class="set-row-sub">${info.geo === 'log' ? 'Aus: andere Länder werden nur protokolliert' : 'Abrufe aus anderen Ländern werden gesperrt und protokolliert'}</span></span><input type="checkbox" class="set-switch" id="cal-geo" ${info.geo !== 'log' ? 'checked' : ''}></label>
+    <div class="set-row"><span class="set-row-text"><span class="set-row-title">Zuletzt hochgeladen</span><span class="set-row-sub">${info.at ? escHtml(fmt(info.at)) : '—'} · eingerichtet ${escHtml(fmt(info.created))}</span></span></div>
+    <div class="cal-log">
+      <div class="cal-log-h">Gesperrte / auffällige Abrufe${blocked.length ? ` · ${blocked.length}` : ''}</div>
+      ${blocked.length ? blocked.slice(0, 15).map((b) => `<div class="cal-log-r is-bad"><span class="cal-flag">${flagOf(b.c)}</span><span class="cal-log-t"><b>${escHtml([b.c, b.city].filter(Boolean).join(' · '))} – ${escHtml(CAL_WHY[b.why] || b.why)}</b><small>${escHtml([fmt(b.at), b.org ? b.org + (b.asn ? ` (AS${b.asn})` : '') : '', b.ip, calUaLabel(b.ua)].filter(Boolean).join(' · '))}</small></span></div>`).join('') : '<div class="cal-log-r"><span class="cal-log-t"><small>Keine – alles ruhig.</small></span></div>'}
+      <div class="cal-log-h">Abrufer</div>
+      ${clients.length ? clients.map((c) => `<div class="cal-log-r"><span class="cal-flag">${flagOf(c.c)}</span><span class="cal-log-t"><b>${escHtml(calUaLabel(c.ua))}</b><small>${escHtml([c.city, c.org].filter(Boolean).join(' · '))} · zuletzt ${escHtml(fmt(c.last))} · seit ${escHtml(fmt(c.first))}</small></span></div>`).join('') : '<div class="cal-log-r"><span class="cal-log-t"><small>Noch nicht abgerufen.</small></span></div>'}
+    </div>
+    ${blocked.length ? '<button type="button" class="set-row set-action" id="cal-clear"><span class="set-row-text set-row-title">Protokoll leeren</span></button>' : ''}
+    <button type="button" class="set-row set-action" id="cal-new"><span class="set-row-text set-row-title">Neuen Link erzeugen</span></button>
+    <button type="button" class="set-row set-destructive" id="cal-off"><span class="set-row-text set-row-title">Abo beenden</span></button>`;
+  box.querySelector('#cal-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(calLink(cfg)); toast('Link kopiert – nur in deinen eigenen Kalender einfügen.', 'success', 3000); }
+    catch (_) { prompt('Abo-Link:', calLink(cfg)); }
+  };
+  box.querySelector('#cal-crew').onchange = async (e) => {
+    lsSet(CAL_FEED_KEY, JSON.stringify({ ...cfg, crew: e.target.checked }));
+    try { await calPublish({ force: true }); calSyncSoon(); toast('Kalender aktualisiert.', 'success', 1800); } catch (er) { toast(er.message, 'error'); }
+  };
+  box.querySelector('#cal-geo').onchange = async (e) => {
+    try { await syncApi('/sync/cal/geo', { geo: e.target.checked ? 'at' : 'log' }); syncRenderCal(el); } catch (er) { toast(er.message, 'error'); }
+  };
+  const clr = box.querySelector('#cal-clear');
+  if (clr) clr.onclick = async () => { await syncApi('/sync/cal/clearlog').catch(() => {}); syncRenderCal(el); };
+  box.querySelector('#cal-new').onclick = async () => {
+    if (!confirm('Neuen Link erzeugen? Der bisherige Link funktioniert sofort nicht mehr – das Abo muss im Kalender neu eingerichtet werden.')) return;
+    try { await calCreate(); toast('Neuer Link erzeugt. Bitte im Kalender neu abonnieren.', 'success', 3500); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
+  };
+  box.querySelector('#cal-off').onclick = async () => {
+    if (!confirm('Kalender-Abo beenden? Der Link funktioniert danach nicht mehr.')) return;
+    try { await syncApi('/sync/cal/off'); lsSet(CAL_FEED_KEY, null); lsSet(CAL_HASH_KEY, null); calSyncSoon(); toast('Kalender-Abo beendet.', 'success'); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
+  };
+}
 
 // — Einrichten / Anmelden —
 async function syncRegister({ url, username, password, setupKey }) {
@@ -10204,6 +10360,9 @@ function settingsPageKonto(el, title) {
     </div>
     <div class="set-group-header">Zwei-Faktor-Anmeldung</div>
     <div class="set-group" id="sy-totp-box"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+    <div class="set-group-header">Kalender-Abo</div>
+    <div class="set-group" id="sy-cal"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+    <p class="set-group-footer is-keep">Live-Kalender zum Abonnieren: deine Dienste der letzten 3 Monate und alle kommenden, dazu geplante Dienste aus dem Dienstplan. Enthalten sind Fahrzeug, Dienststelle, Zeiten, Besatzung und die Anzahl der Einsätze – keine Einsatzdetails, Notizen oder Patientendaten. Wer den Link hat, kann den Kalender lesen; am iPhone über Einstellungen → Kalender → Accounts → Abonnierter Kalender einrichten (dann ruft das iPhone selbst ab, nicht iCloud).</p>
     <div class="set-group-header">Versionen</div>
     <div class="set-group" id="sy-versions"><button type="button" class="set-row set-action" id="sy-load-versions"><span class="set-row-text set-row-title">Frühere Stände anzeigen</span></button></div>
     <div class="set-group-header">Angemeldete Geräte</div>
@@ -10228,6 +10387,7 @@ function settingsPageKonto(el, title) {
   el.querySelector('#sy-load-versions').onclick = () => syncShowVersions(el);
   syncRenderTotp(el);
   syncRenderSessions(el);
+  syncRenderCal(el);
 }
 /** Gerätenamen an den Server melden (benennt die Sitzung um). */
 async function syncSendDevice(el) {

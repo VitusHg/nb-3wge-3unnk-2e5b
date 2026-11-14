@@ -3982,3 +3982,14 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .cp-svc-m small { font-size: 12px; line-height: 1.3; color: var(--text2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .cp-svc-r { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .cp-svc-r small { font-size: 10.5px; color: var(--text2); white-space: nowrap; }
+
+/* Kalender-Abo: Zugriffsprotokoll */
+.cal-log { padding: 6px 16px 10px; border-top: 0.5px solid var(--separator); }
+.cal-log-h { margin: 8px 0 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text2); }
+.cal-log-r { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; }
+.cal-flag { font-size: 20px; line-height: 1.2; flex: none; }
+.cal-log-t { display: flex; flex-direction: column; min-width: 0; }
+.cal-log-t b { font-size: 14px; font-weight: 600; }
+.cal-log-t small { font-size: 12px; color: var(--text2); overflow-wrap: anywhere; }
+.cal-log-r.is-bad .cal-log-t b { color: var(--danger); }
+#cal-sub, #cal-sub:hover { text-decoration: none; }
