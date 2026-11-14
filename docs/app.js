@@ -1800,6 +1800,7 @@ function openServiceDialog(serviceId, prefill = null) {
   openDialog('dialog-service');
 
   // Vorschläge nach Häufigkeit
+  const regular = state.services.filter((s) => !s.isSeg);
   mountSuggestions(document.getElementById('svc-location'), document.getElementById('svc-location-suggestions'), [...new Set([...rankByFrequency(regular.map((s) => s.location).filter(Boolean)), ...(state.dienststellen || []).map((a) => a.name).filter(Boolean)])], 8, true);
   mountSuggestions(document.getElementById('svc-vehicle'), document.getElementById('svc-vehicle-suggestions'), rankByFrequency(regular.map((s) => s.vehicle).filter(Boolean)), 8, true);
   bindVehicleIconPreview('svc-vehicle', 'svc-vehicle-icon');
@@ -3947,8 +3948,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 122;
-const APP_VERSION_DATE = '14.11.2026';
+const APP_VERSION = 123;
+const APP_VERSION_DATE = '15.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
