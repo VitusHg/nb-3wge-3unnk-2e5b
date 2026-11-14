@@ -3947,8 +3947,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 119;
-const APP_VERSION_DATE = '13.11.2026';
+const APP_VERSION = 120;
+const APP_VERSION_DATE = '14.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -10029,7 +10029,7 @@ async function syncNow({ quiet = false } = {}) {
   clearTimeout(syncTimer);
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
-      const st = await syncApi('/sync/state');
+      const st = await syncApi('/sync/state', { device: syncDevice() }); // meldet nebenbei den Gerätenamen
       const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
       const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
       if (st.latest > base) {
@@ -10077,7 +10077,9 @@ async function syncNow({ quiet = false } = {}) {
     else if (!quiet) toast('Sync: ' + err.message, 'error', 4000);
   } finally {
     syncBusy = false;
-    if (settingsSub === 'konto' && activeTab === 'einstellungen') renderSettingsPage();
+    // nicht neu aufbauen, solange auf der Konto-Seite getippt wird (sonst geht die Eingabe verloren)
+    const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#sy-device, .set-form input');
+    if (settingsSub === 'konto' && activeTab === 'einstellungen' && !typing) renderSettingsPage();
   }
 }
 // offen gelassene App bzw. Browser-Tab: jede Minute nachsehen (nicht während Eingaben/Fenstern)
@@ -10213,7 +10215,12 @@ function settingsPageKonto(el, title) {
     <p class="set-group-footer is-keep" id="sy-storage"></p>
     <p class="set-group-footer">Ende-zu-Ende verschlüsselt (AES-256). Nicht synchronisiert wird der Dienstplan-Zugangsschlüssel – der bleibt nur auf dem jeweiligen Gerät.</p>`;
   el.querySelector('#sy-now').onclick = () => syncNow();
-  el.querySelector('#sy-device').onchange = (e) => lsSet(SYNC_DEVICE_KEY, e.target.value.trim() || null);
+  // Gerätename: bei jeder Eingabe lokal sichern (geht so auch beim direkten Zurück nicht verloren),
+  // beim Verlassen des Felds an den Server melden → erscheint dort unter „Angemeldete Geräte“
+  const devInp = el.querySelector('#sy-device');
+  devInp.oninput = () => lsSet(SYNC_DEVICE_KEY, devInp.value.trim() || null);
+  devInp.onchange = () => { devInp.oninput(); syncSendDevice(el); };
+  devInp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); devInp.blur(); } };
   el.querySelector('#sy-logout').onclick = async () => {
     if (lsGet(SYNC_DIRTY_KEY) === '1' && !confirm('Es gibt noch ungesicherte Änderungen. Trotzdem abmelden?')) return;
     await syncLogout(); toast('Abgemeldet. Die Daten bleiben auf diesem Gerät.', 'success'); renderSettingsPage(); renderSettings();
@@ -10222,11 +10229,23 @@ function settingsPageKonto(el, title) {
   syncRenderTotp(el);
   syncRenderSessions(el);
 }
+/** Gerätenamen an den Server melden (benennt die Sitzung um). */
+async function syncSendDevice(el) {
+  if (!lsGet(SYNC_TOKEN_KEY)) return;
+  try {
+    const r = await syncApi('/sync/device', { device: syncDevice() });
+    lsSet(SYNC_DEVICE_KEY + '_sent', r.device || syncDevice());
+    toast(`Gerätename „${r.device || syncDevice()}“ gespeichert.`, 'success');
+    if (el) syncRenderSessions(el);
+  } catch (e) {
+    toast(e.status === 404 ? 'Name auf diesem Gerät gespeichert – für die Geräteliste bitte den Worker aktualisieren.' : 'Name gespeichert, Server nicht erreichbar – wird beim nächsten Abgleich gemeldet.', 'info', 4500);
+  }
+}
 async function syncRenderTotp(el) {
   const box = el.querySelector('#sy-totp-box');
   if (!box) return;
   let st;
-  try { st = await syncApi('/sync/state'); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
+  try { st = await syncApi('/sync/state', { device: syncDevice() }); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
   const stor = el.querySelector('#sy-storage');
   if (stor) stor.innerHTML = st.atomic
     ? '✓ Speicher: D1-Datenbank – gleichzeitiges Hochladen ist ausgeschlossen.'
@@ -10266,7 +10285,7 @@ async function syncRenderSessions(el) {
   const box = el.querySelector('#sy-sessions');
   if (!box) return;
   try {
-    const { sessions } = await syncApi('/sync/sessions');
+    const { sessions } = await syncApi('/sync/sessions', { device: syncDevice() });
     box.innerHTML = sessions.map((s) => `<div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(s.device)}${s.current ? ' · dieses Gerät' : ''}</span><span class="set-row-sub">angemeldet ${escHtml(new Date(s.created).toLocaleDateString('de-AT'))}</span></span>${s.current ? '' : `<button type="button" class="btn-ghost" data-revoke="${escHtml(s.id)}" style="color:var(--danger)">Abmelden</button>`}</div>`).join('');
     box.querySelectorAll('[data-revoke]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm('Dieses Gerät abmelden?')) return;
