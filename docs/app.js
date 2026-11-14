@@ -263,6 +263,7 @@ function normalizeState(s) {
     svc.isSeg = !!svc.isSeg;
     if (svc.dpUid !== undefined) svc.dpUid = str(svc.dpUid);
     if (svc.dpAck !== undefined) svc.dpAck = str(svc.dpAck);
+    if (svc.planLog !== undefined) svc.planLog = (Array.isArray(svc.planLog) ? svc.planLog : []).filter((e) => e && e.id && e.txt).map((e) => ({ id: str(e.id), at: Number(e.at) || 0, txt: txt(e.txt) })).sort((a, b) => a.at - b.at);
     // Titel, die früher als eigene Person gespeichert wurden („BSc“), wieder anhängen
     svc.colleagues = Array.isArray(svc.colleagues) ? mergeCrewTitles(svc.colleagues.map(txt).filter(Boolean)) : [];
     svc.incidents = objList(svc.incidents);
@@ -3948,7 +3949,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 123;
+const APP_VERSION = 124;
 const APP_VERSION_DATE = '15.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -8763,6 +8764,7 @@ async function loadDpHistory() {
   try {
     const data = await workerApi('/push/history');
     lsSet(DP_HISTORY_KEY, JSON.stringify({ at: Date.now(), history: data.history || {} }));
+    try { persistPlanLogs(readDpHistory()); } catch (_) {}
     return data.history || {};
   } catch (_) { return readDpHistory(); } // alter Worker oder offline → letzter Stand
 }
@@ -8791,6 +8793,52 @@ function historyKeyForService(svc, history = readDpHistory()) {
     }
   }
   return best;
+}
+
+/** Eine Verlaufszeile als Text, z. B. „11.11. 09:12 · Zeit 07:00–19:00 → 08:00–20:00 · Besatzung + Probe Paul“. */
+function planLogText(e) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = (ms) => { const d = new Date(ms); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}. ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  const range = (x, ref) => { const s = new Date(x.s), e2 = new Date(x.e); const sameDay = ref && new Date(ref.s).toDateString() === s.toDateString(); return `${sameDay ? '' : `${p2(s.getDate())}.${p2(s.getMonth() + 1)}. `}${formatTimeHM(s)}–${formatTimeHM(e2)}`; };
+  const parts = [];
+  if (e.type === 'added') parts.push(e.readded ? 'Wieder eingetragen' : 'Neu eingetragen');
+  else if (e.type === 'removed') parts.push('Ausgefallen');
+  else if (e.type === 'updated' && e.before && e.now) {
+    const b = e.before, n = e.now;
+    if (b.s !== n.s || b.e !== n.e) parts.push(`Zeit ${range(b, n)} → ${range(n, b)}`);
+    if (b.t !== n.t) parts.push(`Fahrzeug ${b.t || '—'} → ${n.t || '—'}`);
+    if (b.l !== n.l) parts.push(`Ort ${b.l || '—'} → ${n.l || '—'}`);
+    const cb = crewOf(b.d).colleagues, cn = crewOf(n.d).colleagues;
+    const key = (x) => x.toLowerCase().replace(/\s+/g, ' ').trim();
+    const add = cn.filter((x) => !cb.some((y) => key(y) === key(x))), del = cb.filter((x) => !cn.some((y) => key(y) === key(x)));
+    if (add.length || del.length) parts.push(`Besatzung ${[...add.map((x) => '+ ' + x), ...del.map((x) => '− ' + x)].join(', ')}`);
+    if (crewOf(b.d).note !== crewOf(n.d).note) parts.push('Info geändert');
+    if (!parts.length) parts.push('Geändert');
+  } else return '';
+  return `${when(e.at)} · ${parts.join(' · ')}`;
+}
+/** Dienstplan-Verlauf in die Tagebuch-Dienste übernehmen – bleibt so dauerhaft (und synchronisiert) erhalten. */
+function persistPlanLogs(history = readDpHistory()) {
+  if (!history || !Object.keys(history).length) return false;
+  let changed = false;
+  for (const svc of state.services) {
+    if (svc.isSeg) continue;
+    const key = historyKeyForService(svc, history);
+    if (!key) continue;
+    const have = new Set((svc.planLog || []).map((x) => x.id));
+    for (const e of history[key].entries || []) {
+      if (isEndOfShiftRemoval(e) || e.type === 'relinked') continue;
+      const id = `${e.at}-${e.type}`;
+      if (have.has(id)) continue;
+      const txt = planLogText(e);
+      if (!txt) continue;
+      (svc.planLog = svc.planLog || []).push({ id, at: e.at, txt });
+      have.add(id); changed = true;
+    }
+    if (svc.planLog) svc.planLog.sort((a, b) => a.at - b.at);
+  }
+  if (changed) saveState();
+  return changed;
 }
 
 function historyCountHtml(key, history) {
@@ -10130,20 +10178,26 @@ function buildFeedIcs() {
   const dt = (s) => s.replace(/-/g, '').replace(/:/g, '') + '00';
   const list = state.services.filter((x) => x.startAt).sort((a, b) => a.startAt.localeCompare(b.startAt) || String(a.id).localeCompare(String(b.id)));
   const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Einsatztagebuch//DE'];
+  // Ort → Dienststellen-ID, damit der Worker auch bei geplanten Diensten den Tagesdienstplan verlinken kann
+  const locs = new Set([...(state.dienststellen || []).map((d) => d.name), ...state.services.map((x) => x.location), ...((readIcsCache() || {}).shifts || []).flatMap((sh) => [sh.location, sh.abteilung])].filter(Boolean));
+  for (const l of locs) { const d = findAbteilung({ location: l }); if (d && d.deptId) out.push(`X-ETB-DEPT:${encodeURIComponent(l.trim().toLowerCase())}=${encodeURIComponent(d.deptId)}`); }
   for (const x of list) {
     const a = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt) || a;
     const incs = incidentsNewestFirst(x.incidents || []).slice().reverse();
-    const desc = [];
-    if ((x.colleagues || []).length && !x.isSeg) desc.push(x.colleagues.join(', '));
-    if (incs.length) {
-      desc.push(`${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${incs.some((i) => i.lights) ? ` · ${incs.filter((i) => i.lights).length}× Blaulicht` : ''}`);
-      incs.forEach((i) => desc.push(`${i.lights ? '🔵' : '⚪'} ${i.alarmCode || 'Einsatz'}`));
-    }
+    // Reihenfolge: Besatzung · Dienstplan-Änderungen · Tagesdienstplan · Einsätze
+    const sec = [];
+    if ((x.colleagues || []).length && !x.isSeg) sec.push(x.colleagues.join(', '));
+    if ((x.planLog || []).length) sec.push(['Änderungen im Dienstplan:', ...x.planLog.map((l) => '• ' + l.txt)].join('\n'));
+    const tdp = x.isSeg ? null : dienstplanUrl(x);
+    if (tdp) sec.push('Tagesdienstplan: ' + tdp);
+    if (incs.length) sec.push([`${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}`, ...incs.map((i) => `${i.lights ? '🔵' : '⚪'} ${i.alarmCode || 'Einsatz'}`)].join('\n'));
+    const desc = sec.length ? [sec.join('\n\n')] : [];
     out.push('BEGIN:VEVENT', `UID:${String(x.id).replace(/[^A-Za-z0-9_-]/g, '')}@einsatztagebuch`, `DTSTAMP:${dt(x.startAt)}`, `DTSTART:${dt(x.startAt)}`);
     if (x.endAt) out.push(`DTEND:${dt(x.endAt)}`);
     out.push(`SUMMARY:${esc(x.isSeg ? `SEG · ${(incs[0] || {}).alarmCode || 'Einsatz'}` : x.vehicle || 'Dienst')}`);
     if (x.location && !x.isSeg) out.push(`LOCATION:${esc(x.location)}`); // SEG: Ort kann eine Einsatzadresse sein
     if (desc.length) out.push(`DESCRIPTION:${esc(desc.join('\n'))}`);
+    if (tdp) out.push(`URL:${tdp}`);
     if (x.dpUid) out.push(`X-ETB-PLAN:${String(x.dpUid).replace(/[\r\n]/g, '')}`);
     if (a && e) out.push(`X-ETB-SPAN:${a.getTime()}-${e.getTime()}`);
     out.push('END:VEVENT');
@@ -10180,6 +10234,7 @@ async function calPublish({ force = false, replace = false } = {}) {
   if (!cfg || !syncOn() || calBusy) return false;
   calBusy = true;
   try {
+    try { persistPlanLogs(); } catch (_) {}
     const text = buildFeedIcs();
     const hash = cfg.id + ':' + await calKeyHash(text);
     if (!force && !replace && lsGet(CAL_HASH_KEY) === hash) return false;
