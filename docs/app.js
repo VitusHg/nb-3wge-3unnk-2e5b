@@ -3947,7 +3947,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 121;
+const APP_VERSION = 122;
 const APP_VERSION_DATE = '14.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4071,19 +4071,29 @@ function renderSettings() {
   document.getElementById('btn-open-codes-popup').addEventListener('click', openCodesPopup);
   document.getElementById('btn-open-abt-popup').addEventListener('click', openAbteilungenPopup);
 
+  // Computer: Liste links, Seite rechts – es ist immer eine Seite offen
+  if (!settingsSub && settingsWide()) settingsSub = 'profil';
   if (settingsSub) renderSettingsPage();
   const tab = document.getElementById('tab-einstellungen');
   if (tab) tab.classList.toggle('sub-open', !!settingsSub);
+  markSettingsActive();
 }
+/** Einstellungen nebeneinander (Liste + Seite) ab 900 px Breite. */
+function settingsWide() { return window.matchMedia('(min-width: 900px)').matches; }
+function markSettingsActive() {
+  document.querySelectorAll('#settings-container [data-push]').forEach((b) => b.classList.toggle('is-active', settingsWide() && b.dataset.push === settingsSub));
+}
+window.matchMedia('(min-width: 900px)').addEventListener('change', () => { if (activeTab === 'einstellungen') { renderSettings(); updateNavBar(); } });
 
 function openSettingsPage(page) {
-  if (!SETTINGS_PAGES[page] || navAnimating) return;
+  if (!SETTINGS_PAGES[page] || (navAnimating && !settingsWide())) return;
   const root = document.getElementById('settings-root');
   settingsSub = page;
   renderSettingsPage();
   document.getElementById('tab-einstellungen').classList.add('sub-open');
   const sub = document.getElementById('settings-sub');
   if (sub) sub.scrollTop = 0;
+  markSettingsActive();
   updateNavBar();
   if (isMobile() && root) pushAnimated(getBackTarget());
 }
@@ -8989,7 +8999,7 @@ function getBackTarget() {
       },
     };
   }
-  if (activeTab === 'einstellungen' && settingsSub) {
+  if (activeTab === 'einstellungen' && settingsSub && !settingsWide()) {
     const top = document.getElementById('settings-sub');
     const under = document.getElementById('settings-root');
     if (!top || !under) return null;
@@ -9039,7 +9049,7 @@ function navTitleText() {
       return date || (svc.isSeg ? 'SEG' : 'Dienst');
     }
   }
-  if (activeTab === 'einstellungen' && settingsSub) return SETTINGS_PAGES[settingsSub];
+  if (activeTab === 'einstellungen' && settingsSub && !settingsWide()) return SETTINGS_PAGES[settingsSub];
   return TAB_TITLES[activeTab] || '';
 }
 
@@ -9061,7 +9071,7 @@ function updateNavBar() {
   bar.classList.toggle('scrolled', y > 2);
   // Kleiner Titel erscheint, sobald der große Titel unter der Leiste verschwindet.
   // Detailansichten haben keinen großen Titel → Titel immer sichtbar.
-  bar.classList.toggle('show-title', isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub) || y > 40);
+  bar.classList.toggle('show-title', isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub && !settingsWide()) || y > 40);
 }
 
 function scheduleNavBarUpdate() {
@@ -10032,7 +10042,7 @@ async function syncNow({ quiet = false } = {}) {
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const st = await syncApi('/sync/state', { device: syncDevice() }); // meldet nebenbei den Gerätenamen
-      if (attempt === 0) calAlert(st.cal);
+      if (attempt === 0) await calCheck(st.cal ? st : null);
       const base = Number(lsGet(SYNC_BASE_KEY)) || 0;
       const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
       if (st.latest > base) {
@@ -10099,36 +10109,38 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Kalender-Abo ────────────────────────────────────────────────────────────
-// Die App erstellt den Kalender (Dienste aus dem Tagebuch, Stufe 2: Fahrzeug,
-// Dienststelle, Zeiten, Besatzung, Anzahl der Einsätze – keine Einsatzdetails),
-// verschlüsselt ihn mit einem eigenen Schlüssel und lädt ihn auf den Worker.
-// Der Schlüssel steht nur im Abo-Link. Geplante Dienste ergänzt der Worker live.
+// Die App erstellt den Kalender (alle Dienste aus dem Tagebuch mit Fahrzeug,
+// Dienststelle, Zeiten, Besatzung und Einsatz-Stichwörtern – keine PZC, NACA,
+// Notizen, Adressen oder Patientendaten), verschlüsselt ihn mit einem eigenen
+// Schlüssel und lädt ihn auf den Worker. Der Schlüssel steht nur im Abo-Link.
+// Geplante Dienste ergänzt der Worker live aus dem Dienstplan.
+// Die Link-Daten liegen zusätzlich mit dem Sync-Schlüssel verschlüsselt am
+// Worker – so zeigt jedes angemeldete Gerät denselben Link.
 const CAL_HASH_KEY = 'etb_cal_hash';   // zuletzt hochgeladener Stand (nur lokal)
-const CAL_SEEN_KEY = 'etb_cal_seen';   // zuletzt gemeldete Sperre (nur lokal)
-const CAL_PAST_DAYS = 92;
 function calCfg() { try { const c = JSON.parse(lsGet(CAL_FEED_KEY) || 'null'); return c && c.id && c.key ? c : null; } catch (_) { return null; } }
 function calLink(cfg = calCfg(), webcal = false) {
   if (!cfg) return '';
   const u = `${String(lsGet(SYNC_URL_KEY) || '').replace(/\/+$/, '')}/cal/${cfg.id}/${cfg.key}.ics`;
   return webcal ? u.replace(/^https?:/, 'webcal:') : u;
 }
-/** Kalendertext für das Abo – bewusst ohne Einsatzdetails, Notizen und Patientendaten. */
-function buildFeedIcs(cfg) {
+/** Kalendertext für das Abo – bewusst ohne PZC, NACA, Notizen, Adressen und Patientendaten. */
+function buildFeedIcs() {
   const esc = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
   const dt = (s) => s.replace(/-/g, '').replace(/:/g, '') + '00';
-  const from = Date.now() - CAL_PAST_DAYS * 864e5;
-  const list = state.services.filter((x) => x.startAt && (parseLocalDt(x.endAt || x.startAt) || 0) >= from)
-    .sort((a, b) => a.startAt.localeCompare(b.startAt) || String(a.id).localeCompare(String(b.id)));
+  const list = state.services.filter((x) => x.startAt).sort((a, b) => a.startAt.localeCompare(b.startAt) || String(a.id).localeCompare(String(b.id)));
   const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Einsatztagebuch//DE'];
   for (const x of list) {
     const a = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt) || a;
-    const n = (x.incidents || []).length;
+    const incs = incidentsNewestFirst(x.incidents || []).slice().reverse();
     const desc = [];
-    if (cfg.crew !== false && (x.colleagues || []).length && !x.isSeg) desc.push(x.colleagues.join(', '));
-    if (n) desc.push(`${n} ${n === 1 ? 'Einsatz' : 'Einsätze'}`);
+    if ((x.colleagues || []).length && !x.isSeg) desc.push(x.colleagues.join(', '));
+    if (incs.length) {
+      desc.push(`${incs.length} ${incs.length === 1 ? 'Einsatz' : 'Einsätze'}${incs.some((i) => i.lights) ? ` · ${incs.filter((i) => i.lights).length}× Blaulicht` : ''}`);
+      incs.forEach((i) => desc.push(`${i.lights ? '🔵' : '⚪'} ${i.alarmCode || 'Einsatz'}`));
+    }
     out.push('BEGIN:VEVENT', `UID:${String(x.id).replace(/[^A-Za-z0-9_-]/g, '')}@einsatztagebuch`, `DTSTAMP:${dt(x.startAt)}`, `DTSTART:${dt(x.startAt)}`);
     if (x.endAt) out.push(`DTEND:${dt(x.endAt)}`);
-    out.push(`SUMMARY:${esc(x.isSeg ? 'SEG-Einsatz' : x.vehicle || 'Dienst')}`);
+    out.push(`SUMMARY:${esc(x.isSeg ? `SEG · ${(incs[0] || {}).alarmCode || 'Einsatz'}` : x.vehicle || 'Dienst')}`);
     if (x.location && !x.isSeg) out.push(`LOCATION:${esc(x.location)}`); // SEG: Ort kann eine Einsatzadresse sein
     if (desc.length) out.push(`DESCRIPTION:${esc(desc.join('\n'))}`);
     if (x.dpUid) out.push(`X-ETB-PLAN:${String(x.dpUid).replace(/[\r\n]/g, '')}`);
@@ -10147,106 +10159,146 @@ async function calEncrypt(text, keyB64u) {
   return { iv: b64u(iv), ct: bytesToB64(ct), z };
 }
 const calKeyHash = async (key) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('etb-cal|' + key)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+/** Link-Daten vom Server übernehmen (mit dem Sync-Schlüssel verschlüsselt) – gleicher Link auf allen Geräten. */
+async function calAdopt(info) {
+  try {
+    info = info || await syncApi('/sync/cal/info');
+    if (!info.on) { if (calCfg()) { lsSet(CAL_FEED_KEY, null); lsSet(CAL_HASH_KEY, null); } return null; }
+    const cur = calCfg();
+    if (cur && cur.id === info.id) return cur;
+    if (!info.wrapped) return cur;
+    const cfg = await syncDecrypt(info.wrapped);
+    if (cfg && cfg.id === info.id && cfg.key) { lsSet(CAL_FEED_KEY, JSON.stringify({ id: cfg.id, key: cfg.key })); lsSet(CAL_HASH_KEY, null); return cfg; }
+  } catch (_) {}
+  return calCfg();
+}
 let calBusy = false;
 /** Kalender hochladen, wenn er sich geändert hat (oder erzwungen / mit neuem Link). */
-async function calPublish({ force = false, replace = false, extra = {} } = {}) {
+async function calPublish({ force = false, replace = false } = {}) {
   const cfg = calCfg();
   if (!cfg || !syncOn() || calBusy) return false;
   calBusy = true;
   try {
-    const text = buildFeedIcs(cfg);
+    const text = buildFeedIcs();
     const hash = cfg.id + ':' + await calKeyHash(text);
     if (!force && !replace && lsGet(CAL_HASH_KEY) === hash) return false;
     try {
-      await syncApi('/sync/cal/put', { id: cfg.id, keyHash: await calKeyHash(cfg.key), data: await calEncrypt(text, cfg.key), replace, crew: cfg.crew !== false, ...extra });
+      await syncApi('/sync/cal/put', { id: cfg.id, keyHash: await calKeyHash(cfg.key), data: await calEncrypt(text, cfg.key), wrapped: await syncEncrypt({ id: cfg.id, key: cfg.key }), replace });
     } catch (e) {
-      // anderes Gerät hat inzwischen einen neuen Link erzeugt → kommt mit dem nächsten Abgleich
-      if (e.code === 'cal_other') { lsSet(CAL_HASH_KEY, null); return false; }
+      // anderes Gerät hat inzwischen einen neuen Link erzeugt → diesen übernehmen
+      if (e.code === 'cal_other') { lsSet(CAL_FEED_KEY, null); calBusy = false; if (await calAdopt()) return calPublish({ force: true }); return false; }
       throw e;
     }
     lsSet(CAL_HASH_KEY, hash);
     return true;
   } finally { calBusy = false; }
 }
-/** Abo-Einstellungen sofort auf die anderen Geräte bringen. */
-function calSyncSoon() { syncNoteChange(); setTimeout(() => syncNow({ quiet: true }).catch(() => {}), 300); }
 async function calCreate() {
-  const cfg = { id: b64u(crypto.getRandomValues(new Uint8Array(18))), key: b64u(crypto.getRandomValues(new Uint8Array(32))), crew: (calCfg() || {}).crew !== false };
+  const cfg = { id: b64u(crypto.getRandomValues(new Uint8Array(18))), key: b64u(crypto.getRandomValues(new Uint8Array(32))) };
   const old = lsGet(CAL_FEED_KEY);
   lsSet(CAL_FEED_KEY, JSON.stringify(cfg));
-  try { await calPublish({ replace: true, extra: { geo: 'at', plan: true } }); }
+  try { await calPublish({ replace: true }); }
   catch (e) { lsSet(CAL_FEED_KEY, old); throw e; }
-  calSyncSoon(); // Link-Daten auf die anderen Geräte bringen
+  syncNoteChange();
   return cfg;
 }
-function calAlert(info) {
-  if (!info || !info.on || !info.lastBlocked) return;
-  if (Number(lsGet(CAL_SEEN_KEY) || 0) >= info.lastBlocked) return;
-  lsSet(CAL_SEEN_KEY, String(info.lastBlocked));
-  toast('⚠︎ Kalender-Abo: Abruf von außerhalb Österreichs bzw. mit falschem Link – Details unter Konto & Sync.', 'info', 6000);
+/** beim Abgleich: Abo-Stand des Servers übernehmen (neuer Link / beendet). */
+async function calCheck(st) {
+  if (!st || !st.cal) return;
+  const cur = calCfg();
+  if (st.cal.on ? !cur || cur.id !== st.cal.id : !!cur) await calAdopt();
 }
-const CAL_WHY = { geo: 'gesperrt – außerhalb Österreichs', foreign: 'außerhalb Österreichs (nur protokolliert)', link: 'falscher Link' };
+
+// ── Zugriffsprotokoll des Workers ──────────────────────────────────────────
+const LOG_CAT = { sync: 'Sync', kalender: 'Kalender-Abo', dienstplan: 'Dienstplan', push: 'Mitteilungen', img: 'Fahrzeugbilder', unbekannt: 'Unbekannte Adresse' };
 const flagOf = (c) => (/^[A-Z]{2}$/.test(c) ? String.fromCodePoint(...[...c].map((ch) => 0x1f1a5 + ch.charCodeAt(0))) : '🌐');
-function calUaLabel(ua) {
+function logUaLabel(ua) {
   ua = String(ua || '');
-  if (/iOS|iPhone|iPad|dataaccessd|CFNetwork/i.test(ua)) return 'iPhone/iPad-Kalender';
-  if (/Macintosh|macOS|CalendarAgent/i.test(ua)) return 'Mac-Kalender';
-  if (/Google/i.test(ua)) return 'Google Kalender';
+  if (/dataaccessd|CalendarAgent|iCal/i.test(ua)) return /Mac/i.test(ua) ? 'Mac-Kalender' : 'iPhone/iPad-Kalender';
+  if (/Google-Calendar|Google/i.test(ua)) return 'Google Kalender';
   if (/Outlook|Microsoft/i.test(ua)) return 'Outlook';
+  if (/iPhone|iPad/i.test(ua)) return /CriOS|FxiOS/.test(ua) ? 'iPhone-Browser' : 'iPhone (Safari/App)';
   if (/Android/i.test(ua)) return 'Android';
-  return ua ? ua.slice(0, 40) : 'unbekannt';
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/Chrome\//.test(ua)) return 'Chrome';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Safari\//.test(ua)) return 'Safari';
+  if (/curl|wget|python|go-http|bot|crawler|spider/i.test(ua)) return ua.slice(0, 30) + ' (Skript/Bot)';
+  return ua ? ua.slice(0, 40) : 'ohne Kennung';
 }
+const LOG_WHY = (e) => e.c !== 'AT' ? 'außerhalb Österreichs' : e.cat === 'unbekannt' ? 'unbekannte Adresse' : e.status === 401 || e.status === 403 ? 'abgewiesen (keine Berechtigung)' : e.status === 404 ? (e.cat === 'kalender' ? 'falscher Kalender-Link' : 'nicht gefunden') : e.status >= 500 ? 'Fehler' : '';
+async function openAccessLog() {
+  const body = document.getElementById('accesslog-body');
+  if (!body) return;
+  body.innerHTML = '<div class="empty-hint"><span class="ios-spinner"></span>Wird geladen …</div>';
+  openDialog('dialog-accesslog');
+  let d;
+  try { d = await syncApi('/sync/log'); } catch (e) { body.innerHTML = `<p class="al-empty">${escHtml(e.status === 404 ? 'Der Worker kennt das Protokoll noch nicht – bitte den Worker aktualisieren.' : e.message)}</p>`; return; }
+  const fmt = (t) => new Date(t).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let view = (d.notable || []).length ? 'bad' : 'all';
+  const where = (e) => [e.city, e.org ? e.org + (e.asn ? ` · AS${e.asn}` : '') : ''].filter(Boolean).join(' · ');
+  const render = () => {
+    const day = d.day ? d.day.reduce((n, x) => n + x.n, 0) : null;
+    const rows = view === 'bad'
+      ? (d.notable || []).map((e) => `<div class="al-row is-bad"><span class="al-flag">${flagOf(e.c)}</span><span class="al-t"><b>${escHtml(LOG_CAT[e.cat] || e.cat)} – ${escHtml(LOG_WHY(e) || String(e.status))}</b>
+          <small>${escHtml([fmt(e.at), e.c + (e.city ? ' ' + e.city : ''), e.org, e.ip].filter(Boolean).join(' · '))}</small>
+          <small>${escHtml(logUaLabel(e.ua))} · ${escHtml(e.method)} ${escHtml(e.path)} → ${e.status}</small></span></div>`)
+      : (d.clients || []).map((e) => `<div class="al-row"><span class="al-flag">${flagOf(e.c)}</span><span class="al-t"><b>${escHtml(LOG_CAT[e.cat] || e.cat)} · ${escHtml(logUaLabel(e.ua))}</b>
+          <small>${escHtml(where(e) || e.c)}${e.ip ? ' · ' + escHtml(e.ip) : ''}</small>
+          <small>${e.n ? `${e.n}× · ` : ''}zuletzt ${escHtml(fmt(e.last))} · seit ${escHtml(fmt(e.first))}</small></span></div>`);
+    body.innerHTML = `
+      ${day !== null ? `<div class="al-stats">${d.day.sort((a, b) => b.n - a.n).map((x) => `<span><b>${x.n}</b> ${escHtml(LOG_CAT[x.cat] || x.cat)}${x.bad ? ` <i>${x.bad} auffällig</i>` : ''}</span>`).join('')}<small>Abrufe der letzten 24 Stunden</small></div>` : ''}
+      <div class="seg-ctrl al-seg"><button type="button" data-v="bad" class="${view === 'bad' ? 'is-on' : ''}">Auffällig · ${(d.notable || []).length}</button><button type="button" data-v="all" class="${view === 'all' ? 'is-on' : ''}">Abrufer · ${(d.clients || []).length}</button></div>
+      <div class="al-list">${rows.join('') || `<p class="al-empty">${view === 'bad' ? 'Nichts Auffälliges – alles ruhig. ✓' : 'Noch keine Abrufe.'}</p>`}</div>
+      <p class="al-note">Auffällig: Abrufe von außerhalb Österreichs, abgewiesene Anmeldungen, falsche Kalender-Links und unbekannte Adressen. Gesperrt wird nichts. ${d.backend === 'd1' ? 'Gespeichert 30 Tage in der D1-Datenbank.' : 'Ohne D1-Datenbank werden nur Auffälligkeiten und Abrufer (stündlich) vermerkt.'} Links, Schlüssel und Inhalte werden nie protokolliert.</p>
+      <button type="button" class="btn-secondary al-clear">Protokoll leeren</button>`;
+    body.querySelectorAll('.al-seg button').forEach((bt) => bt.addEventListener('click', () => { view = bt.dataset.v; render(); }));
+    body.querySelector('.al-clear').onclick = async () => {
+      if (!confirm('Zugriffsprotokoll leeren?')) return;
+      await syncApi('/sync/log/clear').catch((e) => toast(e.message, 'error'));
+      openAccessLog();
+    };
+  };
+  render();
+}
+
 async function syncRenderCal(el) {
   const box = el.querySelector('#sy-cal');
   if (!box) return;
-  const cfg = calCfg();
   const fmt = (t) => new Date(t).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   let info = { on: false };
   try { info = await syncApi('/sync/cal/info'); } catch (e) { box.innerHTML = `<div class="set-row"><span class="set-row-text set-row-sub">${escHtml(e.message)}</span></div>`; return; }
+  const cfg = info.on ? await calAdopt(info) : null;
   if (!info.on || !cfg || cfg.id !== info.id) {
-    box.innerHTML = `<button type="button" class="set-row set-action" id="cal-create"><span class="set-row-text set-row-title">Kalender-Abo einrichten</span></button>`;
-    box.querySelector('#cal-create').onclick = async () => {
-      try { await calCreate(); toast('Kalender-Abo eingerichtet.', 'success'); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
-    };
+    box.innerHTML = info.on
+      ? `<div class="set-row"><span class="set-row-text"><span class="set-row-title">Abo aktiv</span><span class="set-row-sub">Der Link wurde auf einem anderen Gerät erstellt und ist hier noch nicht verfügbar – einmal abgleichen.</span></span></div>`
+      : `<button type="button" class="set-row set-action" id="cal-create"><span class="set-row-text set-row-title">Kalender-Abo einrichten</span></button>`;
+    const c = box.querySelector('#cal-create');
+    if (c) c.onclick = async () => { try { await calCreate(); toast('Kalender-Abo eingerichtet.', 'success'); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); } };
     return;
   }
-  const blocked = info.blocked || [], clients = info.clients || [];
+  const link = calLink(cfg);
   box.innerHTML = `
+    <div class="set-row cal-link-row"><span class="set-row-text"><span class="set-row-title">Abo-Link</span><span class="set-row-sub cal-link" title="${escHtml(link)}">${escHtml(link.replace(/\/cal\/([^/]{6})[^/]*\/([^.]{4})[^.]*\.ics$/, '/cal/$1…/$2….ics'))}</span></span></div>
     <a class="set-row set-action" id="cal-sub" href="${escHtml(calLink(cfg, true))}"><span class="set-row-text set-row-title">Im Kalender abonnieren</span></a>
     <button type="button" class="set-row set-action" id="cal-copy"><span class="set-row-text set-row-title">Link kopieren</span></button>
-    <label class="set-row set-row-switch"><span class="set-row-text"><span class="set-row-title">Besatzung anzeigen</span><span class="set-row-sub">Namen der Kolleg:innen im Termin</span></span><input type="checkbox" class="set-switch" id="cal-crew" ${cfg.crew !== false ? 'checked' : ''}></label>
-    <label class="set-row set-row-switch"><span class="set-row-text"><span class="set-row-title">Nur aus Österreich abrufbar</span><span class="set-row-sub">${info.geo === 'log' ? 'Aus: andere Länder werden nur protokolliert' : 'Abrufe aus anderen Ländern werden gesperrt und protokolliert'}</span></span><input type="checkbox" class="set-switch" id="cal-geo" ${info.geo !== 'log' ? 'checked' : ''}></label>
-    <div class="set-row"><span class="set-row-text"><span class="set-row-title">Zuletzt hochgeladen</span><span class="set-row-sub">${info.at ? escHtml(fmt(info.at)) : '—'} · eingerichtet ${escHtml(fmt(info.created))}</span></span></div>
-    <div class="cal-log">
-      <div class="cal-log-h">Gesperrte / auffällige Abrufe${blocked.length ? ` · ${blocked.length}` : ''}</div>
-      ${blocked.length ? blocked.slice(0, 15).map((b) => `<div class="cal-log-r is-bad"><span class="cal-flag">${flagOf(b.c)}</span><span class="cal-log-t"><b>${escHtml([b.c, b.city].filter(Boolean).join(' · '))} – ${escHtml(CAL_WHY[b.why] || b.why)}</b><small>${escHtml([fmt(b.at), b.org ? b.org + (b.asn ? ` (AS${b.asn})` : '') : '', b.ip, calUaLabel(b.ua)].filter(Boolean).join(' · '))}</small></span></div>`).join('') : '<div class="cal-log-r"><span class="cal-log-t"><small>Keine – alles ruhig.</small></span></div>'}
-      <div class="cal-log-h">Abrufer</div>
-      ${clients.length ? clients.map((c) => `<div class="cal-log-r"><span class="cal-flag">${flagOf(c.c)}</span><span class="cal-log-t"><b>${escHtml(calUaLabel(c.ua))}</b><small>${escHtml([c.city, c.org].filter(Boolean).join(' · '))} · zuletzt ${escHtml(fmt(c.last))} · seit ${escHtml(fmt(c.first))}</small></span></div>`).join('') : '<div class="cal-log-r"><span class="cal-log-t"><small>Noch nicht abgerufen.</small></span></div>'}
-    </div>
-    ${blocked.length ? '<button type="button" class="set-row set-action" id="cal-clear"><span class="set-row-text set-row-title">Protokoll leeren</span></button>' : ''}
-    <button type="button" class="set-row set-action" id="cal-new"><span class="set-row-text set-row-title">Neuen Link erzeugen</span></button>
-    <button type="button" class="set-row set-destructive" id="cal-off"><span class="set-row-text set-row-title">Abo beenden</span></button>`;
+    <div class="set-row"><span class="set-row-text"><span class="set-row-title">Stand</span><span class="set-row-sub">hochgeladen ${info.at ? escHtml(fmt(info.at)) : '—'} · eingerichtet ${escHtml(fmt(info.created))}</span></span></div>`;
   box.querySelector('#cal-copy').onclick = async () => {
-    try { await navigator.clipboard.writeText(calLink(cfg)); toast('Link kopiert – nur in deinen eigenen Kalender einfügen.', 'success', 3000); }
-    catch (_) { prompt('Abo-Link:', calLink(cfg)); }
+    try { await navigator.clipboard.writeText(link); toast('Link kopiert – nur in deinen eigenen Kalender einfügen.', 'success', 3000); }
+    catch (_) { prompt('Abo-Link:', link); }
   };
-  box.querySelector('#cal-crew').onchange = async (e) => {
-    lsSet(CAL_FEED_KEY, JSON.stringify({ ...cfg, crew: e.target.checked }));
-    try { await calPublish({ force: true }); calSyncSoon(); toast('Kalender aktualisiert.', 'success', 1800); } catch (er) { toast(er.message, 'error'); }
-  };
-  box.querySelector('#cal-geo').onchange = async (e) => {
-    try { await syncApi('/sync/cal/geo', { geo: e.target.checked ? 'at' : 'log' }); syncRenderCal(el); } catch (er) { toast(er.message, 'error'); }
-  };
-  const clr = box.querySelector('#cal-clear');
-  if (clr) clr.onclick = async () => { await syncApi('/sync/cal/clearlog').catch(() => {}); syncRenderCal(el); };
-  box.querySelector('#cal-new').onclick = async () => {
-    if (!confirm('Neuen Link erzeugen? Der bisherige Link funktioniert sofort nicht mehr – das Abo muss im Kalender neu eingerichtet werden.')) return;
-    try { await calCreate(); toast('Neuer Link erzeugt. Bitte im Kalender neu abonnieren.', 'success', 3500); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
-  };
-  box.querySelector('#cal-off').onclick = async () => {
-    if (!confirm('Kalender-Abo beenden? Der Link funktioniert danach nicht mehr.')) return;
-    try { await syncApi('/sync/cal/off'); lsSet(CAL_FEED_KEY, null); lsSet(CAL_HASH_KEY, null); calSyncSoon(); toast('Kalender-Abo beendet.', 'success'); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
-  };
+  const tools = el.querySelector('#sy-cal-tools');
+  if (tools) {
+    tools.hidden = false;
+    tools.querySelector('#cal-new').onclick = async () => {
+      if (!confirm('Neuen Link erzeugen? Der bisherige Link funktioniert sofort nicht mehr – das Abo muss überall neu eingerichtet werden.')) return;
+      try { await calCreate(); toast('Neuer Link erzeugt. Bitte im Kalender neu abonnieren.', 'success', 3500); syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
+    };
+    tools.querySelector('#cal-off').onclick = async () => {
+      if (!confirm('Kalender-Abo beenden? Der Link funktioniert danach nicht mehr.')) return;
+      try { await syncApi('/sync/cal/off'); lsSet(CAL_FEED_KEY, null); lsSet(CAL_HASH_KEY, null); syncNoteChange(); toast('Kalender-Abo beendet.', 'success'); tools.hidden = true; syncRenderCal(el); } catch (e) { toast(e.message, 'error'); }
+    };
+  }
 }
 
 // — Einrichten / Anmelden —
@@ -10353,26 +10405,43 @@ function settingsPageKonto(el, title) {
   }
   const dirty = lsGet(SYNC_DIRTY_KEY) === '1';
   el.innerHTML = `${title}
-    <div class="set-group">
-      <div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(lsGet(SYNC_USER_KEY))}</span><span class="set-row-sub">${escHtml(lsGet(SYNC_URL_KEY).replace(/^https:\/\//, ''))}</span></span></div>
-      <div class="set-row"><span class="set-row-text"><span class="set-row-title">${dirty ? 'Ungesicherte Änderungen' : 'Synchronisiert'}</span><span class="set-row-sub">${last ? `Zuletzt ${homeDayLabel(new Date(last), new Date())}, ${formatTimeHM(new Date(last))}` : 'Noch nicht abgeglichen'} · Version ${escHtml(lsGet(SYNC_BASE_KEY) || '0')}</span></span></div>
-      <button type="button" class="set-row set-action" id="sy-now"><span class="set-row-text set-row-title" style="font-weight:600">Jetzt synchronisieren</span></button>
-    </div>
-    <div class="set-group-header">Zwei-Faktor-Anmeldung</div>
-    <div class="set-group" id="sy-totp-box"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
-    <div class="set-group-header">Kalender-Abo</div>
-    <div class="set-group" id="sy-cal"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
-    <p class="set-group-footer is-keep">Live-Kalender zum Abonnieren: deine Dienste der letzten 3 Monate und alle kommenden, dazu geplante Dienste aus dem Dienstplan. Enthalten sind Fahrzeug, Dienststelle, Zeiten, Besatzung und die Anzahl der Einsätze – keine Einsatzdetails, Notizen oder Patientendaten. Wer den Link hat, kann den Kalender lesen; am iPhone über Einstellungen → Kalender → Accounts → Abonnierter Kalender einrichten (dann ruft das iPhone selbst ab, nicht iCloud).</p>
-    <div class="set-group-header">Versionen</div>
-    <div class="set-group" id="sy-versions"><button type="button" class="set-row set-action" id="sy-load-versions"><span class="set-row-text set-row-title">Frühere Stände anzeigen</span></button></div>
-    <div class="set-group-header">Angemeldete Geräte</div>
-    <div class="set-group" id="sy-sessions"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
-    <div class="set-group">
-      <div class="set-form"><label for="sy-device">Name dieses Geräts</label><input type="text" id="sy-device" value="${escHtml(syncDevice())}" maxlength="40"></div>
-      <button type="button" class="set-row set-destructive" id="sy-logout"><span class="set-row-text set-row-title">Auf diesem Gerät abmelden</span></button>
-    </div>
-    <p class="set-group-footer is-keep" id="sy-storage"></p>
-    <p class="set-group-footer">Ende-zu-Ende verschlüsselt (AES-256). Nicht synchronisiert wird der Dienstplan-Zugangsschlüssel – der bleibt nur auf dem jeweiligen Gerät.</p>`;
+    <div class="set-cols">
+      <div class="set-col">
+        <div class="set-group-header">Konto</div>
+        <div class="set-group">
+          <div class="set-row"><span class="set-row-text"><span class="set-row-title">${escHtml(lsGet(SYNC_USER_KEY))}</span><span class="set-row-sub">${escHtml(lsGet(SYNC_URL_KEY).replace(/^https:\/\//, ''))}</span></span></div>
+          <div class="set-row"><span class="set-row-text"><span class="set-row-title">${dirty ? 'Ungesicherte Änderungen' : 'Synchronisiert'}</span><span class="set-row-sub">${last ? `Zuletzt ${homeDayLabel(new Date(last), new Date())}, ${formatTimeHM(new Date(last))}` : 'Noch nicht abgeglichen'} · Version ${escHtml(lsGet(SYNC_BASE_KEY) || '0')}</span></span></div>
+          <button type="button" class="set-row set-action" id="sy-now"><span class="set-row-text set-row-title" style="font-weight:600">Jetzt synchronisieren</span></button>
+          <div class="set-form"><label for="sy-device">Name dieses Geräts</label><input type="text" id="sy-device" value="${escHtml(syncDevice())}" maxlength="40" enterkeyhint="done"></div>
+        </div>
+
+        <div class="set-group-header">Sicherheit</div>
+        <div class="set-group" id="sy-totp-box"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+        <div class="set-group-header">Angemeldete Geräte</div>
+        <div class="set-group" id="sy-sessions"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+        <div class="set-group set-group-gap">
+          <button type="button" class="set-row" id="sy-log"><span class="set-row-text"><span class="set-row-title">Zugriffsprotokoll</span><span class="set-row-sub">Wer den Worker abruft – Sync, Kalender, Dienstplan</span></span><span class="set-row-chev">${SET_ICONS.chev}</span></button>
+        </div>
+      </div>
+      <div class="set-col">
+        <div class="set-group-header">Kalender-Abo</div>
+        <div class="set-group" id="sy-cal"><div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div></div>
+        <div class="set-group set-group-gap" id="sy-cal-tools" hidden>
+          <button type="button" class="set-row set-action" id="cal-new"><span class="set-row-text set-row-title">Neuen Link erzeugen</span></button>
+          <button type="button" class="set-row set-destructive" id="cal-off"><span class="set-row-text set-row-title">Abo beenden</span></button>
+        </div>
+        <p class="set-group-footer is-keep">Alle Dienste aus dem Tagebuch mit Fahrzeug, Dienststelle, Zeiten, Besatzung und Einsatz-Stichwörtern, dazu geplante Dienste aus dem Dienstplan. Keine PZC, NACA, Notizen, Adressen oder Patientendaten. Derselbe Link gilt auf allen angemeldeten Geräten; wer ihn hat, kann den Kalender lesen.</p>
+
+        <div class="set-group-header">Datensicherung</div>
+        <div class="set-group" id="sy-versions"><button type="button" class="set-row set-action" id="sy-load-versions"><span class="set-row-text set-row-title">Frühere Stände anzeigen</span></button></div>
+        <p class="set-group-footer is-keep" id="sy-storage"></p>
+
+        <div class="set-group set-group-gap">
+          <button type="button" class="set-row set-destructive" id="sy-logout"><span class="set-row-text set-row-title">Auf diesem Gerät abmelden</span></button>
+        </div>
+        <p class="set-group-footer">Ende-zu-Ende verschlüsselt (AES-256). Nicht synchronisiert wird der Dienstplan-Zugangsschlüssel – der bleibt nur auf dem jeweiligen Gerät.</p>
+      </div>
+    </div>`;
   el.querySelector('#sy-now').onclick = () => syncNow();
   // Gerätename: bei jeder Eingabe lokal sichern (geht so auch beim direkten Zurück nicht verloren),
   // beim Verlassen des Felds an den Server melden → erscheint dort unter „Angemeldete Geräte“
@@ -10385,6 +10454,7 @@ function settingsPageKonto(el, title) {
     await syncLogout(); toast('Abgemeldet. Die Daten bleiben auf diesem Gerät.', 'success'); renderSettingsPage(); renderSettings();
   };
   el.querySelector('#sy-load-versions').onclick = () => syncShowVersions(el);
+  el.querySelector('#sy-log').onclick = () => openAccessLog();
   syncRenderTotp(el);
   syncRenderSessions(el);
   syncRenderCal(el);

@@ -3993,3 +3993,47 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .cal-log-t small { font-size: 12px; color: var(--text2); overflow-wrap: anywhere; }
 .cal-log-r.is-bad .cal-log-t b { color: var(--danger); }
 #cal-sub, #cal-sub:hover { text-decoration: none; }
+
+/* Konto & Sync: Gruppen in Spalten (am Computer nebeneinander) */
+.set-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; align-items: start; }
+.set-col { min-width: 0; }
+.set-group-gap { margin-top: 22px; }
+.cal-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px !important; overflow-wrap: anywhere; }
+#cal-sub, #cal-sub:hover { text-decoration: none; }
+
+/* Zugriffsprotokoll */
+.al-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.al-stats span { padding: 5px 10px; border-radius: 999px; background: var(--fill); font-size: 13px; }
+.al-stats span i { font-style: normal; color: var(--danger); font-weight: 600; }
+.al-stats small { width: 100%; font-size: 11px; color: var(--text3); }
+.al-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; border-radius: 10px; background: var(--fill); margin-bottom: 10px; }
+.al-seg button { padding: 7px 8px; border: none; border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.al-seg button.is-on { background: var(--card); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
+.al-list { display: flex; flex-direction: column; }
+.al-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 2px; border-bottom: .5px solid var(--separator); }
+.al-row:last-child { border-bottom: none; }
+.al-flag { font-size: 22px; line-height: 1.1; flex: none; }
+.al-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.al-t b { font-size: 14px; font-weight: 600; }
+.al-t small { font-size: 12px; color: var(--text2); overflow-wrap: anywhere; }
+.al-row.is-bad .al-t b { color: var(--danger); }
+.al-empty { margin: 14px 0; color: var(--text2); font-size: 14px; text-align: center; }
+.al-note { margin: 12px 0; font-size: 12px; line-height: 1.4; color: var(--text3); }
+.al-clear { width: 100%; }
+
+/* Einstellungen am Computer: Liste links, Seite rechts */
+@media (min-width: 900px) {
+  #tab-einstellungen.active { flex-direction: row; }
+  #tab-einstellungen #settings-root { display: block !important; flex: 0 0 360px; max-width: 360px; border-right: .5px solid var(--separator); }
+  #tab-einstellungen #settings-sub { display: block !important; flex: 1; min-width: 0; }
+  #settings-sub { max-width: none; }
+  #settings-sub > * { max-width: 760px; }
+  #settings-sub > .set-cols { max-width: 1100px; }
+  #settings-root .large-title { font-size: 28px; }
+  #settings-container .set-row.is-active { background: var(--accent-soft); }
+  #settings-container .set-row.is-active .set-row-title { color: var(--accent); font-weight: 600; }
+  #settings-container .set-row.is-active .set-row-chev { opacity: 0; }
+}
+@media (min-width: 1240px) {
+  .set-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
