@@ -3949,7 +3949,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 126;
+const APP_VERSION = 127;
 const APP_VERSION_DATE = '16.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4036,7 +4036,7 @@ function renderSettings() {
 
     <div class="set-group-header">App</div>
     <div class="set-group">
-      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()) + (compactOn() ? ' · Kompakt' : ''), push: 'darstellung' })}
+      ${setRow({ icon: 'brush', color: 'indigo', title: 'Darstellung', value: themeLabel(currentTheme()) + (liteOn() ? ' · Leicht' : ''), push: 'darstellung' })}
       ${setRow({ icon: 'hand', color: 'teal', title: 'Bedienung', sub: 'Beim Öffnen, Links, Kurzbefehle', value: ({ '': 'Start', 'neu-einsatz': 'Neuer Einsatz', tagebuch: 'Tagebuch', dienstplan: 'Dienstplan', statistik: 'Statistik' })[lsGet('etb_launch_action') || ''] || 'Start', push: 'bedienung' })}
     </div>
 
@@ -4147,14 +4147,38 @@ function settingsPageProfil(el, title) {
 }
 
 // — Darstellung —————————————————————————————————————————————————————————
-function statsStyle() { return lsGet('etb_stats_style') === 'classic' ? 'classic' : 'dynamic'; }
+function statsStyle() { return liteOn() || lsGet('etb_stats_style') === 'classic' ? 'classic' : 'dynamic'; }
 
-const compactOn = () => lsGet('etb_compact') === '1';
-function applyCompact(on) {
-  lsSet('etb_compact', on ? '1' : null);
+// Leicht-Modus: schlanke Ansicht für kleine Displays und Tasten-Handys.
+// Gilt nur auf diesem Gerät (wird weder exportiert noch synchronisiert) und ersetzt den früheren Kompakt-Modus.
+const LITE_KEY = 'etb_lite';
+const liteOn = () => lsGet(LITE_KEY) === '1';
+const compactOn = liteOn;
+function applyLite(on) {
+  lsSet(LITE_KEY, on ? '1' : null);
+  lsSet('etb_compact', null); // alter Kompakt-Modus ist im Leicht-Modus aufgegangen
+  document.documentElement.toggleAttribute('data-lite', on);
   document.documentElement.toggleAttribute('data-compact', on);
-  if (on) document.documentElement.setAttribute('data-compact', '1');
+  if (on) { document.documentElement.setAttribute('data-lite', '1'); document.documentElement.setAttribute('data-compact', '1'); }
+  liteKeyboard();
 }
+function applyCompact() { applyLite(liteOn()); } // Kompatibilität für ältere Aufrufe
+/** Tasten-Bedienung: alles Antippbare ist im Leicht-Modus auch per Pfeiltasten/Enter erreichbar. */
+let liteObserver = null;
+function liteKeyboard() {
+  const sel = '[role="button"]:not(button):not(a):not([tabindex]), .sx-pod:not([tabindex]), .lp-row:not([tabindex]), .iv-veh[data-vehicle]:not([tabindex])';
+  const mark = () => document.querySelectorAll(sel).forEach((el) => el.setAttribute('tabindex', '0'));
+  if (liteOn()) {
+    mark();
+    if (!liteObserver) { let t = 0; liteObserver = new MutationObserver(() => { clearTimeout(t); t = setTimeout(mark, 120); }); liteObserver.observe(document.body, { childList: true, subtree: true }); }
+  } else if (liteObserver) { liteObserver.disconnect(); liteObserver = null; }
+}
+document.addEventListener('keydown', (e) => {
+  if (!liteOn() || (e.key !== 'Enter' && e.key !== ' ')) return;
+  const el = document.activeElement;
+  if (!el || el.matches('button, a, input, textarea, select, label') || !el.matches('[tabindex]')) return;
+  e.preventDefault(); el.click();
+});
 function settingsPageDarstellung(el, title) {
   const cur = currentTheme();
   const choice = (attr, val, label, on) => `<button type="button" class="set-row set-choice" role="radio" aria-checked="${on}" data-${attr}="${val}">
@@ -4170,16 +4194,17 @@ function settingsPageDarstellung(el, title) {
     </div>
     <div class="set-group">
       <label class="set-row set-row-switch">
-        <span class="set-row-text"><span class="set-row-title">Kompakt</span></span>
-        <input type="checkbox" class="set-switch" id="set-compact" ${compactOn() ? 'checked' : ''}>
+        <span class="set-row-text"><span class="set-row-title">Leicht-Modus</span><span class="set-row-sub">Schlanke Ansicht für kleine Displays und Tasten-Handys</span></span>
+        <input type="checkbox" class="set-switch" id="set-compact" ${liteOn() ? 'checked' : ''}>
       </label>
     </div>
-    <div class="set-group-header">Statistik</div>
-    <div class="set-group" role="radiogroup" aria-label="Statistik">
+    <p class="set-group-footer">Gilt nur auf diesem Gerät – iPhone und Computer bleiben, wie sie sind.</p>
+    <div class="set-group-header lite-hide">Statistik</div>
+    <div class="set-group lite-hide" role="radiogroup" aria-label="Statistik">
       ${choice('stats-choice', 'dynamic', 'Dynamisch', statsStyle() === 'dynamic')}
       ${choice('stats-choice', 'classic', 'Klassisch', statsStyle() === 'classic')}
     </div>`;
-  el.querySelector('#set-compact').addEventListener('change', (e) => { applyCompact(e.target.checked); renderSettings(); });
+  el.querySelector('#set-compact').addEventListener('change', (e) => { applyLite(e.target.checked); renderSettings(); renderStats(); renderHome().catch(() => {}); updateNavBar(); });
   el.querySelectorAll('[data-stats-choice]').forEach((btn) => {
     btn.addEventListener('click', () => {
       lsSet('etb_stats_style', btn.dataset.statsChoice);
@@ -5253,7 +5278,7 @@ function openExportDialog() {
 }
 
 // App-Einstellungen, die mit „Einstellungen“ gesichert und übernommen werden
-const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_compact', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
+const SETTINGS_EXPORT_KEYS = ['etb_theme', 'etb_stats_style', 'etb_launch_action', 'etb_dp_link_mode', 'etb_quick_push', 'etb_quick_sound', 'etb_icons_offline'];
 function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
@@ -7793,6 +7818,7 @@ function init() {
   initIosNavigation();
   initAppLifecycle();
   restoreUiState();
+  liteKeyboard();
   updateQuickBell();
 
   // PWA service worker
@@ -9205,7 +9231,7 @@ function updateNavBar() {
   bar.classList.toggle('scrolled', y > 2);
   // Kleiner Titel erscheint, sobald der große Titel unter der Leiste verschwindet.
   // Detailansichten haben keinen großen Titel → Titel immer sichtbar.
-  bar.classList.toggle('show-title', isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub && !settingsWide()) || y > 40);
+  bar.classList.toggle('show-title', liteOn() || isServiceDetailView() || (activeTab === 'einstellungen' && !!settingsSub && !settingsWide()) || y > 40);
 }
 
 function scheduleNavBarUpdate() {

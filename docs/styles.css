@@ -4052,3 +4052,75 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .wheel-item.is-sel { font-weight: 600; }
 .wheel-item.is-off { text-decoration: line-through; text-decoration-thickness: 1px; }
 .wheel:focus-visible .wheel-band { box-shadow: 0 0 0 2px var(--accent); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Leicht-Modus (html[data-lite]): kleine Displays, Tasten-Handys, Hardware-Cursor
+   Nur auf dem jeweiligen Gerät; ersetzt den früheren Kompakt-Modus.
+   ══════════════════════════════════════════════════════════════════════════ */
+[data-lite] { --nav-h: 34px; }
+[data-lite] *, [data-lite] *::before, [data-lite] *::after { animation: none !important; transition: none !important; }
+[data-lite] * { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+[data-lite] .large-title { display: none !important; }
+@media (max-width: 700px) {
+  [data-lite] {
+    --tabbar-h: 44px;
+    --chrome-top: calc(var(--nav-h) + var(--safe-top));
+    --gutter-l: 6px; --gutter-r: 6px;
+  }
+  [data-lite] html, [data-lite] body, html[data-lite], html[data-lite] body { font-size: 14px; }
+  /* Leisten: fest, schlicht, immer mit Titel */
+  [data-lite] #topbar, [data-lite] #topbar.scrolled { background: var(--bar-bg); border-bottom-color: var(--separator); }
+  [data-lite] #nav-title { font-size: 15px; max-width: calc(100% - 120px); }
+  [data-lite] #nav-back { font-size: 15px; min-height: 34px; padding: 0 10px 0 2px; }
+  [data-lite] .nav-btn { height: 44px; padding: 0; justify-content: center; }
+  [data-lite] .nav-btn span:not(.nav-icon) { display: none; }
+  [data-lite] .nav-icon svg { width: 24px; height: 24px; }
+  [data-lite] .nav-btn.active { background: var(--accent-soft) !important; }
+  [data-lite] #tab-home, [data-lite] #tab-statistik, [data-lite] #settings-root, [data-lite] #settings-sub, [data-lite] #tab-dienstplan,
+  [data-lite] #tab-favoriten, [data-lite] #service-list-panel, [data-lite] #service-detail-panel {
+    padding: calc(var(--chrome-top) + 4px) var(--gutter-r) calc(var(--tabbar-h) + 10px) var(--gutter-l) !important;
+  }
+  /* Titelzeilen mit Knöpfen: nur die Knöpfe, rechtsbündig */
+  [data-lite] .dp-titlebar, [data-lite] #service-list-header { min-height: 0; margin: 0 0 4px; justify-content: flex-end; gap: 6px; }
+  [data-lite] .icon-round, [data-lite] .btn-round-add, [data-lite] .btn-global-lights { width: 40px; height: 40px; }
+  /* Fenster bildschirmfüllend, ohne Ränder */
+  [data-lite] .dialog-overlay { align-items: stretch !important; padding: 0 !important; }
+  [data-lite] .dialog-box { width: 100vw !important; max-width: none !important; max-height: 100% !important; height: 100%; border-radius: 0 !important; box-shadow: none !important; }
+  [data-lite] .dialog-body { padding: 8px !important; }
+  [data-lite] .dialog-header { padding: 6px 8px !important; min-height: 40px; }
+  [data-lite] .dialog-header h3 { font-size: 16px; }
+  [data-lite] .dialog-close { width: 40px; height: 40px; }
+  [data-lite] .dialog-handle, [data-lite] .sheet-handle { display: none !important; }
+}
+/* Dinge, die auf dem kleinen Gerät nur Platz kosten */
+[data-lite] .rv-entry, [data-lite] .rv-years, [data-lite] .rv-group, [data-lite] #heatmap-section, [data-lite] .bd-card,
+[data-lite] .hm-navs, [data-lite] #btn-global-lights, [data-lite] #btn-open-favorites, [data-lite] .stats-runs,
+[data-lite] .sx-hero, [data-lite] #user-label { display: none !important; }
+/* Hardware-Cursor & Tasten: deutlich zeigen, was unter dem Cursor bzw. im Fokus liegt */
+[data-lite] :focus { outline: 3px solid var(--accent) !important; outline-offset: -3px; }
+[data-lite] :focus:not(:focus-visible) { outline-width: 2px !important; }
+[data-lite] button:hover, [data-lite] a:hover, [data-lite] [role="button"]:hover, [data-lite] .set-row:hover, [data-lite] [tabindex]:hover,
+[data-lite] .service-card:hover, [data-lite] .incident-card:hover { box-shadow: inset 0 0 0 2px var(--accent) !important; }
+[data-lite] button, [data-lite] .set-row, [data-lite] a { min-height: 36px; }
+[data-lite] .set-row { padding-top: 6px; padding-bottom: 6px; }
+[data-lite] .set-group-header { margin: 12px 8px 4px; }
+[data-lite] .set-page-title { display: none; }
+[data-lite] .lite-hide { display: none !important; }
+@media (max-width: 700px) {
+  /* Leisten undurchsichtig (ohne Unschärfe würde der Inhalt durchscheinen) */
+  [data-lite] #topbar, [data-lite] #topbar.scrolled, [data-lite] #sidebar { background: var(--panel) !important; }
+  /* Knöpfe der Seiten-Titelzeile wandern in die obere Leiste → keine eigene Zeile */
+  [data-lite] .dp-titlebar, [data-lite] #service-list-header { height: 0; min-height: 0; margin: 0; padding: 0; overflow: visible; }
+  [data-lite] .dp-head-actions, [data-lite] #service-list-actions {
+    position: fixed; top: var(--safe-top); right: 2px; height: var(--nav-h); z-index: 600;
+    display: flex; align-items: center; gap: 2px;
+  }
+  [data-lite] .dp-head-actions .icon-round, [data-lite] #service-list-actions .btn-round-add { width: 34px; height: 32px; min-height: 0; border-radius: 8px; background: transparent; }
+  [data-lite] .dp-head-actions .icon-round svg, [data-lite] #service-list-actions svg { width: 20px; height: 20px; }
+  /* nur die Knöpfe des sichtbaren Tabs zeigen */
+  [data-lite] .tab-panel:not(.active) .dp-head-actions, [data-lite] .tab-panel:not(.active) #service-list-actions { display: none !important; }
+  [data-lite] .detail-open #service-list-actions { display: none !important; }
+}
+[data-lite] .dialog-header::before { display: none !important; }
+[data-lite] .svc-detail-title h2 { font-size: 18px !important; }
+[data-lite] .svc-detail-header { margin-bottom: 6px; }
