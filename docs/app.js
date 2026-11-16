@@ -1,6 +1,17 @@
 /* global window, document, localStorage, navigator */
 'use strict';
 
+// Klickbare Flächen merken (für die Tasten-Bedienung im Leicht-Modus): jedes Element mit Klick-Handler,
+// das kein Knopf/Link/Eingabefeld ist, bekommt data-clickable – im normalen Modus ohne Wirkung.
+(() => {
+  const NATIVE = 'button, a[href], input, select, textarea, label';
+  const tag = (el) => { if (el instanceof HTMLElement && !el.matches(NATIVE)) el.setAttribute('data-clickable', ''); };
+  const add = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, fn, opts) { if (type === 'click') tag(this); return add.call(this, type, fn, opts); };
+  const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onclick');
+  if (d && d.set) Object.defineProperty(HTMLElement.prototype, 'onclick', { ...d, set(v) { if (v) tag(this); d.set.call(this, v); } });
+})();
+
 // ── Constants ──────────────────────────────────────────────────────────────
 const STORAGE_KEY = 'einsatzTagebuchV4';
 // Einsatz-Zeiten (früh definiert, da normalizeState sie beim Laden braucht)
@@ -905,6 +916,11 @@ function mountSuggestions(inputEl, dropdownEl, items, max, showOnFocus) {
 
   inputEl.addEventListener('keydown', (e) => {
     const items2 = dropdownEl.querySelectorAll('.suggestion-item');
+    // ohne offene Vorschläge gehören die Pfeiltasten der normalen Navigation
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (!dropdownEl.classList.contains('open') || !items2.length)) return;
+    // am Ende bzw. Anfang der Vorschläge: Liste schließen und normal weiter (Pfeiltasten-Bedienung)
+    if ((e.key === 'ArrowDown' && focusedIdx >= items2.length - 1) || (e.key === 'ArrowUp' && focusedIdx <= 0)) { dropdownEl.classList.remove('open'); focusedIdx = -1; return; }
+    if (e.key === 'Escape' && dropdownEl.classList.contains('open')) { e.preventDefault(); e.stopPropagation(); dropdownEl.classList.remove('open'); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); focusedIdx = Math.min(focusedIdx + 1, items2.length - 1); items2.forEach((el, i) => el.classList.toggle('focused', i === focusedIdx)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); focusedIdx = Math.max(focusedIdx - 1, 0); items2.forEach((el, i) => el.classList.toggle('focused', i === focusedIdx)); }
     else if (e.key === 'Enter') { if (focusedIdx >= 0 && items2[focusedIdx]) { e.preventDefault(); inputEl.value = items2[focusedIdx].textContent.trim(); dropdownEl.classList.remove('open'); inputEl.dispatchEvent(new Event('change', { bubbles: true })); } }
@@ -3949,7 +3965,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 127;
+const APP_VERSION = 128;
 const APP_VERSION_DATE = '16.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4163,10 +4179,152 @@ function applyLite(on) {
   liteKeyboard();
 }
 function applyCompact() { applyLite(liteOn()); } // Kompatibilität für ältere Aufrufe
+
+// — Pfeiltasten-Navigation (Leicht-Modus): nächstes bedienbares Element in Pfeilrichtung —
+const LITE_FOCUSABLE = 'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function liteNavRoot() {
+  if (typeof story !== 'undefined' && story && story.el) return story.el;
+  const ov = topVisibleOverlay();
+  return ov || document.getElementById('app') || document.body;
+}
+function liteCandidates(root) {
+  return [...root.querySelectorAll(LITE_FOCUSABLE)].filter((el) => {
+    const panel = el.closest('.tab-panel');
+    if (panel && !panel.classList.contains('active')) return false;
+    if (el.closest('[hidden], .wheel-scroll') || el.matches('.dialog-overlay, #topbar, .tab-panel, #app, .dialog-box, .dialog-body')) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    if (r.width * r.height > window.innerWidth * window.innerHeight * 0.6) return false; // große Flächen (Hintergründe) überspringen
+    const cs = getComputedStyle(el);
+    return cs.visibility !== 'hidden' && cs.pointerEvents !== 'none';
+  });
+}
+function liteScrollParent(el) {
+  for (let p = el && el.parentElement; p; p = p.parentElement) {
+    const cs = getComputedStyle(p);
+    if (/(auto|scroll)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight + 2) return p;
+  }
+  return null;
+}
+function liteMove(dir) {
+  const root = liteNavRoot();
+  const cands = liteCandidates(root);
+  if (!cands.length) return false;
+  const cur = document.activeElement && root.contains(document.activeElement) && document.activeElement !== root ? document.activeElement : null;
+  const vh = window.innerHeight;
+  if (!cur) { // erstes sichtbares Element im Inhalt
+    const vis = cands.filter((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= vh && !el.closest('#sidebar, #topbar'); });
+    const pick = (vis.length ? vis : cands).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+    pick.focus({ preventScroll: true }); pick.scrollIntoView({ block: 'nearest' }); return true;
+  }
+  const c = cur.getBoundingClientRect();
+  const cx = c.left + c.width / 2, cy = c.top + c.height / 2;
+  // erst im eigenen Scrollbereich bleiben (Formular, Liste) – Leisten und feste Knöpfe erst an dessen Ende
+  const spCur = (dir === 'up' || dir === 'down') ? liteScrollParent(cur) : null;
+  const inSp = spCur ? cands.filter((el) => spCur.contains(el)) : null;
+  const pickFrom = (list) => {
+  let best = null, bestScore = Infinity;
+  for (const el of list) {
+    if (el === cur || el.contains(cur) || cur.contains(el)) continue;
+    const r = el.getBoundingClientRect();
+    const ex = r.left + r.width / 2, ey = r.top + r.height / 2;
+    const gapX = Math.max(0, r.left - c.right, c.left - r.right), gapY = Math.max(0, r.top - c.bottom, c.top - r.bottom);
+    let main, cross;
+    if (dir === 'down') { if (ey <= cy + 4 || r.top < c.top + 4) continue; main = Math.max(0, r.top - c.bottom); cross = gapX; }
+    else if (dir === 'up') { if (ey >= cy - 4 || r.bottom > c.bottom - 4) continue; main = Math.max(0, c.top - r.bottom); cross = gapX; }
+    else if (dir === 'right') { if (ex <= cx + 4 || r.left < c.left + 4) continue; main = Math.max(0, r.left - c.right); cross = gapY; }
+    else { if (ex >= cx - 4 || r.right > c.right - 4) continue; main = Math.max(0, c.left - r.right); cross = gapY; }
+    const score = main + cross * 3 + Math.abs((dir === 'up' || dir === 'down') ? ex - cx : ey - cy) * 0.05;
+    if (score < bestScore) { bestScore = score; best = el; }
+  }
+  return best;
+  };
+  let best = inSp ? pickFrom(inSp) : pickFrom(cands);
+  if (spCur && !best) {
+    const more = dir === 'down' ? spCur.scrollTop + spCur.clientHeight < spCur.scrollHeight - 2 : spCur.scrollTop > 2;
+    if (more) { spCur.scrollBy({ top: (dir === 'down' ? 1 : -1) * spCur.clientHeight * 0.6 }); return true; }
+    best = pickFrom(cands);
+  }
+  // nichts in dieser Richtung, oder das nächste liegt weit weg: erst ein Stück scrollen
+  const sp = liteScrollParent(cur) || liteScrollParent(cands[0]);
+  if ((dir === 'down' || dir === 'up') && sp) {
+    const far = best && (dir === 'down' ? best.getBoundingClientRect().top > vh : best.getBoundingClientRect().bottom < 0);
+    const canScroll = dir === 'down' ? sp.scrollTop + sp.clientHeight < sp.scrollHeight - 2 : sp.scrollTop > 2;
+    if ((!best || far) && canScroll && !cur.closest('#sidebar, #topbar')) { sp.scrollBy({ top: (dir === 'down' ? 1 : -1) * sp.clientHeight * 0.6 }); return true; }
+  }
+  if (!best) return false;
+  best.focus({ preventScroll: true });
+  best.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  return true;
+}
+document.addEventListener('keydown', (e) => {
+  if (!liteOn() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+  const dir = { ArrowDown: 'down', ArrowUp: 'up', ArrowLeft: 'left', ArrowRight: 'right' }[e.key];
+  if (!dir) return;
+  if (typeof story !== 'undefined' && story && (dir === 'left' || dir === 'right')) return; // Story blättert selbst
+  const el = document.activeElement;
+  if (el && el.matches('input, textarea')) {
+    const type = (el.type || '').toLowerCase();
+    const caretTypes = el.tagName === 'TEXTAREA' || ['text', 'search', 'url', 'email', 'tel', 'password', ''].includes(type);
+    if (caretTypes && el.selectionStart !== null) {
+      const start = el.selectionStart, end = el.selectionEnd, len = el.value.length;
+      if (dir === 'left' && !(start === 0 && end === 0)) return;
+      if (dir === 'right' && !(start === len && end === len)) return;
+      if (el.tagName === 'TEXTAREA' && dir === 'up' && el.value.slice(0, start).includes('\n')) return;
+      if (el.tagName === 'TEXTAREA' && dir === 'down' && el.value.slice(end).includes('\n')) return;
+    }
+  }
+  if (liteMove(dir)) e.preventDefault();
+});
+
+// — Zifferntasten 1–5 wechseln im Leicht-Modus die Tabs (Tasten-Handys) —
+const LITE_TAB_KEYS = { 1: 'home', 2: 'dienste', 3: 'dienstplan', 4: 'statistik', 5: 'einstellungen' };
+document.addEventListener('keydown', (e) => {
+  if (!liteOn() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+  const tab = LITE_TAB_KEYS[e.key];
+  if (!tab || (document.activeElement && document.activeElement.matches('input, textarea, select')) || topVisibleOverlay() || (typeof story !== 'undefined' && story)) return;
+  e.preventDefault();
+  if (activeTab === 'dienste' && tab === 'dienste' && selectedServiceId) { const t = getBackTarget(); if (t && t.pop) t.pop(); }
+  if (activeTab === 'einstellungen' && tab === 'einstellungen' && settingsSub) closeSettingsPage();
+  switchTab(tab);
+  const btn = document.querySelector(`.nav-btn[data-tab="${tab}"]`); if (btn) btn.focus({ preventScroll: true });
+  updateNavBar();
+});
+
+// — Zurück-Taste (Android) im Leicht-Modus: erst Fenster schließen, dann eine Ebene zurück, dann zum Start —
+function liteBackAction() {
+  if (typeof story !== 'undefined' && story) { closeStory(); return true; }
+  const ov = topVisibleOverlay();
+  if (ov) { dismissOverlay(ov); return true; }
+  const t = getBackTarget();
+  if (t && t.pop) { t.pop(); updateNavBar(); return true; }
+  if (activeTab !== 'home') { switchTab('home'); return true; }
+  return false;
+}
+let liteHistoryArmed = false;
+function liteArmHistory() {
+  if (!liteOn() || liteHistoryArmed) return;
+  try { history.pushState({ etbLite: 1 }, ''); liteHistoryArmed = true; } catch (_) {}
+}
+window.addEventListener('popstate', () => {
+  if (!liteOn() || !liteHistoryArmed) return;
+  liteHistoryArmed = false;
+  // bleibt in der App (neuer Eintrag beim nächsten Tastendruck/Klick); erst auf „Start“ ohne Fenster verlässt Zurück die App
+  liteBackAction();
+});
+// Verlaufseintrag nur nach echter Bedienung anlegen – sonst überspringt der Browser ihn beim Zurückgehen
+['keydown', 'pointerdown'].forEach((t) => document.addEventListener(t, () => { if (liteOn() && !liteHistoryArmed) setTimeout(liteArmHistory, 0); }, true));
+document.addEventListener('keydown', (e) => {
+  if (!liteOn() || e.defaultPrevented) return;
+  const typing = document.activeElement && document.activeElement.matches('input, textarea, select');
+  if (e.key === 'Escape' || e.key === 'GoBack' || e.key === 'BrowserBack' || (e.key === 'Backspace' && !typing)) {
+    if (liteBackAction()) e.preventDefault();
+  }
+});
 /** Tasten-Bedienung: alles Antippbare ist im Leicht-Modus auch per Pfeiltasten/Enter erreichbar. */
 let liteObserver = null;
 function liteKeyboard() {
-  const sel = '[role="button"]:not(button):not(a):not([tabindex]), .sx-pod:not([tabindex]), .lp-row:not([tabindex]), .iv-veh[data-vehicle]:not([tabindex])';
+  const sel = '[role="button"]:not(button):not(a):not([tabindex]), .sx-pod:not([tabindex]), .lp-row:not([tabindex]), [data-vehicle]:not(button):not([tabindex]), [data-colleague]:not(button):not([tabindex]), [data-clickable]:not([tabindex]):not(.dialog-overlay):not(#topbar):not(.tab-panel)';
   const mark = () => document.querySelectorAll(sel).forEach((el) => el.setAttribute('tabindex', '0'));
   if (liteOn()) {
     mark();

@@ -4124,3 +4124,34 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-lite] .dialog-header::before { display: none !important; }
 [data-lite] .svc-detail-title h2 { font-size: 18px !important; }
 [data-lite] .svc-detail-header { margin-bottom: 6px; }
+/* Pfeiltasten-Navigation: fokussierte Elemente nicht unter den Leisten verstecken */
+@media (max-width: 700px) {
+  [data-lite] #main-content * { scroll-margin-top: calc(var(--chrome-top) + 6px); scroll-margin-bottom: calc(var(--tabbar-h) + 6px); }
+}
+/* Zifferntasten-Hinweis an den Tabs (1 Start … 5 Einstellungen) */
+[data-lite] .nav-btn { position: relative; }
+[data-lite] .nav-btn::after { position: absolute; top: 3px; right: calc(50% - 22px); font-size: 10px; font-weight: 700; color: var(--text3); }
+[data-lite] .nav-btn[data-tab="home"]::after { content: "1"; }
+[data-lite] .nav-btn[data-tab="dienste"]::after { content: "2"; }
+[data-lite] .nav-btn[data-tab="dienstplan"]::after { content: "3"; }
+[data-lite] .nav-btn[data-tab="statistik"]::after { content: "4"; }
+[data-lite] .nav-btn[data-tab="einstellungen"]::after { content: "5"; }
+/* Leicht-Modus: noch dichter für ~240 px nutzbare Höhe */
+@media (max-width: 700px) {
+  [data-lite] { --tabbar-h: 38px; --nav-h: 32px; }
+  [data-lite] .nav-btn { height: 38px; }
+  [data-lite] .nav-icon svg { width: 21px; height: 21px; }
+  [data-lite] .stats-facts { gap: 4px !important; margin-bottom: 6px; }
+  [data-lite] .fact-tile { padding: 5px 7px !important; }
+  [data-lite] .fact-tile-value { font-size: 18px !important; }
+  [data-lite] .fact-tile-label { font-size: 11px !important; }
+  [data-lite] .fact-tile-sub { display: none; }
+  [data-lite] .stats-filter-bar { margin-bottom: 4px; }
+  [data-lite] .dialog-footer { padding: 4px 6px !important; gap: 6px; }
+  [data-lite] .dialog-footer .btn-primary, [data-lite] .dialog-footer .btn-secondary, [data-lite] .dialog-footer .btn-danger { min-height: 36px; padding: 6px 12px; font-size: 15px; }
+  [data-lite] .svc-detail-sub { font-size: 12px; }
+  [data-lite] .dv-group .set-row, [data-lite] .dv-row { min-height: 0; padding-top: 4px !important; padding-bottom: 4px !important; }
+  [data-lite] .hm-hero-open { padding: 6px 10px !important; }
+  [data-lite] .service-card { padding-top: 4px !important; padding-bottom: 4px !important; }
+  [data-lite] .set-group-footer { font-size: 12px; margin-top: 4px; }
+}
