@@ -4037,3 +4037,10 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 @media (min-width: 1240px) {
   .set-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* Prüfintervall */
+.iv-box { padding-top: 12px; padding-bottom: 12px; }
+.iv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.iv-chip { min-width: 58px; padding: 7px 10px; border: none; border-radius: 999px; background: var(--fill); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.iv-chip.is-on { background: var(--accent); color: #fff; }
+.iv-chip:disabled { opacity: .35; cursor: default; }

@@ -3949,8 +3949,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 124;
-const APP_VERSION_DATE = '15.11.2026';
+const APP_VERSION = 125;
+const APP_VERSION_DATE = '16.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -8504,8 +8504,11 @@ async function renderPushSettings(host) {
         : `<button type="button" class="set-row set-action" id="btn-push-on" ${sup.ok ? '' : 'disabled'}><span class="set-row-text set-row-title" style="font-weight:600">Bei Änderungen benachrichtigen</span></button>`}
     </div>
     <p class="set-group-footer">${escHtml(sup.ok
-      ? 'Der Worker prüft den Dienstplan alle 10 Minuten und meldet neue, geänderte und ausgefallene Dienste – auch wenn die App geschlossen ist.'
-      : sup.reason)}</p>`;
+      ? 'Der Worker prüft den Dienstplan im eingestellten Intervall und meldet nach jeder Prüfung neue, geänderte und ausgefallene Dienste – auch wenn die App geschlossen ist.'
+      : sup.reason)}</p>
+    <div class="set-group-header">Prüfintervall</div>
+    <div class="set-group"><div class="set-form iv-box" id="dp-interval"><span class="set-row-sub">Wird geladen…</span></div></div>
+    <p class="set-group-footer" id="dp-interval-foot"></p>`;
   const on = host.querySelector('#btn-push-on');
   if (on) on.addEventListener('click', async () => {
     on.disabled = true;
@@ -8545,15 +8548,38 @@ async function renderPushSettings(host) {
     test.disabled = false;
   });
   const st = host.querySelector('#push-status');
-  if (st) {
-    try {
-      const s = await workerApi('/push/status');
-      const when = s.lastCheck ? new Date(s.lastCheck) : null;
-      st.textContent = (when ? `Zuletzt geprüft ${homeDayLabel(when, new Date())}, ${formatTimeHM(when)}` : 'Noch nicht geprüft')
-        + (s.lastError ? ` · Fehler: ${s.lastError}` : '')
-        + ` · ${s.devices} ${s.devices === 1 ? 'Gerät' : 'Geräte'}`;
-    } catch (err) { st.textContent = err.message; }
+  let s = null;
+  try { s = await workerApi('/push/status'); } catch (err) { if (st) st.textContent = err.message; }
+  if (st && s) {
+    const when = s.lastCheck ? new Date(s.lastCheck) : null;
+    st.textContent = (when ? `Zuletzt geprüft ${homeDayLabel(when, new Date())}, ${formatTimeHM(when)}` : 'Noch nicht geprüft')
+      + (s.lastError ? ` · Fehler: ${s.lastError}` : '')
+      + ` · ${s.devices} ${s.devices === 1 ? 'Gerät' : 'Geräte'}`;
   }
+  renderCheckInterval(host, s);
+}
+
+/** Prüfintervall des Workers: Auswahl als Chips; feiner als der Cron-Takt geht nicht. */
+const ivLabel = (m) => (m < 60 ? `${m} min` : `${m / 60} h`);
+function renderCheckInterval(host, s) {
+  const box = host.querySelector('#dp-interval'), foot = host.querySelector('#dp-interval-foot');
+  if (!box) return;
+  if (!s) { box.innerHTML = '<span class="set-row-sub">Worker nicht erreichbar.</span>'; return; }
+  if (!s.intervals) { box.innerHTML = '<span class="set-row-sub">Fest alle 10 Minuten – zum Einstellen bitte den Worker aktualisieren.</span>'; return; }
+  const period = s.cronPeriod || null;
+  box.innerHTML = `<div class="iv-chips">${s.intervals.map((m) => `<button type="button" class="iv-chip${m === s.interval ? ' is-on' : ''}" data-iv="${m}" ${period && m < period ? 'disabled' : ''}>${ivLabel(m)}</button>`).join('')}</div>`;
+  const effective = period ? Math.max(s.interval, period) : s.interval;
+  if (foot) foot.textContent = [
+    `Der Dienstplan wird alle ${ivLabel(effective)} geprüft${s.interval === 10 ? ' (Standard)' : ''}; nach jeder Prüfung kommt bei Änderungen sofort eine Mitteilung.`,
+    period ? `Feinster möglicher Takt: ${ivLabel(period)} (Zeitplan bei Cloudflare${period > 1 ? ' – für kürzere Intervalle dort den Cron auf „* * * * *“ stellen' : ''}).` : 'Der Zeitplan bei Cloudflare hat sich noch nicht gemeldet.',
+    !s.statusExact && effective < 10 ? 'Ohne D1-Datenbank wird „Zuletzt geprüft“ nur alle 10 min aktualisiert.' : '',
+  ].filter(Boolean).join(' ');
+  box.querySelectorAll('[data-iv]').forEach((b) => b.addEventListener('click', async () => {
+    const m = Number(b.dataset.iv);
+    box.querySelectorAll('[data-iv]').forEach((x) => x.classList.toggle('is-on', x === b));
+    try { await workerApi('/push/interval', { method: 'POST', body: { minutes: m } }); toast(`Prüfintervall: ${ivLabel(m)}`, 'success', 1800); renderCheckInterval(host, { ...s, interval: m }); }
+    catch (err) { toast(err.message, 'error'); renderCheckInterval(host, s); }
+  }));
 }
 
 // — Änderungen im Dienstplan-Tab anzeigen ——————————————————————————————————
