@@ -3949,7 +3949,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 125;
+const APP_VERSION = 126;
 const APP_VERSION_DATE = '16.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -8507,7 +8507,7 @@ async function renderPushSettings(host) {
       ? 'Der Worker prüft den Dienstplan im eingestellten Intervall und meldet nach jeder Prüfung neue, geänderte und ausgefallene Dienste – auch wenn die App geschlossen ist.'
       : sup.reason)}</p>
     <div class="set-group-header">Prüfintervall</div>
-    <div class="set-group"><div class="set-form iv-box" id="dp-interval"><span class="set-row-sub">Wird geladen…</span></div></div>
+    <div class="set-group"><div class="iv-box" id="dp-interval"><span class="set-row-sub">Wird geladen…</span></div></div>
     <p class="set-group-footer" id="dp-interval-foot"></p>`;
   const on = host.querySelector('#btn-push-on');
   if (on) on.addEventListener('click', async () => {
@@ -8559,27 +8559,86 @@ async function renderPushSettings(host) {
   renderCheckInterval(host, s);
 }
 
-/** Prüfintervall des Workers: Auswahl als Chips; feiner als der Cron-Takt geht nicht. */
+/** Prüfintervall des Workers: Drehrad wie am iPhone; feiner als der Cron-Takt geht nicht. */
 const ivLabel = (m) => (m < 60 ? `${m} min` : `${m / 60} h`);
+const ivLong = (m) => (m < 60 ? `${m} ${m === 1 ? 'Minute' : 'Minuten'}` : `${m / 60} ${m === 60 ? 'Stunde' : 'Stunden'}`);
+const ivPhrase = (m) => (m === 1 ? 'jede Minute' : m === 60 ? 'jede Stunde' : `alle ${ivLong(m)}`);
+const WHEEL_ROW = 36;
 function renderCheckInterval(host, s) {
   const box = host.querySelector('#dp-interval'), foot = host.querySelector('#dp-interval-foot');
   if (!box) return;
   if (!s) { box.innerHTML = '<span class="set-row-sub">Worker nicht erreichbar.</span>'; return; }
   if (!s.intervals) { box.innerHTML = '<span class="set-row-sub">Fest alle 10 Minuten – zum Einstellen bitte den Worker aktualisieren.</span>'; return; }
   const period = s.cronPeriod || null;
-  box.innerHTML = `<div class="iv-chips">${s.intervals.map((m) => `<button type="button" class="iv-chip${m === s.interval ? ' is-on' : ''}" data-iv="${m}" ${period && m < period ? 'disabled' : ''}>${ivLabel(m)}</button>`).join('')}</div>`;
-  const effective = period ? Math.max(s.interval, period) : s.interval;
-  if (foot) foot.textContent = [
-    `Der Dienstplan wird alle ${ivLabel(effective)} geprüft${s.interval === 10 ? ' (Standard)' : ''}; nach jeder Prüfung kommt bei Änderungen sofort eine Mitteilung.`,
-    period ? `Feinster möglicher Takt: ${ivLabel(period)} (Zeitplan bei Cloudflare${period > 1 ? ' – für kürzere Intervalle dort den Cron auf „* * * * *“ stellen' : ''}).` : 'Der Zeitplan bei Cloudflare hat sich noch nicht gemeldet.',
-    !s.statusExact && effective < 10 ? 'Ohne D1-Datenbank wird „Zuletzt geprüft“ nur alle 10 min aktualisiert.' : '',
-  ].filter(Boolean).join(' ');
-  box.querySelectorAll('[data-iv]').forEach((b) => b.addEventListener('click', async () => {
-    const m = Number(b.dataset.iv);
-    box.querySelectorAll('[data-iv]').forEach((x) => x.classList.toggle('is-on', x === b));
-    try { await workerApi('/push/interval', { method: 'POST', body: { minutes: m } }); toast(`Prüfintervall: ${ivLabel(m)}`, 'success', 1800); renderCheckInterval(host, { ...s, interval: m }); }
-    catch (err) { toast(err.message, 'error'); renderCheckInterval(host, s); }
-  }));
+  const list = s.intervals;
+  let current = s.interval;
+  const setFoot = () => {
+    const effective = period ? Math.max(current, period) : current;
+    if (foot) foot.textContent = [
+      `Der Worker prüft den Dienstplan ${ivPhrase(effective)}${current === 10 ? ' (Standard)' : ''} und meldet Änderungen nach jeder Prüfung sofort.`,
+      period && period > 1 ? `Feiner als ${ivLong(period)} geht mit dem Zeitplan bei Cloudflare nicht (dort für kürzere Intervalle den Cron auf „* * * * *“ stellen).` : '',
+      !period ? 'Der Zeitplan bei Cloudflare hat sich noch nicht gemeldet.' : '',
+      !s.statusExact && effective < 10 ? 'Ohne D1-Datenbank wird „Zuletzt geprüft“ nur alle 10 min aktualisiert.' : '',
+    ].filter(Boolean).join(' ');
+  };
+  box.innerHTML = `<div class="wheel" tabindex="0" role="listbox" aria-label="Prüfintervall">
+      <div class="wheel-band"></div>
+      <div class="wheel-fixed">alle</div>
+      <div class="wheel-scroll">
+        <div class="wheel-pad"></div>
+        ${list.map((m) => `<div class="wheel-item${period && m < period ? ' is-off' : ''}" role="option" data-iv="${m}"><span>${ivLong(m)}</span></div>`).join('')}
+        <div class="wheel-pad"></div>
+      </div>
+    </div>`;
+  setFoot();
+  const sc = box.querySelector('.wheel-scroll'), items = [...box.querySelectorAll('.wheel-item')];
+  const faces = items.map((el) => el.firstElementChild); // nur der Text kippt – die Zeile (Einrastpunkt) bleibt fest
+  const allowed = (i) => !items[i].classList.contains('is-off');
+  // 3D-Walze: Zeilen kippen und verblassen zur Mitte hin
+  const paint = () => {
+    const mid = sc.scrollTop / WHEEL_ROW;
+    items.forEach((el, i) => {
+      const d = Math.max(-3, Math.min(3, i - mid));
+      faces[i].style.transform = `rotateX(${-d * 22}deg)`;
+      faces[i].style.opacity = String(Math.max(0.15, 1 - Math.abs(d) * 0.3) * (allowed(i) ? 1 : 0.45));
+      el.classList.toggle('is-sel', Math.abs(d) < 0.5);
+    });
+  };
+  let quiet = true, timer = 0;
+  const go = (i, smooth = true) => sc.scrollTo({ top: i * WHEEL_ROW, behavior: smooth ? 'smooth' : 'auto' });
+  const settle = async () => {
+    let i = Math.max(0, Math.min(items.length - 1, Math.round(sc.scrollTop / WHEEL_ROW)));
+    if (!allowed(i)) { i = items.findIndex((_, k) => allowed(k)); go(i); return; } // zu fein → zurück auf den feinsten möglichen Wert
+    const m = Number(items[i].dataset.iv);
+    if (quiet || m === current) return;
+    const prev = current;
+    current = m; setFoot();
+    try { await workerApi('/push/interval', { method: 'POST', body: { minutes: m } }); toast(`Prüfintervall: ${ivPhrase(m)}`, 'success', 1600); }
+    catch (err) { toast(err.message, 'error'); current = prev; setFoot(); go(list.indexOf(prev)); }
+  };
+  sc.addEventListener('scroll', () => { requestAnimationFrame(paint); clearTimeout(timer); timer = setTimeout(settle, 160); }, { passive: true });
+  items.forEach((el, i) => el.addEventListener('click', () => { quiet = false; go(i); }));
+  sc.addEventListener('pointerdown', () => { quiet = false; });
+  // Mausrad: eine Raste = eine Zeile (Trackpad scrollt frei und rastet ein)
+  let wheelLock = 0;
+  sc.addEventListener('wheel', (e) => {
+    quiet = false;
+    if (e.deltaMode === 0 && Math.abs(e.deltaY) < 50) return; // Trackpad
+    e.preventDefault();
+    if (Date.now() < wheelLock) return;
+    wheelLock = Date.now() + 140;
+    const i = Math.round(sc.scrollTop / WHEEL_ROW) + Math.sign(e.deltaY);
+    go(Math.max(0, Math.min(items.length - 1, i)));
+  }, { passive: false });
+  sc.addEventListener('touchstart', () => { quiet = false; }, { passive: true });
+  const wheel = box.querySelector('.wheel');
+  wheel.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault(); quiet = false;
+    const i = Math.round(sc.scrollTop / WHEEL_ROW) + (e.key === 'ArrowDown' ? 1 : -1);
+    go(Math.max(0, Math.min(items.length - 1, i)));
+  });
+  requestAnimationFrame(() => { go(Math.max(0, list.indexOf(current)), false); paint(); setTimeout(() => { quiet = false; }, 300); });
 }
 
 // — Änderungen im Dienstplan-Tab anzeigen ——————————————————————————————————

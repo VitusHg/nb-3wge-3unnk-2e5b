@@ -4038,9 +4038,17 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
   .set-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 
-/* Prüfintervall */
-.iv-box { padding-top: 12px; padding-bottom: 12px; }
-.iv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.iv-chip { min-width: 58px; padding: 7px 10px; border: none; border-radius: 999px; background: var(--fill); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-.iv-chip.is-on { background: var(--accent); color: #fff; }
-.iv-chip:disabled { opacity: .35; cursor: default; }
+/* Prüfintervall: Drehrad wie am iPhone */
+.iv-box { padding: 8px 16px; }
+.wheel { position: relative; height: 180px; max-width: 420px; margin: 0 auto; outline: none; perspective: 600px; user-select: none; -webkit-user-select: none; }
+.wheel-band { position: absolute; left: 0; right: 0; top: 72px; height: 36px; border-radius: 10px; background: var(--fill); pointer-events: none; }
+.wheel-fixed { position: absolute; top: 72px; height: 36px; right: calc(50% + 72px); display: flex; align-items: center; font-size: 20px; color: var(--text); pointer-events: none; z-index: 1; }
+.wheel-scroll { position: relative; height: 100%; overflow-y: scroll; overscroll-behavior: contain; scroll-snap-type: y mandatory; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); }
+.wheel-scroll::-webkit-scrollbar { display: none; }
+.wheel-pad { height: 72px; }
+.wheel-item { height: 36px; display: flex; align-items: center; padding-left: calc(50% - 56px); scroll-snap-align: center; scroll-snap-stop: always; font-size: 20px; color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; white-space: nowrap; perspective: 600px; }
+.wheel-item > span { display: inline-block; transform-origin: 50% 50% -60px; will-change: transform; }
+.wheel-item.is-sel { font-weight: 600; }
+.wheel-item.is-off { text-decoration: line-through; text-decoration-thickness: 1px; }
+.wheel:focus-visible .wheel-band { box-shadow: 0 0 0 2px var(--accent); }
