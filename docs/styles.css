@@ -4155,3 +4155,11 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
   [data-lite] .service-card { padding-top: 4px !important; padding-bottom: 4px !important; }
   [data-lite] .set-group-footer { font-size: 12px; margin-top: 4px; }
 }
+
+/* Fahrzeug-Kategorie: Vorschau für LstSim-Streifen (3 Bilder untereinander) */
+.vcat-sprite { display: inline-block; height: 43px; margin-right: 12px; vertical-align: middle; background-repeat: no-repeat; background-size: 100% 300%; background-position: 0 0; }
+.vcat-sprite.is-on { animation: vcat-sosi .8s steps(1, end) infinite; }
+@keyframes vcat-sosi { 0% { background-position: 0 50%; } 50% { background-position: 0 100%; } }
+.vcat-sprite-note { display: block; margin-top: 6px; font-size: 12px; color: var(--text2); }
+.vcat-preview:has(.vcat-sprite) { flex-wrap: wrap; }
+.vcat-sprite-note { flex-basis: 100%; }

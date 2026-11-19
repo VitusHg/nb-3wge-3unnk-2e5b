@@ -258,7 +258,7 @@ function normalizeState(s) {
   s.alarmBlaulicht = isObj(s.alarmBlaulicht) ? s.alarmBlaulicht : {};
   Object.keys(s.alarmBlaulicht).forEach((k) => { s.alarmBlaulicht[k] = !!s.alarmBlaulicht[k]; });
   s.pzcCodes = s.pzcCodes.map((p) => ({ code: toDisplayName(p.code), diagnosis: toDisplayName(p.diagnosis) })).filter((p) => p.code);
-  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); });
+  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; });
   // Textfelder können aus Fremd-Exporten (Henri) als Objekte kommen → in Text wandeln
   const txt = (v) => toDisplayName(v);
   s.services.forEach((svc) => {
@@ -1116,10 +1116,10 @@ function renderServiceList() {
       : null;
     const isSelected = svc.id === selectedServiceId;
     const alwaysSosi = isSelected || globalLightsOn;
-    const iconHtml = cat && cat.iconNormal
+    const iconHtml = cat && catNormal(cat)
       ? `<div class="svc-card-icon-wrap${alwaysSosi ? ' always-sosi' : ''}">
-           <img class="svc-card-icon svc-card-icon-normal" src="${escHtml(cat.iconNormal)}" alt="" loading="lazy" />
-           ${cat.iconSoSi ? `<img class="svc-card-icon svc-card-icon-sosi" src="${escHtml(cat.iconSoSi)}" alt="" loading="lazy" />` : ''}
+           <img class="svc-card-icon svc-card-icon-normal" src="${escHtml(catNormal(cat))}" alt="" loading="lazy" />
+           ${catSoSi(cat) ? `<img class="svc-card-icon svc-card-icon-sosi" src="${escHtml(catSoSi(cat))}" alt="" loading="lazy" />` : ''}
          </div>`
       : '';
 
@@ -1353,7 +1353,7 @@ function renderIncidentView() {
   // Kopf: Fahrzeug-Icon (mit SoSi bei Blaulicht), Stichwort, Blaulicht-Badge
   const catId = svc.vehicle ? (state.vehicleAssignments || {})[svc.vehicle] : null;
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-  const iconSrc = cat && cat.iconNormal ? (inc.lights && cat.iconSoSi ? cat.iconSoSi : cat.iconNormal) : '';
+  const iconSrc = cat && catNormal(cat) ? (inc.lights && catSoSi(cat) ? catSoSi(cat) : catNormal(cat)) : '';
   const hero = `<div class="iv-hero">
     ${iconSrc ? `<img class="iv-hero-icon" src="${escHtml(iconSrc)}" alt="" />` : `<span class="iv-hero-dot${inc.lights ? ' lights' : ''}"></span>`}
     <div class="iv-hero-text">
@@ -1653,11 +1653,28 @@ function deleteIncident(svcId, incId, opts = {}) {
 // ── Service Dialog ─────────────────────────────────────────────────────────
 // ── Gemeinsame Formular-Bausteine ──────────────────────────────────────────
 /** Icon eines Fahrzeugs (Kategorie-Zuweisung); sosi = animiertes SoSi-Bild. */
+// LstSim-Grafiken: ein Bild mit mehreren Einzelbildern untereinander (oben ohne Licht, darunter Blaulicht
+// abwechselnd). Die App zerlegt sie in ein Standbild und eine Blaulicht-Animation; beide liegen auf dem Gerät
+// unter eigenen Adressen (…?etb=n bzw. …?etb=s), die der Service Worker von dort liefert.
+function spriteKey(url, k) { return url + (url.includes('?') ? '&' : '?') + 'etb=' + k; }
+function catNormal(c) { return c && c.iconNormal ? (c.sprite ? spriteKey(c.iconNormal, 'n') : c.iconNormal) : ''; }
+function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's') : (c && c.iconSoSi) || ''; }
+/** Höhe deutlich größer als Breite → Streifen mit (bei LstSim) 3 Einzelbildern. */
+function spriteFramesOf(w, h) { return w && h && h > w * 1.15 ? 3 : 0; }
+function measureImage(url, ms = 8000) {
+  return new Promise((res) => {
+    const img = new Image(); const t = setTimeout(() => res(null), ms);
+    img.onload = () => { clearTimeout(t); res({ w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onerror = () => { clearTimeout(t); res(null); };
+    img.src = url;
+  });
+}
+
 function vehicleIconSrc(vehicleName, sosi = false) {
   const catId = vehicleName ? (state.vehicleAssignments || {})[vehicleName] : null;
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-  if (!cat || !cat.iconNormal) return '';
-  return sosi && cat.iconSoSi ? cat.iconSoSi : cat.iconNormal;
+  if (!cat || !catNormal(cat)) return '';
+  return sosi && catSoSi(cat) ? catSoSi(cat) : catNormal(cat);
 }
 
 /** Zeigt neben einem Fahrzeug-Feld das zugewiesene Icon (live beim Tippen). */
@@ -2418,11 +2435,11 @@ function saveIncident() {
 function vehicleIconHtml(vehicleName, showSoSi, cls = '') {
   const catId = vehicleName ? (state.vehicleAssignments || {})[vehicleName] : null;
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-  if (!cat || !cat.iconNormal) return '';
-  if (showSoSi && cat.iconSoSi) {
-    return `<img class="veh-icon ${cls}" src="${escHtml(cat.iconSoSi)}" alt="" />`;
+  if (!cat || !catNormal(cat)) return '';
+  if (showSoSi && catSoSi(cat)) {
+    return `<img class="veh-icon ${cls}" src="${escHtml(catSoSi(cat))}" alt="" />`;
   }
-  return `<img class="veh-icon ${cls}" src="${escHtml(cat.iconNormal)}" alt="" />`;
+  return `<img class="veh-icon ${cls}" src="${escHtml(catNormal(cat))}" alt="" />`;
 }
 
 function updateLightsBtn() {
@@ -2443,8 +2460,8 @@ function updateLightsBtn() {
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
   const iconEl = document.getElementById('lights-icon');
   if (iconEl) {
-    if (cat && cat.iconNormal) {
-      const src = (incLights && cat.iconSoSi) ? cat.iconSoSi : cat.iconNormal;
+    if (cat && catNormal(cat)) {
+      const src = (incLights && catSoSi(cat)) ? catSoSi(cat) : catNormal(cat);
       iconEl.innerHTML = `<img src="${escHtml(src)}" class="lights-btn-veh-icon" alt="" />`;
     } else {
       // Fallback to original SVG if no vehicle icon assigned
@@ -2468,8 +2485,8 @@ function renderIncExtraVehicles() {
     chip.title = `${vName} entfernen`;
     chip.type = 'button';
 
-    const src = cat && cat.iconNormal
-      ? (incLights && cat.iconSoSi ? cat.iconSoSi : cat.iconNormal)
+    const src = cat && catNormal(cat)
+      ? (incLights && catSoSi(cat) ? catSoSi(cat) : catNormal(cat))
       : null;
     chip.innerHTML = src
       ? `<img src="${escHtml(src)}" class="lights-btn-veh-icon" alt="" /><span class="extra-veh-label">${escHtml(vName)}</span>`
@@ -3524,10 +3541,10 @@ function homeIsBusy() {
 function homeVehIconHtml(vehicle, cls) {
   const catId = vehicle ? (state.vehicleAssignments || {})[vehicle] : null;
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
-  if (!cat || !cat.iconNormal) return '';
+  if (!cat || !catNormal(cat)) return '';
   return `<div class="hm-veh ${cls || ''}">
-    <img src="${escHtml(cat.iconNormal)}" class="hm-veh-img hm-veh-normal${vehSquareSrcs.has(cat.iconNormal) ? ' veh-sq' : ''}" alt="" />
-    ${cat.iconSoSi ? `<img src="${escHtml(cat.iconSoSi)}" class="hm-veh-img hm-veh-sosi${vehSquareSrcs.has(cat.iconSoSi) ? ' veh-sq' : ''}" alt="" style="animation-delay:-${Date.now() % 1200}ms" />` : ''}
+    <img src="${escHtml(catNormal(cat))}" class="hm-veh-img hm-veh-normal${vehSquareSrcs.has(catNormal(cat)) ? ' veh-sq' : ''}" alt="" />
+    ${catSoSi(cat) ? `<img src="${escHtml(catSoSi(cat))}" class="hm-veh-img hm-veh-sosi${vehSquareSrcs.has(catSoSi(cat)) ? ' veh-sq' : ''}" alt="" style="animation-delay:-${Date.now() % 1200}ms" />` : ''}
   </div>`;
 }
 
@@ -3880,6 +3897,15 @@ function updateVcatPreview() {
     const img = document.createElement('img');
     img.src = normal; img.style.cssText = 'height:43px;max-width:90px;object-fit:contain;margin-right:12px';
     img.onerror = () => { img.style.opacity = '.3'; img.title = 'Bild nicht erreichbar'; };
+    img.onload = () => {
+      // LstSim-Streifen: Vorschau als Standbild + Blaulicht-Animation
+      if (!spriteFramesOf(img.naturalWidth, img.naturalHeight) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
+      pre.innerHTML = '';
+      const mk = (cls) => { const d = document.createElement('span'); d.className = 'vcat-sprite ' + cls; d.style.backgroundImage = `url("${normal.replace(/"/g, '%22')}")`; d.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight / 3}`; return d; };
+      pre.append(mk('is-off'), mk('is-on'));
+      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = 'LstSim-Grafik erkannt – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.';
+      pre.appendChild(note);
+    };
     pre.appendChild(img);
   }
   if (sosi) {
@@ -3892,20 +3918,27 @@ function updateVcatPreview() {
   if (!normal && !sosi) pre.innerHTML = '<span style="color:var(--text3);font-size:12px">Vorschau erscheint nach URL-Eingabe</span>';
 }
 
-function saveVehicleCat() {
+async function saveVehicleCat() {
   const name = document.getElementById('vcat-name').value.trim();
   if (!name) { toast('Bitte Name eingeben.', 'error'); return; }
   const iconNormal = document.getElementById('vcat-icon-normal').value.trim();
   const iconSoSi = document.getElementById('vcat-icon-sosi').value.trim();
+  // LstSim-Streifen erkennen (nur wenn kein eigenes SoSi-Bild angegeben ist)
+  let sprite = 0;
+  if (iconNormal && !iconSoSi) { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; }
+  const apply = (c) => { if (sprite) c.sprite = sprite; else delete c.sprite; };
   if (_vcatDialogId) {
     const cat = (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId);
-    if (cat) { cat.name = name; cat.iconNormal = iconNormal; cat.iconSoSi = iconSoSi; }
+    if (cat) { cat.name = name; cat.iconNormal = iconNormal; cat.iconSoSi = iconSoSi; apply(cat); }
   } else {
     if (!state.vehicleCategories) state.vehicleCategories = [];
-    state.vehicleCategories.push({ id: uid(), name, iconNormal, iconSoSi });
+    const c = { id: uid(), name, iconNormal, iconSoSi }; apply(c);
+    state.vehicleCategories.push(c);
   }
   saveState(); closeDialog('dialog-vehicle-cat'); renderSettings();
-  syncVehicleIcons().then(() => { if (document.getElementById('dialog-vehicles').style.display === 'flex') renderIconCacheRow(); }).catch(() => {});
+  if (sprite) toast('LstSim-Grafik erkannt – wird aufbereitet …', 'info', 2500);
+  syncVehicleIcons({ force: !!sprite }).then(() => {
+    if (sprite) { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); } if (document.getElementById('dialog-vehicles').style.display === 'flex') renderIconCacheRow(); }).catch(() => {});
   if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent();
   renderServiceList(); if (selectedServiceId) renderServiceDetail();
 }
@@ -3965,8 +3998,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 128;
-const APP_VERSION_DATE = '16.11.2026';
+const APP_VERSION = 129;
+const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -4907,9 +4940,9 @@ function refreshVehicleCatList() {
   const cats = (state.vehicleCategories || []).filter((c) => !q || (c.name || '').toLowerCase().includes(q));
   el.innerHTML = cats.length
     ? cats.map((c) => `<div class="code-item code-item-tap" data-id="${escHtml(c.id)}" title="Bearbeiten">
-        <span class="code-item-icon">${c.iconNormal ? `<img src="${escHtml(c.iconNormal)}" alt="" loading="lazy">` : '—'}</span>
+        <span class="code-item-icon">${catNormal(c) ? `<img src="${escHtml(catNormal(c))}" alt="" loading="lazy">` : '—'}</span>
         <span class="code-item-text">${escHtml(c.name)}</span>
-        ${c.iconSoSi ? '<span class="code-item-badge">SoSi</span>' : ''}
+        ${catSoSi(c) ? '<span class="code-item-badge">SoSi</span>' : ''}
         <button class="btn-code-del" data-id="${escHtml(c.id)}" title="Löschen" aria-label="${escHtml(c.name)} löschen">✕</button>
       </div>`).join('')
     : `<div class="code-empty">${q ? 'Keine Kategorie für diese Suche.' : 'Noch keine Kategorien – z. B. „RTW T6“ mit Icon-URL anlegen.'}</div>`;
@@ -5804,7 +5837,7 @@ const ICON_CACHE = 'etb-icons';
 
 function vehicleIconUrls() {
   const set = new Set();
-  (state.vehicleCategories || []).forEach((c) => [c.iconNormal, c.iconSoSi].forEach((u) => {
+  (state.vehicleCategories || []).forEach((c) => [catNormal(c), catSoSi(c)].forEach((u) => {
     if (u && /^https?:\/\//i.test(u)) { try { set.add(new URL(u, location.href).href); } catch (_) {} }
   }));
   return [...set];
@@ -5817,7 +5850,7 @@ function vehicleIconUrls() {
  */
 function isVehicleIconImg(img) {
   const src = img.currentSrc || img.src || '';
-  return (state.vehicleCategories || []).some((c) => [c.iconNormal, c.iconSoSi].some((u) => {
+  return (state.vehicleCategories || []).some((c) => [catNormal(c), catSoSi(c)].some((u) => {
     if (!u) return false;
     if (u === src) return true;
     try { return new URL(u, location.href).href === src; } catch (_) { return false; }
@@ -5912,6 +5945,67 @@ async function isAnimatedPng(blob) {
   return false;
 }
 const ICON_PROC_VERSION = '2';
+
+// — APNG bauen (für die Blaulicht-Animation aus LstSim-Streifen) —
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+function pngChunks(u8) {
+  const out = []; const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  for (let i = 8; i + 12 <= u8.length;) { const len = dv.getUint32(i); const type = String.fromCharCode(...u8.subarray(i + 4, i + 8)); out.push({ type, data: u8.subarray(i + 8, i + 8 + len) }); i += 12 + len; if (type === 'IEND') break; }
+  return out;
+}
+function pngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length); const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length); for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8); dv.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+const u32be = (...vals) => { const b = new Uint8Array(vals.length * 4); const dv = new DataView(b.buffer); vals.forEach((v, i) => dv.setUint32(i * 4, v)); return b; };
+const canvasPng = (c) => new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob'))), 'image/png'));
+/** Mehrere gleich große Canvas-Bilder zu einem endlos laufenden APNG (delayMs je Bild). */
+async function makeApng(canvases, delayMs = 400) {
+  const pngs = await Promise.all(canvases.map(async (c) => new Uint8Array(await (await canvasPng(c)).arrayBuffer())));
+  const first = pngChunks(pngs[0]);
+  const ihdr = first.find((x) => x.type === 'IHDR').data;
+  const w = new DataView(ihdr.buffer, ihdr.byteOffset).getUint32(0), h = new DataView(ihdr.buffer, ihdr.byteOffset).getUint32(4);
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('acTL', u32be(pngs.length, 0))];
+  first.filter((x) => !['IHDR', 'IDAT', 'IEND', 'acTL', 'fcTL', 'fdAT'].includes(x.type)).forEach((x) => parts.push(pngChunk(x.type, x.data)));
+  let seq = 0;
+  pngs.forEach((png, i) => {
+    const fc = new Uint8Array(26); const dv = new DataView(fc.buffer);
+    dv.setUint32(0, seq++); dv.setUint32(4, w); dv.setUint32(8, h); dv.setUint32(12, 0); dv.setUint32(16, 0);
+    dv.setUint16(20, delayMs); dv.setUint16(22, 1000); fc[24] = 0; fc[25] = 0; // dispose: none, blend: source (ersetzt das ganze Bild)
+    parts.push(pngChunk('fcTL', fc));
+    pngChunks(png).filter((x) => x.type === 'IDAT').forEach((x) => {
+      if (i === 0) parts.push(pngChunk('IDAT', x.data));
+      else { const d = new Uint8Array(4 + x.data.length); new DataView(d.buffer).setUint32(0, seq++); d.set(x.data, 4); parts.push(pngChunk('fdAT', d)); }
+    });
+  });
+  parts.push(pngChunk('IEND', new Uint8Array(0)));
+  return new Blob(parts, { type: 'image/png' });
+}
+/** LstSim-Streifen zerlegen: Bild 1 = ohne Licht, Bilder 2… = Blaulicht im Wechsel. Gemeinsam zugeschnitten. */
+async function processSprite(blob, frames = 3) {
+  const bmp = await createImageBitmap(blob);
+  const fh = Math.floor(bmp.height / frames), w = bmp.width;
+  const cv = Array.from({ length: frames }, (_, i) => { const c = document.createElement('canvas'); c.width = w; c.height = fh; c.getContext('2d').drawImage(bmp, 0, i * fh, w, fh, 0, 0, w, fh); return c; });
+  let box = null;
+  cv.forEach((c) => { const b = alphaBox(c); if (b) box = !box ? b : { x0: Math.min(box.x0, b.x0), y0: Math.min(box.y0, b.y0), x1: Math.max(box.x1, b.x1), y1: Math.max(box.y1, b.y1) }; });
+  const pad = 1;
+  const bx = box ? { x0: Math.max(0, box.x0 - pad), y0: Math.max(0, box.y0 - pad), x1: Math.min(w - 1, box.x1 + pad), y1: Math.min(fh - 1, box.y1 + pad) } : { x0: 0, y0: 0, x1: w - 1, y1: fh - 1 };
+  const cw = bx.x1 - bx.x0 + 1, ch = bx.y1 - bx.y0 + 1;
+  const crop = cv.map((c) => { const o = document.createElement('canvas'); o.width = cw; o.height = ch; o.getContext('2d').drawImage(c, bx.x0, bx.y0, cw, ch, 0, 0, cw, ch); return o; });
+  const normal = await canvasPng(crop[0]);
+  const sosi = crop.length > 2 ? await makeApng(crop.slice(1), 400) : await canvasPng(crop[1] || crop[0]);
+  const hdr = (b) => ({ 'Content-Type': 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(blob.size), 'X-Etb-Cropped': '1', 'X-Etb-Sprite': '1', 'X-Etb-V': ICON_PROC_VERSION });
+  return [new Response(normal, { headers: hdr(normal) }), new Response(sosi, { headers: hdr(sosi) })];
+}
+async function fetchSpriteBlob(url) {
+  try { return await fetchIconViaWorker(url); } catch (_) {}
+  const res = await fetch(url, { mode: 'cors', cache: 'no-store' }); // ohne Worker nur, wenn der Server es erlaubt
+  if (!res.ok) throw new Error('Bild ' + res.status);
+  return res.blob();
+}
 /** Normal- und SoSi-Grafik einer Kategorie mit gemeinsamem Ausschnitt zuschneiden (Blinken bleibt deckungsgleich). */
 async function processIconPair(urls) {
   const blobs = await Promise.all(urls.map(fetchIconViaWorker));
@@ -5941,9 +6035,33 @@ async function processIconPair(urls) {
   return out;
 }
 
+/** LstSim-Streifen zerlegen und ablegen – auch wenn „Icons offline“ aus ist (sonst gäbe es kein Blaulicht). */
+async function syncSpriteIcons(cache, force) {
+  const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
+  let failed = 0;
+  for (const c of state.vehicleCategories || []) {
+    if (!c.sprite || !c.iconNormal) continue;
+    const keys = [abs(catNormal(c)), abs(catSoSi(c))];
+    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1')) continue; }
+    try { const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite); await Promise.all(keys.map((k, i) => cache.put(k, resps[i]))); }
+    catch (_) { failed++; }
+  }
+  return failed;
+}
+const spriteKeysAll = () => (state.vehicleCategories || []).filter((c) => c.sprite && c.iconNormal).flatMap((c) => [catNormal(c), catSoSi(c)]).map((u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } });
+
 function syncVehicleIcons({ force = false } = {}) {
   if (!('caches' in window)) return Promise.resolve({ total: 0, cached: 0, failed: 0 });
-  if (!iconsOfflineEnabled()) return caches.delete(ICON_CACHE).then(() => ({ total: 0, cached: 0, failed: 0, off: true }));
+  if (!iconsOfflineEnabled()) {
+    // nur die zerlegten LstSim-Bilder behalten, alles andere wie bisher entfernen
+    return (async () => {
+      const cache = await caches.open(ICON_CACHE);
+      const keep = new Set(spriteKeysAll());
+      await Promise.all((await cache.keys()).filter((r) => !keep.has(r.url)).map((r) => cache.delete(r)));
+      const failed = await syncSpriteIcons(cache, force);
+      return { total: keep.size, cached: keep.size - failed * 2, failed, off: true };
+    })();
+  }
   if (iconSyncRunning && !force) return iconSyncRunning;
   iconSyncRunning = (async () => {
     const cache = await caches.open(ICON_CACHE);
@@ -5956,9 +6074,13 @@ function syncVehicleIcons({ force = false } = {}) {
     const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
     let failed = 0, viaWorker = true;
     const handled = new Set();
+    // 0) LstSim-Streifen: zerlegen in Standbild + Blaulicht-Animation
+    failed += await syncSpriteIcons(cache, force);
+    spriteKeysAll().forEach((u) => handled.add(u));
     // 1) je Kategorie Normal + SoSi gemeinsam über den Worker
     if (dpConfigured()) {
       for (const c of state.vehicleCategories || []) {
+        if (c.sprite) continue;
         const urls = [c.iconNormal, c.iconSoSi].filter((u) => u && /^https?:\/\//i.test(u)).map(abs);
         if (!urls.length || !viaWorker) continue;
         if (!force && urls.every((u) => done.has(u))) { urls.forEach((u) => handled.add(u)); continue; }
@@ -7108,7 +7230,7 @@ function buildStorySlides(r) {
     const seen = new Set();
     r.vehStats.forEach((v) => { const k = keyOf(v.name); if (!seen.has(k) && syms.length < 5) { seen.add(k); syms.push({ key: k, html: sym(vehicleIconSrc(v.name, true)) }); } });
     // zu wenig verschiedene: andere Fahrzeuggrafiken aus der Liste, dann Emojis
-    (state.vehicleCategories || []).forEach((c) => { const src = c.iconSoSi || c.iconNormal; if (src && !seen.has(src) && syms.length < 5) { seen.add(src); syms.push({ key: src, html: sym(src) }); } });
+    (state.vehicleCategories || []).forEach((c) => { const src = catSoSi(c) || catNormal(c); if (src && !seen.has(src) && syms.length < 5) { seen.add(src); syms.push({ key: src, html: sym(src) }); } });
     ['🚨', '☕', '⭐', '🍀', '🩺'].forEach((e) => { if (syms.length < 5) syms.push({ key: e, html: sym('', e) }); });
     // Gewinne der Reihe nach: Platz 1, 2, 3 der meistgefahrenen Fahrzeuge
     const prizes = r.vehStats.slice(0, 3).map((v, i) => ({ key: keyOf(v.name), rank: i + 1,

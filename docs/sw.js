@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v128'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v129'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -72,13 +72,17 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   // Fahrzeuggrafiken: zuerst vom Gerät, nur beim ersten Mal aus dem Netz
   if (event.request.destination === 'image' && !inScope(url) && /^https?:$/.test(url.protocol)) {
+    // zerlegte LstSim-Grafiken (…?etb=n / …?etb=s) gibt es nur auf dem Gerät – immer zuerst von dort
+    const sprite = url.searchParams.has('etb');
     event.respondWith(iconsOffline().then(async (keep) => {
+      if (sprite) { const hit = await (await caches.open(ICON_CACHE)).match(event.request.url); if (hit) return hit; }
       if (!keep) return fetch(event.request); // ausgelagert: nichts auf dem Gerät ablegen
       const cache = await caches.open(ICON_CACHE);
       const hit = await cache.match(event.request.url);
       if (hit) return hit;
       const res = await fetch(event.request);
-      if (res && (res.ok || res.type === 'opaque')) cache.put(event.request.url, res.clone()).catch(() => {});
+      // ungeteilte LstSim-Streifen nicht unter der Teil-Adresse ablegen (macht die App selbst)
+      if (!sprite && res && (res.ok || res.type === 'opaque')) cache.put(event.request.url, res.clone()).catch(() => {});
       return res;
     }).catch(() => fetch(event.request)));
     return;
