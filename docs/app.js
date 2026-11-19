@@ -1721,8 +1721,8 @@ function applyVehicleMirror() {
   for (const c of state.vehicleCategories || []) {
     const z = (c.zoom || 100) / 100, m = c.mirror ? -1 : 1;
     if (c.mirror) rules.push(`${srcs(c).map((u) => `img[src=${q(u)}]`).join(',')} { scale: -1 1; }`);
-    // Zoom/Position nur dort, wo das Feld zuschneidet (Dienstliste)
-    if (c.zoom || c.ox || c.oy) rules.push(`${srcs(c).map((u) => `.svc-card-icon[src=${q(u)}]`).join(',')} { scale: ${m * z} ${z}; translate: ${c.ox || 0}% ${c.oy || 0}%; }`);
+    // Zoom/Position dort, wo das Feld zuschneidet (Dienstliste, Startseite)
+    if (c.zoom || c.ox || c.oy) rules.push(`${srcs(c).flatMap((u) => [`.svc-card-icon[src=${q(u)}]`, `.hm-veh-img[src=${q(u)}]`]).join(',')} { scale: ${m * z} ${z}; translate: ${c.ox || 0}% ${c.oy || 0}%; }`);
   }
   el.textContent = rules.join('\n');
 }
@@ -4127,7 +4127,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 137;
+const APP_VERSION = 138;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
