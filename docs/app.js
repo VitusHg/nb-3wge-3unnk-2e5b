@@ -258,7 +258,7 @@ function normalizeState(s) {
   s.alarmBlaulicht = isObj(s.alarmBlaulicht) ? s.alarmBlaulicht : {};
   Object.keys(s.alarmBlaulicht).forEach((k) => { s.alarmBlaulicht[k] = !!s.alarmBlaulicht[k]; });
   s.pzcCodes = s.pzcCodes.map((p) => ({ code: toDisplayName(p.code), diagnosis: toDisplayName(p.diagnosis) })).filter((p) => p.code);
-  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; const fr = Number(c.frames); if (fr >= 1 && fr <= 12) c.frames = fr; else delete c.frames; if (c.mirror) c.mirror = true; else delete c.mirror; });
+  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; if (c.spriteGuess && c.sprite) c.spriteGuess = true; else delete c.spriteGuess; const fr = Number(c.frames); if (fr >= 1 && fr <= 12) c.frames = fr; else delete c.frames; if (c.mirror) c.mirror = true; else delete c.mirror; });
   // Textfelder können aus Fremd-Exporten (Henri) als Objekte kommen → in Text wandeln
   const txt = (v) => toDisplayName(v);
   s.services.forEach((svc) => {
@@ -1657,8 +1657,8 @@ function deleteIncident(svcId, incId, opts = {}) {
 // abwechselnd). Die App zerlegt sie in ein Standbild und eine Blaulicht-Animation; beide liegen auf dem Gerät
 // unter eigenen Adressen (…?etb=n bzw. …?etb=s), die der Service Worker von dort liefert.
 function spriteKey(url, k) { return url + (url.includes('?') ? '&' : '?') + 'etb=' + k; }
-function catNormal(c) { return c && c.iconNormal ? (c.sprite ? spriteKey(c.iconNormal, 'n') : c.iconNormal) : ''; }
-function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's') : (c && c.iconSoSi) || ''; }
+function catNormal(c) { return c && c.iconNormal ? (c.sprite ? spriteKey(c.iconNormal, 'n' + c.sprite) : c.iconNormal) : ''; }
+function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's' + c.sprite) : (c && c.iconSoSi) || ''; }
 /** Höhe deutlich größer als Breite → LstSim-Streifen. Anzahl der Bilder grob übers Seitenverhältnis geschätzt
  *  (Fahrzeuge sind etwa doppelt so breit wie hoch); genau bestimmt wird sie beim Zerlegen (spriteFrameCount). */
 function spriteFramesOf(w, h) {
@@ -3948,7 +3948,9 @@ function updateVcatPreview() {
       // LstSim-Streifen: Vorschau als Standbild + Blaulicht-Animation
       if (forced === 1 || (!forced && !spriteFramesOf(img.naturalWidth, img.naturalHeight)) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
-      const est = forced || spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      const known = (state.vehicleCategories || []).find((c) => c.iconNormal === normal && c.sprite && !c.spriteGuess);
+      const est = forced || (known && known.sprite) || spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      let exact = !!(forced || known);
       const draw = (n) => {
       if (document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
@@ -3960,12 +3962,15 @@ function updateVcatPreview() {
         return d;
       };
       pre.append(mk(false), mk(true));
-      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = forced ? `Streifen mit ${n} Bildern (fest eingestellt) – Bild 1 ohne Licht, die übrigen ergeben das Blaulicht.` : `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`;
+      const note = document.createElement('span'); note.className = 'vcat-sprite-note';
+      note.textContent = forced ? `Streifen mit ${n} Bildern (fest eingestellt) – Bild 1 ohne Licht, die übrigen ergeben das Blaulicht.`
+        : exact ? `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`
+        : `LstSim-Grafik, vermutlich ${n} Bilder (geschätzt – genau zählen geht nur mit verbundenem Dienstplan-Worker). Stimmt es nicht, oben bei „Einzelbilder“ festlegen.`;
       pre.appendChild(note);
       };
       draw(est);
       // genau zählen (über den Worker, sonst bleibt die Schätzung)
-      if (!forced) fetchSpriteBlob(normal).then(createImageBitmap).then((bmp) => { const n = spriteFrameCount(bmp, est); if (n !== est) draw(n); }).catch(() => {});
+      if (!forced && !known) fetchSpriteBlob(normal).then(createImageBitmap).then((bmp) => { const n = spriteFrameCount(bmp, est); exact = true; draw(n); }).catch(() => {});
     };
     pre.appendChild(img);
   }
@@ -3988,12 +3993,16 @@ async function saveVehicleCat() {
   const mirror = document.getElementById('vcat-mirror').checked;
   // LstSim-Streifen erkennen (nur wenn kein eigenes SoSi-Bild angegeben ist) – oder fest eingestellt
   let sprite = 0;
+  const prev = _vcatDialogId ? (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId) : null;
+  let guess = false;
   if (iconNormal && !iconSoSi && forced !== 1) {
     if (forced > 1) sprite = forced;
-    else { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; }
+    else if (prev && prev.iconNormal === iconNormal && prev.sprite && !prev.spriteGuess && !prev.frames) sprite = prev.sprite; // schon genau gezählt
+    else { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; guess = !!sprite; }
   }
   const apply = (c) => {
     if (sprite) c.sprite = sprite; else delete c.sprite;
+    if (guess) c.spriteGuess = true; else delete c.spriteGuess;
     if (forced) c.frames = forced; else delete c.frames;
     if (mirror) c.mirror = true; else delete c.mirror;
   };
@@ -4069,7 +4078,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 132;
+const APP_VERSION = 133;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6071,7 +6080,9 @@ async function processSprite(blob, hint = 3, forced = 0) {
   // Blaulicht: alle Bilder nach dem ersten in ihrer Reihenfolge (LstSim: 2 Phasen links/rechts oder 4 Phasen stark/schwach)
   const sosi = crop.length > 2 ? await makeApng(crop.slice(1), spriteDelay(crop.length)) : await canvasPng(crop[1] || crop[0]);
   const hdr = (b) => ({ 'Content-Type': 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(blob.size), 'X-Etb-Cropped': '1', 'X-Etb-Sprite': '1', 'X-Etb-Frames': String(frames), 'X-Etb-V': ICON_PROC_VERSION });
-  return [new Response(normal, { headers: hdr(normal) }), new Response(sosi, { headers: hdr(sosi) })];
+  const out = [new Response(normal, { headers: hdr(normal) }), new Response(sosi, { headers: hdr(sosi) })];
+  out.frames = frames;
+  return out;
 }
 async function fetchSpriteBlob(url) {
   try { return await fetchIconViaWorker(url); } catch (_) {}
@@ -6111,13 +6122,21 @@ async function processIconPair(urls) {
 /** LstSim-Streifen zerlegen und ablegen – auch wenn „Icons offline“ aus ist (sonst gäbe es kein Blaulicht). */
 async function syncSpriteIcons(cache, force) {
   const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
-  let failed = 0;
+  let failed = 0, changed = false;
   for (const c of state.vehicleCategories || []) {
     if (!c.sprite || !c.iconNormal) continue;
-    const keys = [abs(catNormal(c)), abs(catSoSi(c))];
-    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames') && (!c.frames || h.headers.get('X-Etb-Frames') === String(c.frames)))) continue; } // ohne Bildanzahl: noch mit fester 3er-Zerlegung erstellt → neu
-    try { const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite, c.frames || 0); await Promise.all(keys.map((k, i) => cache.put(k, resps[i]))); }
-    catch (_) { failed++; }
+    const keysOf = () => [abs(catNormal(c)), abs(catSoSi(c))];
+    if (!force && !c.spriteGuess) { const hits = await Promise.all(keysOf().map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames') === String(c.sprite))) continue; }
+    try {
+      const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite, c.frames || 0);
+      // erkannte Anzahl in der Kategorie merken (wird synchronisiert → alle Geräte kennen sie, auch ohne Worker)
+      if (resps.frames !== c.sprite || c.spriteGuess) { c.sprite = resps.frames; delete c.spriteGuess; changed = true; }
+      await Promise.all(keysOf().map((k, i) => cache.put(k, resps[i])));
+    } catch (_) { failed++; }
+  }
+  if (changed) {
+    saveState(); applyVehicleMirror();
+    try { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent(); } catch (_) {}
   }
   return failed;
 }

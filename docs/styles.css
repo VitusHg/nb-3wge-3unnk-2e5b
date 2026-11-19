@@ -4165,3 +4165,14 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .vcat-check { display: flex !important; flex-direction: row !important; align-items: center; gap: 10px; }
 .vcat-check input { width: 20px; height: 20px; margin: 0; flex: none; }
 .vcat-preview.is-mirror img, .vcat-preview.is-mirror .vcat-sprite { scale: -1 1; }
+
+/* Fahrzeug-Icons größer: gleiche Höhe für alle, Breite nach Bedarf (nur sehr lange Fahrzeuge stoßen an die Grenze) */
+.svc-card-icon-wrap { width: 100px; }
+.svc-card-icon { height: 40px; width: auto; max-width: 92px; max-height: none; }
+@media (max-width: 700px) { .svc-card-icon-wrap { width: 98px; } }
+.code-item-icon { width: 76px; height: 32px; }
+.code-item-icon img { max-width: 76px; max-height: 32px; }
+[data-compact] .svc-card-icon-wrap { width: 70px; }
+[data-compact] .svc-card-icon { height: 28px; max-width: 64px; }
+.svc-card-icon.veh-sq { width: 72px; height: 40px; }
+[data-compact] .svc-card-icon.veh-sq { width: 50px; height: 28px; }
