@@ -258,7 +258,7 @@ function normalizeState(s) {
   s.alarmBlaulicht = isObj(s.alarmBlaulicht) ? s.alarmBlaulicht : {};
   Object.keys(s.alarmBlaulicht).forEach((k) => { s.alarmBlaulicht[k] = !!s.alarmBlaulicht[k]; });
   s.pzcCodes = s.pzcCodes.map((p) => ({ code: toDisplayName(p.code), diagnosis: toDisplayName(p.diagnosis) })).filter((p) => p.code);
-  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; });
+  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; const fr = Number(c.frames); if (fr >= 1 && fr <= 12) c.frames = fr; else delete c.frames; if (c.mirror) c.mirror = true; else delete c.mirror; });
   // Textfelder können aus Fremd-Exporten (Henri) als Objekte kommen → in Text wandeln
   const txt = (v) => toDisplayName(v);
   s.services.forEach((svc) => {
@@ -1695,6 +1695,22 @@ function measureImage(url, ms = 8000) {
     img.onerror = () => { clearTimeout(t); res(null); };
     img.src = url;
   });
+}
+
+/** Gespiegelte Kategorien: alle Bilder mit ihren Adressen werden per CSS waagrecht gespiegelt (überall in der App). */
+function applyVehicleMirror() {
+  let el = document.getElementById('veh-mirror-css');
+  if (!el) { el = document.createElement('style'); el.id = 'veh-mirror-css'; document.head.appendChild(el); }
+  const q = (u) => '"' + String(u).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+  const sel = [];
+  for (const c of state.vehicleCategories || []) {
+    if (!c.mirror) continue;
+    for (const u of [catNormal(c), catSoSi(c)].filter(Boolean)) {
+      sel.push(`img[src=${q(u)}]`);
+      try { const abs = new URL(u, location.href).href; if (abs !== u) sel.push(`img[src=${q(abs)}]`); } catch (_) {}
+    }
+  }
+  el.textContent = sel.length ? `${sel.join(',\n')} { scale: -1 1; }` : '';
 }
 
 function vehicleIconSrc(vehicleName, sosi = false) {
@@ -3907,6 +3923,8 @@ function openVehicleCatDialog(catId) {
   document.getElementById('vcat-name').value = cat ? cat.name : '';
   document.getElementById('vcat-icon-normal').value = cat ? (cat.iconNormal || '') : '';
   document.getElementById('vcat-icon-sosi').value = cat ? (cat.iconSoSi || '') : '';
+  document.getElementById('vcat-frames').value = cat && cat.frames ? String(cat.frames) : '';
+  document.getElementById('vcat-mirror').checked = !!(cat && cat.mirror);
   updateVcatPreview();
   openDialog('dialog-vehicle-cat');
   // Ensure vehicle cat dialog appears above the vehicles popup
@@ -3919,6 +3937,8 @@ function updateVcatPreview() {
   const sosi = document.getElementById('vcat-icon-sosi').value.trim();
   const pre = document.getElementById('vcat-preview');
   if (!pre) return;
+  const forced = Number(document.getElementById('vcat-frames').value) || 0; // 0 = automatisch, 1 = kein Streifen
+  pre.classList.toggle('is-mirror', document.getElementById('vcat-mirror').checked);
   pre.innerHTML = '';
   if (normal) {
     const img = document.createElement('img');
@@ -3926,9 +3946,9 @@ function updateVcatPreview() {
     img.onerror = () => { img.style.opacity = '.3'; img.title = 'Bild nicht erreichbar'; };
     img.onload = () => {
       // LstSim-Streifen: Vorschau als Standbild + Blaulicht-Animation
-      if (!spriteFramesOf(img.naturalWidth, img.naturalHeight) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
+      if (forced === 1 || (!forced && !spriteFramesOf(img.naturalWidth, img.naturalHeight)) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
-      const est = spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      const est = forced || spriteFramesOf(img.naturalWidth, img.naturalHeight);
       const draw = (n) => {
       if (document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
@@ -3940,12 +3960,12 @@ function updateVcatPreview() {
         return d;
       };
       pre.append(mk(false), mk(true));
-      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`;
+      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = forced ? `Streifen mit ${n} Bildern (fest eingestellt) – Bild 1 ohne Licht, die übrigen ergeben das Blaulicht.` : `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`;
       pre.appendChild(note);
       };
       draw(est);
       // genau zählen (über den Worker, sonst bleibt die Schätzung)
-      fetchSpriteBlob(normal).then(createImageBitmap).then((bmp) => { const n = spriteFrameCount(bmp, est); if (n !== est) draw(n); }).catch(() => {});
+      if (!forced) fetchSpriteBlob(normal).then(createImageBitmap).then((bmp) => { const n = spriteFrameCount(bmp, est); if (n !== est) draw(n); }).catch(() => {});
     };
     pre.appendChild(img);
   }
@@ -3964,10 +3984,19 @@ async function saveVehicleCat() {
   if (!name) { toast('Bitte Name eingeben.', 'error'); return; }
   const iconNormal = document.getElementById('vcat-icon-normal').value.trim();
   const iconSoSi = document.getElementById('vcat-icon-sosi').value.trim();
-  // LstSim-Streifen erkennen (nur wenn kein eigenes SoSi-Bild angegeben ist)
+  const forced = Number(document.getElementById('vcat-frames').value) || 0; // 0 = automatisch, 1 = kein Streifen
+  const mirror = document.getElementById('vcat-mirror').checked;
+  // LstSim-Streifen erkennen (nur wenn kein eigenes SoSi-Bild angegeben ist) – oder fest eingestellt
   let sprite = 0;
-  if (iconNormal && !iconSoSi) { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; }
-  const apply = (c) => { if (sprite) c.sprite = sprite; else delete c.sprite; };
+  if (iconNormal && !iconSoSi && forced !== 1) {
+    if (forced > 1) sprite = forced;
+    else { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; }
+  }
+  const apply = (c) => {
+    if (sprite) c.sprite = sprite; else delete c.sprite;
+    if (forced) c.frames = forced; else delete c.frames;
+    if (mirror) c.mirror = true; else delete c.mirror;
+  };
   if (_vcatDialogId) {
     const cat = (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId);
     if (cat) { cat.name = name; cat.iconNormal = iconNormal; cat.iconSoSi = iconSoSi; apply(cat); }
@@ -3977,6 +4006,7 @@ async function saveVehicleCat() {
     state.vehicleCategories.push(c);
   }
   saveState(); closeDialog('dialog-vehicle-cat'); renderSettings();
+  applyVehicleMirror();
   if (sprite) toast('LstSim-Grafik erkannt – wird aufbereitet …', 'info', 2500);
   syncVehicleIcons({ force: !!sprite }).then(() => {
     if (sprite) { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); } if (document.getElementById('dialog-vehicles').style.display === 'flex') renderIconCacheRow(); }).catch(() => {});
@@ -4039,7 +4069,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 131;
+const APP_VERSION = 132;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6026,9 +6056,9 @@ async function makeApng(canvases, delayMs = 400) {
   return new Blob(parts, { type: 'image/png' });
 }
 /** LstSim-Streifen zerlegen: Bild 1 = ohne Licht, Bilder 2… = Blaulicht im Wechsel. Gemeinsam zugeschnitten. */
-async function processSprite(blob, hint = 3) {
+async function processSprite(blob, hint = 3, forced = 0) {
   const bmp = await createImageBitmap(blob);
-  const frames = spriteFrameCount(bmp, hint);
+  const frames = forced > 1 ? forced : spriteFrameCount(bmp, hint);
   const fh = Math.floor(bmp.height / frames), w = bmp.width;
   const cv = Array.from({ length: frames }, (_, i) => { const c = document.createElement('canvas'); c.width = w; c.height = fh; c.getContext('2d').drawImage(bmp, 0, i * fh, w, fh, 0, 0, w, fh); return c; });
   let box = null;
@@ -6085,8 +6115,8 @@ async function syncSpriteIcons(cache, force) {
   for (const c of state.vehicleCategories || []) {
     if (!c.sprite || !c.iconNormal) continue;
     const keys = [abs(catNormal(c)), abs(catSoSi(c))];
-    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames'))) continue; } // ohne Bildanzahl: noch mit fester 3er-Zerlegung erstellt → neu
-    try { const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite); await Promise.all(keys.map((k, i) => cache.put(k, resps[i]))); }
+    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames') && (!c.frames || h.headers.get('X-Etb-Frames') === String(c.frames)))) continue; } // ohne Bildanzahl: noch mit fester 3er-Zerlegung erstellt → neu
+    try { const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite, c.frames || 0); await Promise.all(keys.map((k, i) => cache.put(k, resps[i]))); }
     catch (_) { failed++; }
   }
   return failed;
@@ -8096,6 +8126,7 @@ function init() {
   document.getElementById('btn-vcat-save').addEventListener('click', saveVehicleCat);
 
   // Vehicle cat dialog: live preview on URL input
+  ['vcat-frames', 'vcat-mirror'].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener('change', updateVcatPreview); });
   ['vcat-icon-normal', 'vcat-icon-sosi'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', updateVcatPreview);
@@ -8142,6 +8173,7 @@ function init() {
   initAppLifecycle();
   restoreUiState();
   liteKeyboard();
+  applyVehicleMirror();
   updateQuickBell();
 
   // PWA service worker
@@ -10336,6 +10368,7 @@ function syncApply(obj) {
     Object.entries(obj.ls || {}).forEach(([k, v]) => { if ([...SETTINGS_EXPORT_KEYS, ...SYNC_EXTRA_LS].includes(k)) lsSet(k, v); });
     applyTheme(lsGet('etb_theme') || 'system');
     applyCompact(lsGet('etb_compact') === '1');
+    applyVehicleMirror();
   } finally { syncApplying = false; }
   renderTab(activeTab);
   if (activeTab !== 'einstellungen') renderSettings();

@@ -553,6 +553,19 @@
           <span>Icon SoSi (APNG-URL)</span>
           <input type="url" id="vcat-icon-sosi" placeholder="https://…_mit_SoSi.png" />
         </label>
+        <label>
+          <span>Einzelbilder (LstSim-Streifen)</span>
+          <select id="vcat-frames">
+            <option value="">Automatisch erkennen</option>
+            <option value="1">Kein Streifen (einzelnes Bild)</option>
+            <option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+          </select>
+        </label>
+        <label class="vcat-check">
+          <input type="checkbox" id="vcat-mirror" />
+          <span>Spiegelverkehrt anzeigen</span>
+        </label>
         <div class="vcat-preview-row">
           <span class="field-label">Vorschau</span>
           <div id="vcat-preview" class="vcat-preview"></div>
