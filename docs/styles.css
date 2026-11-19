@@ -4227,3 +4227,12 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 @container svccard (max-width: 340px) { .service-card .svc-card-icon-wrap { width: 84px; } }
 /* ganz schmal: Wochentag weglassen (steht im Schichtkürzel, z. B. MINA = Mittwoch Nacht) */
 @container svccard (max-width: 340px) { .svc-card-wd { display: none; } }
+
+/* Ausschnitt-Vorschau: Rahmen im Format der Dienstliste, außen blass das, was abgeschnitten wird */
+.vcat-fit-row { align-items: flex-start; }
+.vcat-fit-stage { --fw: 104px; --fh: 72px; position: relative; flex: none; width: calc(var(--fw) * 2); height: calc(var(--fh) * 1.7); border-radius: 12px; background: var(--fill); overflow: hidden; }
+.vcat-fit-ghost, .vcat-fit-stage .vcat-fit-box { position: absolute; left: 50%; top: 50%; width: var(--fw); height: var(--fh); transform: translate(-50%, -50%); }
+.vcat-fit-ghost { overflow: visible; opacity: .3; }
+.vcat-fit-stage .vcat-fit-box { overflow: hidden; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
+.vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { position: absolute; left: 8px; top: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
+.vcat-fit-stage::after { content: "so in der Liste"; position: absolute; left: 8px; bottom: 5px; font-size: 10px; font-weight: 600; color: var(--text3); }

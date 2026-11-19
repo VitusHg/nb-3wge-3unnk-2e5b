@@ -3956,10 +3956,16 @@ function updateVcatFit() {
   const normal = document.getElementById('vcat-icon-normal').value.trim();
   const cat = _vcatDialogId ? (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId) : null;
   const src = cat && cat.iconNormal === normal ? catNormal(cat) : normal; // aufbereitetes Bild, sobald gespeichert
-  if (img.getAttribute('src') !== src) { if (src) img.setAttribute('src', src); else img.removeAttribute('src'); }
+  const ghost = document.getElementById('vcat-fit-ghost');
+  [img, ghost].forEach((el) => { if (el && el.getAttribute('src') !== src) { if (src) el.setAttribute('src', src); else el.removeAttribute('src'); } });
+  // Rahmen im Format des Icon-Felds der Dienstliste (echte Karte ausmessen, sonst Standardgröße)
+  const stage = document.getElementById('vcat-fit-stage');
+  const wrap = [...document.querySelectorAll('#service-list .svc-card-icon-wrap')].find((w) => w.getBoundingClientRect().width > 20);
+  const r = wrap ? wrap.getBoundingClientRect() : null;
+  if (stage) { stage.style.setProperty('--fw', `${Math.round(r ? r.width : 104)}px`); stage.style.setProperty('--fh', `${Math.round(r ? r.height : 72)}px`); }
   const z = Number(document.getElementById('vcat-zoom').value) || 100, ox = Number(document.getElementById('vcat-ox').value) || 0, oy = Number(document.getElementById('vcat-oy').value) || 0;
   const m = document.getElementById('vcat-mirror').checked ? -1 : 1;
-  img.style.scale = `${m * z / 100} ${z / 100}`; img.style.translate = `${ox}% ${oy}%`;
+  [img, ghost].forEach((el) => { if (!el) return; el.style.scale = `${m * z / 100} ${z / 100}`; el.style.translate = `${ox}% ${oy}%`; });
   document.getElementById('vcat-zoom-v').textContent = `${z} %`;
   document.getElementById('vcat-ox-v').textContent = String(ox);
   document.getElementById('vcat-oy-v').textContent = String(oy);
@@ -4116,7 +4122,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 135;
+const APP_VERSION = 136;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
