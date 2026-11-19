@@ -1672,7 +1672,7 @@ function deleteIncident(svcId, incId, opts = {}) {
 // unter eigenen Adressen (…?etb=n bzw. …?etb=s), die der Service Worker von dort liefert.
 function spriteKey(url, k) { return url + (url.includes('?') ? '&' : '?') + 'etb=' + k; }
 function catNormal(c) { return c && c.iconNormal ? (c.sprite ? spriteKey(c.iconNormal, 'n' + c.sprite) : c.iconNormal) : ''; }
-function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's' + c.sprite) : (c && c.iconSoSi) || ''; }
+function catSoSi(c) { return c && c.iconSoSi ? c.iconSoSi : c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's' + c.sprite) : ''; } // eigene SoSi-Grafik hat Vorrang
 /** Höhe deutlich größer als Breite → LstSim-Streifen. Anzahl der Bilder grob übers Seitenverhältnis geschätzt
  *  (Fahrzeuge sind etwa doppelt so breit wie hoch); genau bestimmt wird sie beim Zerlegen (spriteFrameCount). */
 function spriteFramesOf(w, h) {
@@ -3957,7 +3957,10 @@ function updateVcatFit() {
   const cat = _vcatDialogId ? (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId) : null;
   const src = cat && cat.iconNormal === normal ? catNormal(cat) : normal; // aufbereitetes Bild, sobald gespeichert
   const ghost = document.getElementById('vcat-fit-ghost');
-  [img, ghost].forEach((el) => { if (el && el.getAttribute('src') !== src) { if (src) el.setAttribute('src', src); else el.removeAttribute('src'); } });
+  // noch nicht zerlegter Streifen (höher als breit): Hinweis statt irreführendem Bild
+  const stg = document.getElementById('vcat-fit-stage');
+  img.onload = () => { if (stg) stg.classList.toggle('is-raw', img.naturalHeight > img.naturalWidth * 1.15); };
+  [img, ghost].forEach((el) => { if (el && (el.getAttribute('src') !== src || !el.naturalWidth)) { el.removeAttribute('src'); if (src) el.setAttribute('src', src); } });
   // Rahmen im Format des Icon-Felds der Dienstliste (echte Karte ausmessen, sonst Standardgröße)
   const stage = document.getElementById('vcat-fit-stage');
   const wrap = [...document.querySelectorAll('#service-list .svc-card-icon-wrap')].find((w) => w.getBoundingClientRect().width > 20);
@@ -4001,9 +4004,11 @@ function updateVcatPreview() {
         if (on) { let i = 1; d._t = setInterval(() => { if (!d.isConnected) { clearInterval(d._t); return; } d.style.backgroundPosition = `0 ${(i / (n - 1)) * 100}%`; i = i + 1 >= n ? 1 : i + 1; }, spriteDelay(n)); d.style.backgroundPosition = `0 ${(1 / (n - 1)) * 100}%`; }
         return d;
       };
-      pre.append(mk(false), mk(true));
+      if (sosi) { const si = document.createElement('img'); si.src = sosi; si.style.cssText = 'height:43px;max-width:120px;object-fit:contain'; si.title = 'SoSi (eigene Grafik)'; pre.append(mk(false), si); }
+      else pre.append(mk(false), mk(true));
       const note = document.createElement('span'); note.className = 'vcat-sprite-note';
-      note.textContent = forced ? `Streifen mit ${n} Bildern (fest eingestellt) – Bild 1 ohne Licht, die übrigen ergeben das Blaulicht.`
+      note.textContent = sosi ? `Streifen mit ${n} Bildern${forced ? ' (fest eingestellt)' : exact ? '' : ' (geschätzt)'} – das Standbild kommt aus Bild 1, das Blaulicht aus der eingetragenen SoSi-Grafik. Ohne SoSi-Grafik entsteht es aus den übrigen Bildern.`
+        : forced ? `Streifen mit ${n} Bildern (fest eingestellt) – Bild 1 ohne Licht, die übrigen ergeben das Blaulicht.`
         : exact ? `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`
         : `LstSim-Grafik, vermutlich ${n} Bilder (geschätzt – genau zählen geht nur mit verbundenem Dienstplan-Worker). Stimmt es nicht, oben bei „Einzelbilder“ festlegen.`;
       pre.appendChild(note);
@@ -4035,7 +4040,7 @@ async function saveVehicleCat() {
   let sprite = 0;
   const prev = _vcatDialogId ? (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId) : null;
   let guess = false;
-  if (iconNormal && !iconSoSi && forced !== 1) {
+  if (iconNormal && forced !== 1) {
     if (forced > 1) sprite = forced;
     else if (prev && prev.iconNormal === iconNormal && prev.sprite && !prev.spriteGuess && !prev.frames) sprite = prev.sprite; // schon genau gezählt
     else { const m = await measureImage(iconNormal); sprite = m ? spriteFramesOf(m.w, m.h) : 0; guess = !!sprite; }
@@ -4122,7 +4127,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 136;
+const APP_VERSION = 137;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6167,25 +6172,27 @@ async function processIconPair(urls) {
 /** LstSim-Streifen zerlegen und ablegen – auch wenn „Icons offline“ aus ist (sonst gäbe es kein Blaulicht). */
 async function syncSpriteIcons(cache, force) {
   const abs = (u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } };
-  let failed = 0, changed = false;
+  let failed = 0, changed = false, made = 0;
   for (const c of state.vehicleCategories || []) {
     if (!c.sprite || !c.iconNormal) continue;
-    const keysOf = () => [abs(catNormal(c)), abs(catSoSi(c))];
+    const keysOf = () => (c.iconSoSi ? [abs(catNormal(c))] : [abs(catNormal(c)), abs(catSoSi(c))]);
     if (!force && !c.spriteGuess) { const hits = await Promise.all(keysOf().map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames') === String(c.sprite))) continue; }
     try {
       const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite, c.frames || 0);
       // erkannte Anzahl in der Kategorie merken (wird synchronisiert → alle Geräte kennen sie, auch ohne Worker)
       if (resps.frames !== c.sprite || c.spriteGuess) { c.sprite = resps.frames; delete c.spriteGuess; changed = true; }
       await Promise.all(keysOf().map((k, i) => cache.put(k, resps[i])));
+      made++;
     } catch (_) { failed++; }
   }
-  if (changed) {
-    saveState(); applyVehicleMirror();
+  if (changed) { saveState(); applyVehicleMirror(); }
+  if (changed || made) { // neu zerlegte Bilder anzeigen
+    try { if (document.getElementById('dialog-vehicle-cat').style.display === 'flex') updateVcatFit(); } catch (_) {}
     try { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent(); } catch (_) {}
   }
   return failed;
 }
-const spriteKeysAll = () => (state.vehicleCategories || []).filter((c) => c.sprite && c.iconNormal).flatMap((c) => [catNormal(c), catSoSi(c)]).map((u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } });
+const spriteKeysAll = () => (state.vehicleCategories || []).filter((c) => c.sprite && c.iconNormal).flatMap((c) => (c.iconSoSi ? [catNormal(c)] : [catNormal(c), catSoSi(c)])).map((u) => { try { return new URL(u, location.href).href; } catch (_) { return u; } });
 
 function syncVehicleIcons({ force = false } = {}) {
   if (!('caches' in window)) return Promise.resolve({ total: 0, cached: 0, failed: 0 });

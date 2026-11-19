@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v136'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v137'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -76,7 +76,11 @@ self.addEventListener('fetch', (event) => {
     // zerlegte LstSim-Grafiken (…?etb=n / …?etb=s) gibt es nur auf dem Gerät – immer zuerst von dort
     const sprite = url.searchParams.has('etb');
     event.respondWith(iconsOffline().then(async (keep) => {
-      if (sprite) { const hit = await (await caches.open(ICON_CACHE)).match(event.request.url); if (hit) return hit; }
+      if (sprite) {
+        const hit = await (await caches.open(ICON_CACHE)).match(event.request.url);
+        // noch nicht zerlegt: nichts liefern (der rohe Streifen bliebe sonst im Browser-Speicher hängen) – die App lädt nach dem Zerlegen neu
+        return hit || new Response('', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+      }
       if (!keep) return fetch(event.request); // ausgelagert: nichts auf dem Gerät ablegen
       const cache = await caches.open(ICON_CACHE);
       const hit = await cache.match(event.request.url);

@@ -4236,3 +4236,5 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .vcat-fit-stage .vcat-fit-box { overflow: hidden; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
 .vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { position: absolute; left: 8px; top: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
 .vcat-fit-stage::after { content: "so in der Liste"; position: absolute; left: 8px; bottom: 5px; font-size: 10px; font-weight: 600; color: var(--text3); }
+.vcat-fit-stage.is-raw .vcat-fit-ghost, .vcat-fit-stage.is-raw .vcat-fit-box img { visibility: hidden; }
+.vcat-fit-stage.is-raw::before { content: "Streifen wird beim Speichern zerlegt – danach hier anpassen"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 10px; text-align: center; font-size: 12px; color: var(--text2); z-index: 1; }
