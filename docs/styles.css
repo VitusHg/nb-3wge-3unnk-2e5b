@@ -4190,3 +4190,40 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .svc-card-dur { font-size: 13px; color: var(--text3); font-variant-numeric: tabular-nums; }
 @container (max-width: 205px) { .svc-card-dur { display: none; } }
 .svc-card-time { overflow: visible; }
+
+/* ── Dienstliste: Icon-Feld nutzt die ganze Kartenhöhe, ohne eigenen Hintergrund (folgt Hover/Auswahl) ── */
+.service-card { align-items: stretch; }
+.svc-card-icon-wrap, .service-card .svc-card-icon-wrap {
+  width: 108px; min-height: 64px; align-self: stretch; background: transparent !important; border-right: none !important;
+  overflow: hidden; position: relative; padding: 0;
+}
+.svc-card-icon, .svc-card-icon.veh-sq {
+  position: absolute; left: 8px; right: 4px; top: 6px; bottom: 6px;
+  width: calc(100% - 12px); height: calc(100% - 12px); max-width: none; max-height: none;
+  object-fit: contain; object-position: center; aspect-ratio: auto;
+}
+.svc-card-icon.veh-sq { object-fit: cover; object-position: 50% 55%; }
+@media (max-width: 700px) { .svc-card-icon-wrap, .service-card .svc-card-icon-wrap { width: 104px; } }
+[data-compact] .svc-card-icon-wrap, [data-compact] .service-card .svc-card-icon-wrap { width: 74px; min-height: 44px; }
+/* Text: bei knappem Platz kleiner, die Uhrzeit wird im Notfall gekürzt – nie unter die Zahl */
+.svc-card-when { overflow: hidden; }
+.svc-card-date { flex: none; }
+.svc-card-time { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 190px) { .svc-card-date { font-size: 13px; } .svc-card-time { font-size: 12px; } .svc-card-when { gap: 5px; } }
+
+/* Kategorie-Dialog: Ausschnitt in der Dienstliste */
+.vcat-fit { margin-top: 10px; }
+.vcat-fit-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.vcat-fit-box { position: relative; width: 104px; height: 66px; flex: none; overflow: hidden; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--separator); }
+.vcat-fit-box img { position: absolute; left: 8px; right: 4px; top: 6px; bottom: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
+.vcat-fit-ctrls { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 4px; }
+.vcat-range { display: grid !important; grid-template-columns: 44px 1fr 46px; align-items: center; gap: 8px; margin: 0 !important; }
+.vcat-range span { font-size: 13px; color: var(--text2); }
+.vcat-range input { width: 100%; padding: 0 !important; }
+.vcat-range b { font-size: 12px; font-weight: 600; color: var(--text2); text-align: right; font-variant-numeric: tabular-nums; }
+#vcat-fit-reset { align-self: flex-start; padding: 4px 0; font-size: 13px; }
+/* schmale Karten (z. B. Liste neben der Detailansicht am Computer): Icon-Feld etwas schmaler, damit die Uhrzeit Platz hat */
+.service-card { container: svccard / inline-size; }
+@container svccard (max-width: 340px) { .service-card .svc-card-icon-wrap { width: 84px; } }
+/* ganz schmal: Wochentag weglassen (steht im Schichtkürzel, z. B. MINA = Mittwoch Nacht) */
+@container svccard (max-width: 340px) { .svc-card-wd { display: none; } }
