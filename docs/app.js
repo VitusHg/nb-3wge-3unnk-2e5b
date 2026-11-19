@@ -1659,8 +1659,33 @@ function deleteIncident(svcId, incId, opts = {}) {
 function spriteKey(url, k) { return url + (url.includes('?') ? '&' : '?') + 'etb=' + k; }
 function catNormal(c) { return c && c.iconNormal ? (c.sprite ? spriteKey(c.iconNormal, 'n') : c.iconNormal) : ''; }
 function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNormal, 's') : (c && c.iconSoSi) || ''; }
-/** Höhe deutlich größer als Breite → Streifen mit (bei LstSim) 3 Einzelbildern. */
-function spriteFramesOf(w, h) { return w && h && h > w * 1.15 ? 3 : 0; }
+/** Höhe deutlich größer als Breite → LstSim-Streifen. Anzahl der Bilder grob übers Seitenverhältnis geschätzt
+ *  (Fahrzeuge sind etwa doppelt so breit wie hoch); genau bestimmt wird sie beim Zerlegen (spriteFrameCount). */
+function spriteFramesOf(w, h) {
+  if (!w || !h || h <= w * 1.15) return 0;
+  let best = 3, bestD = Infinity;
+  for (let n = 2; n <= 8; n++) { const d = Math.abs(w / (h / n) - 1.95); if (d < bestD) { bestD = d; best = n; } }
+  return best;
+}
+/** Anzahl der Einzelbilder aus den Bildpunkten: bei der richtigen Zerlegung sind die Umrisse aller Bilder deckungsgleich. */
+function spriteFrameCount(bmp, hint = 3) {
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height).data, w = c.width, h = c.height;
+  const on = (x, y) => d[(Math.min(h - 1, y) * w + x) * 4 + 3] > 40;
+  let best = 0, bestScore = Infinity;
+  for (let n = 2; n <= 8; n++) {
+    const fh = h / n, ratio = w / fh;
+    if (ratio < 1.15 || ratio > 3.8) continue;
+    let diff = 0, cnt = 0;
+    for (let i = 0; i < n - 1; i++) for (let y = 0; y < Math.floor(fh); y += 1) for (let x = 0; x < w; x += 2) {
+      diff += on(x, Math.floor(i * fh) + y) !== on(x, Math.floor((i + 1) * fh) + y); cnt++;
+    }
+    const score = diff / Math.max(1, cnt);
+    if (score < bestScore) { bestScore = score; best = n; }
+  }
+  return best && bestScore < 0.2 ? best : hint;
+}
 function measureImage(url, ms = 8000) {
   return new Promise((res) => {
     const img = new Image(); const t = setTimeout(() => res(null), ms);
@@ -3901,8 +3926,15 @@ function updateVcatPreview() {
       // LstSim-Streifen: Vorschau als Standbild + Blaulicht-Animation
       if (!spriteFramesOf(img.naturalWidth, img.naturalHeight) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
-      const mk = (cls) => { const d = document.createElement('span'); d.className = 'vcat-sprite ' + cls; d.style.backgroundImage = `url("${normal.replace(/"/g, '%22')}")`; d.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight / 3}`; return d; };
-      pre.append(mk('is-off'), mk('is-on'));
+      const n = spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      const mk = (on) => {
+        const d = document.createElement('span'); d.className = 'vcat-sprite';
+        d.style.backgroundImage = `url("${normal.replace(/"/g, '%22')}")`; d.style.backgroundSize = `100% ${n * 100}%`;
+        d.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight / n}`;
+        if (on) { let i = 1; d._t = setInterval(() => { if (!d.isConnected) { clearInterval(d._t); return; } d.style.backgroundPosition = `0 ${(i / (n - 1)) * 100}%`; i = i + 1 >= n ? 1 : i + 1; }, n > 3 ? 200 : 400); d.style.backgroundPosition = `0 ${(1 / (n - 1)) * 100}%`; }
+        return d;
+      };
+      pre.append(mk(false), mk(true));
       const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = 'LstSim-Grafik erkannt – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.';
       pre.appendChild(note);
     };
@@ -3998,7 +4030,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 129;
+const APP_VERSION = 130;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5985,8 +6017,9 @@ async function makeApng(canvases, delayMs = 400) {
   return new Blob(parts, { type: 'image/png' });
 }
 /** LstSim-Streifen zerlegen: Bild 1 = ohne Licht, Bilder 2… = Blaulicht im Wechsel. Gemeinsam zugeschnitten. */
-async function processSprite(blob, frames = 3) {
+async function processSprite(blob, hint = 3) {
   const bmp = await createImageBitmap(blob);
+  const frames = spriteFrameCount(bmp, hint);
   const fh = Math.floor(bmp.height / frames), w = bmp.width;
   const cv = Array.from({ length: frames }, (_, i) => { const c = document.createElement('canvas'); c.width = w; c.height = fh; c.getContext('2d').drawImage(bmp, 0, i * fh, w, fh, 0, 0, w, fh); return c; });
   let box = null;
@@ -5996,8 +6029,9 @@ async function processSprite(blob, frames = 3) {
   const cw = bx.x1 - bx.x0 + 1, ch = bx.y1 - bx.y0 + 1;
   const crop = cv.map((c) => { const o = document.createElement('canvas'); o.width = cw; o.height = ch; o.getContext('2d').drawImage(c, bx.x0, bx.y0, cw, ch, 0, 0, cw, ch); return o; });
   const normal = await canvasPng(crop[0]);
-  const sosi = crop.length > 2 ? await makeApng(crop.slice(1), 400) : await canvasPng(crop[1] || crop[0]);
-  const hdr = (b) => ({ 'Content-Type': 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(blob.size), 'X-Etb-Cropped': '1', 'X-Etb-Sprite': '1', 'X-Etb-V': ICON_PROC_VERSION });
+  // Blaulicht: alle Bilder nach dem ersten in ihrer Reihenfolge (LstSim: 2 Phasen links/rechts oder 4 Phasen stark/schwach)
+  const sosi = crop.length > 2 ? await makeApng(crop.slice(1), crop.length > 3 ? 200 : 400) : await canvasPng(crop[1] || crop[0]);
+  const hdr = (b) => ({ 'Content-Type': 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(blob.size), 'X-Etb-Cropped': '1', 'X-Etb-Sprite': '1', 'X-Etb-Frames': String(frames), 'X-Etb-V': ICON_PROC_VERSION });
   return [new Response(normal, { headers: hdr(normal) }), new Response(sosi, { headers: hdr(sosi) })];
 }
 async function fetchSpriteBlob(url) {
@@ -6042,7 +6076,7 @@ async function syncSpriteIcons(cache, force) {
   for (const c of state.vehicleCategories || []) {
     if (!c.sprite || !c.iconNormal) continue;
     const keys = [abs(catNormal(c)), abs(catSoSi(c))];
-    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1')) continue; }
+    if (!force) { const hits = await Promise.all(keys.map((k) => cache.match(k))); if (hits.every((h) => h && h.headers.get('X-Etb-Sprite') === '1' && h.headers.get('X-Etb-Frames'))) continue; } // ohne Bildanzahl: noch mit fester 3er-Zerlegung erstellt → neu
     try { const resps = await processSprite(await fetchSpriteBlob(c.iconNormal), c.sprite); await Promise.all(keys.map((k, i) => cache.put(k, resps[i]))); }
     catch (_) { failed++; }
   }
