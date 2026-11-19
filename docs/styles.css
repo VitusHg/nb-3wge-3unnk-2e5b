@@ -4258,3 +4258,8 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 
 /* Ausschnitt-Vorschau: Icon so platziert wie in der Dienstliste (mittig, 62×36) */
 .vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { left: 50%; top: 50%; width: 62px; height: 36px; transform: translate(-50%, -50%); }
+
+/* Zentrieren ohne transform: sonst kehrt das Spiegeln (scale: -1 1) die Verschiebung um und das Icon rutscht aus dem Feld */
+.svc-card-icon, .svc-card-icon.veh-sq { transform: none; left: calc(50% - 31px); top: calc(50% - 18px); }
+[data-compact] .svc-card-icon, [data-compact] .svc-card-icon.veh-sq { left: calc(50% - 24px); top: calc(50% - 14px); }
+.vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { transform: none; left: calc(50% - 31px); top: calc(50% - 18px); }
