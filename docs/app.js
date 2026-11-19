@@ -1135,7 +1135,8 @@ function renderServiceList() {
             <span class="service-card-badge badge-seg">⚡ SEG</span>
             <div class="service-card-title">${segInc && segInc.favorite ? '<span class="inc-row-fav">★</span>' : ''}${escHtml((segInc && segInc.alarmCode) || 'SEG-Einsatz')}</div>
           </div>
-          <div class="service-card-sub">${escHtml([svcWhenText(svc), svc.location].filter(Boolean).join(' · '))}</div>
+          ${svcCardWhenHtml(svc)}
+          ${svcCardPlaceHtml(svc.location)}
           ${segInc && segInc.note ? `<div class="inc-row-note svc-card-note">${ICON_NOTE}<span>${escHtml(segInc.note.replace(/\s+/g, ' '))}</span></div>` : ''}
         </div>
         <span class="svc-card-chev" aria-hidden="true">›</span>`;
@@ -1158,7 +1159,8 @@ function renderServiceList() {
           ${running ? '<span class="svc-live"><span class="home-active-pulse"></span>Läuft</span>' : ''}
           ${pendingPlanChange(svc) ? '<span class="dp-chg-badge is-updated">Geändert</span>' : ''}
         </div>
-        <div class="service-card-sub">${escHtml([svcWhenText(svc), svc.location].filter(Boolean).join(' · '))}</div>
+        ${svcCardWhenHtml(svc)}
+        ${svcCardPlaceHtml(svc.location)}
         ${svc.note ? `<div class="inc-row-note svc-card-note">${ICON_NOTE}<span>${escHtml(svc.note.replace(/\s+/g, ' '))}</span></div>` : ''}
       </div>
       <div class="svc-card-side">
@@ -1562,6 +1564,17 @@ function incidentsNewestFirst(list) {
 }
 
 /** „Mo., 02.11. · 17:30–05:30 (12 h)“ für Listen. */
+/** Karten-Zeilen für die Dienstliste: Datum fett vorne, Uhrzeit und Dauer zurückhaltend dahinter; Ort darunter. */
+function svcCardWhenHtml(svc) {
+  const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt);
+  if (!a) return '';
+  const day = a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  let time = formatTimeHM(a), dur = '';
+  if (b) { const h = (b - a) / 3600000; time += `–${formatTimeHM(b)}`; dur = `${Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')} h`; }
+  return `<div class="svc-card-when"><span class="svc-card-date">${escHtml(day)}</span><span class="svc-card-time">${escHtml(time)}</span>${dur ? `<span class="svc-card-dur">· ${escHtml(dur)}</span>` : ''}</div>`;
+}
+const svcCardPlaceHtml = (place) => (place ? `<div class="svc-card-place"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg><span>${escHtml(place)}</span></div>` : '');
+
 function svcWhenText(svc) {
   const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt);
   if (!a) return '';
@@ -4078,7 +4091,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 133;
+const APP_VERSION = 134;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

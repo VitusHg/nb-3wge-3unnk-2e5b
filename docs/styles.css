@@ -4176,3 +4176,17 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .svc-card-icon { height: 28px; max-width: 64px; }
 .svc-card-icon.veh-sq { width: 72px; height: 40px; }
 [data-compact] .svc-card-icon.veh-sq { width: 50px; height: 28px; }
+
+/* Dienstliste: Datum schnell erkennbar, Dienststelle in eigener Zeile */
+.svc-card-when { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-top: 1px; white-space: nowrap; }
+.svc-card-date { font-size: 14px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.svc-card-time { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.svc-card-place { display: flex; align-items: center; gap: 4px; min-width: 0; margin-top: 2px; font-size: 13px; color: var(--text2); }
+.svc-card-place svg { width: 13px; height: 13px; flex: none; opacity: .8; }
+.svc-card-place span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-card-body { padding-top: 9px; padding-bottom: 9px; }
+[data-compact] .svc-card-date { font-size: 13px; }
+.svc-card-body { container-type: inline-size; }
+.svc-card-dur { font-size: 13px; color: var(--text3); font-variant-numeric: tabular-nums; }
+@container (max-width: 205px) { .svc-card-dur { display: none; } }
+.svc-card-time { overflow: visible; }
