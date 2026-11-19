@@ -1664,9 +1664,11 @@ function catSoSi(c) { return c && c.iconNormal && c.sprite ? spriteKey(c.iconNor
 function spriteFramesOf(w, h) {
   if (!w || !h || h <= w * 1.15) return 0;
   let best = 3, bestD = Infinity;
-  for (let n = 2; n <= 8; n++) { const d = Math.abs(w / (h / n) - 1.95); if (d < bestD) { bestD = d; best = n; } }
+  for (let n = 2; n <= 12; n++) { const d = Math.abs(w / (h / n) - 1.95); if (d < bestD) { bestD = d; best = n; } }
   return best;
 }
+/** Tempo der Blaulicht-Animation je nach Zahl der Phasen (2: links/rechts, 4: stark/schwach, 6+: Blitzer). */
+function spriteDelay(frames) { return frames > 6 ? 150 : frames > 3 ? 200 : 400; }
 /** Anzahl der Einzelbilder aus den Bildpunkten: bei der richtigen Zerlegung sind die Umrisse aller Bilder deckungsgleich. */
 function spriteFrameCount(bmp, hint = 3) {
   const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
@@ -1674,9 +1676,9 @@ function spriteFrameCount(bmp, hint = 3) {
   const d = g.getImageData(0, 0, c.width, c.height).data, w = c.width, h = c.height;
   const on = (x, y) => d[(Math.min(h - 1, y) * w + x) * 4 + 3] > 40;
   let best = 0, bestScore = Infinity;
-  for (let n = 2; n <= 8; n++) {
+  for (let n = 2; n <= 12; n++) {
     const fh = h / n, ratio = w / fh;
-    if (ratio < 1.15 || ratio > 3.8) continue;
+    if (ratio < 1.15 || ratio > 4.5) continue;
     let diff = 0, cnt = 0;
     for (let i = 0; i < n - 1; i++) for (let y = 0; y < Math.floor(fh); y += 1) for (let x = 0; x < w; x += 2) {
       diff += on(x, Math.floor(i * fh) + y) !== on(x, Math.floor((i + 1) * fh) + y); cnt++;
@@ -3926,17 +3928,24 @@ function updateVcatPreview() {
       // LstSim-Streifen: Vorschau als Standbild + Blaulicht-Animation
       if (!spriteFramesOf(img.naturalWidth, img.naturalHeight) || document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
       pre.innerHTML = '';
-      const n = spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      const est = spriteFramesOf(img.naturalWidth, img.naturalHeight);
+      const draw = (n) => {
+      if (document.getElementById('vcat-icon-normal').value.trim() !== normal) return;
+      pre.innerHTML = '';
       const mk = (on) => {
         const d = document.createElement('span'); d.className = 'vcat-sprite';
         d.style.backgroundImage = `url("${normal.replace(/"/g, '%22')}")`; d.style.backgroundSize = `100% ${n * 100}%`;
         d.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight / n}`;
-        if (on) { let i = 1; d._t = setInterval(() => { if (!d.isConnected) { clearInterval(d._t); return; } d.style.backgroundPosition = `0 ${(i / (n - 1)) * 100}%`; i = i + 1 >= n ? 1 : i + 1; }, n > 3 ? 200 : 400); d.style.backgroundPosition = `0 ${(1 / (n - 1)) * 100}%`; }
+        if (on) { let i = 1; d._t = setInterval(() => { if (!d.isConnected) { clearInterval(d._t); return; } d.style.backgroundPosition = `0 ${(i / (n - 1)) * 100}%`; i = i + 1 >= n ? 1 : i + 1; }, spriteDelay(n)); d.style.backgroundPosition = `0 ${(1 / (n - 1)) * 100}%`; }
         return d;
       };
       pre.append(mk(false), mk(true));
-      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = 'LstSim-Grafik erkannt – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.';
+      const note = document.createElement('span'); note.className = 'vcat-sprite-note'; note.textContent = `LstSim-Grafik erkannt (${n} Bilder) – Blaulicht wird automatisch daraus gemacht, das SoSi-Feld bleibt leer.`;
       pre.appendChild(note);
+      };
+      draw(est);
+      // genau zählen (über den Worker, sonst bleibt die Schätzung)
+      fetchSpriteBlob(normal).then(createImageBitmap).then((bmp) => { const n = spriteFrameCount(bmp, est); if (n !== est) draw(n); }).catch(() => {});
     };
     pre.appendChild(img);
   }
@@ -4030,7 +4039,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 130;
+const APP_VERSION = 131;
 const APP_VERSION_DATE = '19.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6030,7 +6039,7 @@ async function processSprite(blob, hint = 3) {
   const crop = cv.map((c) => { const o = document.createElement('canvas'); o.width = cw; o.height = ch; o.getContext('2d').drawImage(c, bx.x0, bx.y0, cw, ch, 0, 0, cw, ch); return o; });
   const normal = await canvasPng(crop[0]);
   // Blaulicht: alle Bilder nach dem ersten in ihrer Reihenfolge (LstSim: 2 Phasen links/rechts oder 4 Phasen stark/schwach)
-  const sosi = crop.length > 2 ? await makeApng(crop.slice(1), crop.length > 3 ? 200 : 400) : await canvasPng(crop[1] || crop[0]);
+  const sosi = crop.length > 2 ? await makeApng(crop.slice(1), spriteDelay(crop.length)) : await canvasPng(crop[1] || crop[0]);
   const hdr = (b) => ({ 'Content-Type': 'image/png', 'Content-Length': String(b.size), 'X-Etb-Orig-Size': String(blob.size), 'X-Etb-Cropped': '1', 'X-Etb-Sprite': '1', 'X-Etb-Frames': String(frames), 'X-Etb-V': ICON_PROC_VERSION });
   return [new Response(normal, { headers: hdr(normal) }), new Response(sosi, { headers: hdr(sosi) })];
 }
