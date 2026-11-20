@@ -4211,33 +4211,11 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .svc-card-time { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 @container (max-width: 190px) { .svc-card-date { font-size: 13px; } .svc-card-time { font-size: 12px; } .svc-card-when { gap: 5px; } }
 
-/* Kategorie-Dialog: Ausschnitt in der Dienstliste */
-.vcat-fit { margin-top: 10px; }
-.vcat-fit-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-.vcat-fit-box { position: relative; width: 104px; height: 66px; flex: none; overflow: hidden; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--separator); }
-.vcat-fit-box img { position: absolute; left: 8px; right: 4px; top: 6px; bottom: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
-.vcat-fit-ctrls { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 4px; }
-.vcat-range { display: grid !important; grid-template-columns: 44px 1fr 46px; align-items: center; gap: 8px; margin: 0 !important; }
-.vcat-range span { font-size: 13px; color: var(--text2); }
-.vcat-range input { width: 100%; padding: 0 !important; }
-.vcat-range b { font-size: 12px; font-weight: 600; color: var(--text2); text-align: right; font-variant-numeric: tabular-nums; }
-#vcat-fit-reset { align-self: flex-start; padding: 4px 0; font-size: 13px; }
 /* schmale Karten (z. B. Liste neben der Detailansicht am Computer): Icon-Feld etwas schmaler, damit die Uhrzeit Platz hat */
 .service-card { container: svccard / inline-size; }
 @container svccard (max-width: 340px) { .service-card .svc-card-icon-wrap { width: 84px; } }
 /* ganz schmal: Wochentag weglassen (steht im Schichtkürzel, z. B. MINA = Mittwoch Nacht) */
 @container svccard (max-width: 340px) { .svc-card-wd { display: none; } }
-
-/* Ausschnitt-Vorschau: Rahmen im Format der Dienstliste, außen blass das, was abgeschnitten wird */
-.vcat-fit-row { align-items: flex-start; }
-.vcat-fit-stage { --fw: 104px; --fh: 72px; position: relative; flex: none; width: calc(var(--fw) * 2); height: calc(var(--fh) * 1.7); border-radius: 12px; background: var(--fill); overflow: hidden; }
-.vcat-fit-ghost, .vcat-fit-stage .vcat-fit-box { position: absolute; left: 50%; top: 50%; width: var(--fw); height: var(--fh); transform: translate(-50%, -50%); }
-.vcat-fit-ghost { overflow: visible; opacity: .3; }
-.vcat-fit-stage .vcat-fit-box { overflow: hidden; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 2px var(--accent); }
-.vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { position: absolute; left: 8px; top: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
-.vcat-fit-stage::after { content: "so in der Liste"; position: absolute; left: 8px; bottom: 5px; font-size: 10px; font-weight: 600; color: var(--text3); }
-.vcat-fit-stage.is-raw .vcat-fit-ghost, .vcat-fit-stage.is-raw .vcat-fit-box img { visibility: hidden; }
-.vcat-fit-stage.is-raw::before { content: "Streifen wird beim Speichern zerlegt – danach hier anpassen"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 10px; text-align: center; font-size: 12px; color: var(--text2); z-index: 1; }
 
 /* Startseite: Fahrzeugfeld wie in der Dienstliste (gleiche Form, gleicher Zuschnitt, gleiche Zoom-/Positionswerte) */
 .hm-veh, [data-compact] .hm-veh { width: 104px; height: 72px; overflow: hidden; border-radius: 10px; }
@@ -4256,10 +4234,16 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 [data-compact] .svc-card-icon-wrap, [data-compact] .service-card .svc-card-icon-wrap { width: 54px; min-height: 42px; }
 [data-compact] .svc-card-icon, [data-compact] .svc-card-icon.veh-sq { width: 48px; height: 28px; }
 
-/* Ausschnitt-Vorschau: Icon so platziert wie in der Dienstliste (mittig, 62×36) */
-.vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { left: 50%; top: 50%; width: 62px; height: 36px; transform: translate(-50%, -50%); }
-
 /* Zentrieren ohne transform: sonst kehrt das Spiegeln (scale: -1 1) die Verschiebung um und das Icon rutscht aus dem Feld */
 .svc-card-icon, .svc-card-icon.veh-sq { transform: none; left: calc(50% - 31px); top: calc(50% - 18px); }
 [data-compact] .svc-card-icon, [data-compact] .svc-card-icon.veh-sq { left: calc(50% - 24px); top: calc(50% - 14px); }
-.vcat-fit-ghost img, .vcat-fit-stage .vcat-fit-box img { transform: none; left: calc(50% - 31px); top: calc(50% - 18px); }
+
+/* ── Fahrzeug-Icons: immer auf die Breite des Feldes skaliert, Seitenverhältnis bleibt, senkrecht mittig.
+      Kein Zoom/Verschieben/Zuschneiden mehr – nur Spiegeln (scale: -1 1) wirkt noch. ── */
+.svc-card-icon, .svc-card-icon.veh-sq,
+[data-compact] .svc-card-icon, [data-compact] .svc-card-icon.veh-sq,
+.hm-veh .hm-veh-img, .hm-veh .hm-veh-img.veh-sq {
+  position: absolute; left: 4px; right: 4px; top: 0; bottom: 0; margin: auto 0;
+  width: calc(100% - 8px); height: auto; max-width: none; max-height: none;
+  object-fit: fill; aspect-ratio: auto; transform: none; translate: none;
+}

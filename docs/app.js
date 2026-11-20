@@ -258,7 +258,7 @@ function normalizeState(s) {
   s.alarmBlaulicht = isObj(s.alarmBlaulicht) ? s.alarmBlaulicht : {};
   Object.keys(s.alarmBlaulicht).forEach((k) => { s.alarmBlaulicht[k] = !!s.alarmBlaulicht[k]; });
   s.pzcCodes = s.pzcCodes.map((p) => ({ code: toDisplayName(p.code), diagnosis: toDisplayName(p.diagnosis) })).filter((p) => p.code);
-  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; if (c.spriteGuess && c.sprite) c.spriteGuess = true; else delete c.spriteGuess; const fr = Number(c.frames); if (fr >= 1 && fr <= 12) c.frames = fr; else delete c.frames; if (c.mirror) c.mirror = true; else delete c.mirror; const z = Number(c.zoom); if (z > 100 && z <= 250) c.zoom = z; else delete c.zoom; ['ox', 'oy'].forEach((k) => { const v = Number(c[k]); if (v && Math.abs(v) <= 40) c[k] = v; else delete c[k]; }); });
+  s.vehicleCategories.forEach((c) => { c.id = c.id ? String(c.id) : uid(); c.name = toDisplayName(c.name); c.iconNormal = str(c.iconNormal); c.iconSoSi = str(c.iconSoSi); if (Number(c.sprite) > 1) c.sprite = Number(c.sprite); else delete c.sprite; if (c.spriteGuess && c.sprite) c.spriteGuess = true; else delete c.spriteGuess; const fr = Number(c.frames); if (fr >= 1 && fr <= 12) c.frames = fr; else delete c.frames; if (c.mirror) c.mirror = true; else delete c.mirror; delete c.zoom; delete c.ox; delete c.oy; });
   // Textfelder können aus Fremd-Exporten (Henri) als Objekte kommen → in Text wandeln
   const txt = (v) => toDisplayName(v);
   s.services.forEach((svc) => {
@@ -1719,10 +1719,7 @@ function applyVehicleMirror() {
   const rules = [];
   const srcs = (c) => [catNormal(c), catSoSi(c)].filter(Boolean).flatMap((u) => { const out = [u]; try { const abs = new URL(u, location.href).href; if (abs !== u) out.push(abs); } catch (_) {} return out; });
   for (const c of state.vehicleCategories || []) {
-    const z = (c.zoom || 100) / 100, m = c.mirror ? -1 : 1;
     if (c.mirror) rules.push(`${srcs(c).map((u) => `img[src=${q(u)}]`).join(',')} { scale: -1 1; }`);
-    // Zoom/Position dort, wo das Feld zuschneidet (Dienstliste, Startseite)
-    if (c.zoom || c.ox || c.oy) rules.push(`${srcs(c).flatMap((u) => [`.svc-card-icon[src=${q(u)}]`, `.hm-veh-img[src=${q(u)}]`]).join(',')} { scale: ${m * z} ${z}; translate: ${c.ox || 0}% ${c.oy || 0}%; }`);
   }
   el.textContent = rules.join('\n');
 }
@@ -3600,8 +3597,8 @@ function homeVehIconHtml(vehicle, cls) {
   const cat = catId ? (state.vehicleCategories || []).find((c) => c.id === catId) : null;
   if (!cat || !catNormal(cat)) return '';
   return `<div class="hm-veh ${cls || ''}">
-    <img src="${escHtml(catNormal(cat))}" class="hm-veh-img hm-veh-normal${vehSquareSrcs.has(catNormal(cat)) ? ' veh-sq' : ''}" alt="" />
-    ${catSoSi(cat) ? `<img src="${escHtml(catSoSi(cat))}" class="hm-veh-img hm-veh-sosi${vehSquareSrcs.has(catSoSi(cat)) ? ' veh-sq' : ''}" alt="" style="animation-delay:-${Date.now() % 1200}ms" />` : ''}
+    <img src="${escHtml(catNormal(cat))}" class="hm-veh-img hm-veh-normal" alt="" />
+    ${catSoSi(cat) ? `<img src="${escHtml(catSoSi(cat))}" class="hm-veh-img hm-veh-sosi" alt="" style="animation-delay:-${Date.now() % 1200}ms" />` : ''}
   </div>`;
 }
 
@@ -3939,9 +3936,6 @@ function openVehicleCatDialog(catId) {
   document.getElementById('vcat-icon-sosi').value = cat ? (cat.iconSoSi || '') : '';
   document.getElementById('vcat-frames').value = cat && cat.frames ? String(cat.frames) : '';
   document.getElementById('vcat-mirror').checked = !!(cat && cat.mirror);
-  document.getElementById('vcat-zoom').value = String((cat && cat.zoom) || 100);
-  document.getElementById('vcat-ox').value = String((cat && cat.ox) || 0);
-  document.getElementById('vcat-oy').value = String((cat && cat.oy) || 0);
   updateVcatPreview();
   openDialog('dialog-vehicle-cat');
   // Ensure vehicle cat dialog appears above the vehicles popup
@@ -3949,33 +3943,7 @@ function openVehicleCatDialog(catId) {
   if (catDlg) catDlg.style.zIndex = '2100';
 }
 
-/** Vorschau „Ausschnitt in der Dienstliste“: Feld in Kartengröße mit Zoom/Position/Spiegeln. */
-function updateVcatFit() {
-  const img = document.getElementById('vcat-fit-img');
-  if (!img) return;
-  const normal = document.getElementById('vcat-icon-normal').value.trim();
-  const cat = _vcatDialogId ? (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId) : null;
-  const src = cat && cat.iconNormal === normal ? catNormal(cat) : normal; // aufbereitetes Bild, sobald gespeichert
-  const ghost = document.getElementById('vcat-fit-ghost');
-  // noch nicht zerlegter Streifen (höher als breit): Hinweis statt irreführendem Bild
-  const stg = document.getElementById('vcat-fit-stage');
-  img.onload = () => { if (stg) stg.classList.toggle('is-raw', img.naturalHeight > img.naturalWidth * 1.15); };
-  [img, ghost].forEach((el) => { if (el && (el.getAttribute('src') !== src || !el.naturalWidth)) { el.removeAttribute('src'); if (src) el.setAttribute('src', src); } });
-  // Rahmen im Format des Icon-Felds der Dienstliste (echte Karte ausmessen, sonst Standardgröße)
-  const stage = document.getElementById('vcat-fit-stage');
-  const wrap = [...document.querySelectorAll('#service-list .svc-card-icon-wrap')].find((w) => w.getBoundingClientRect().width > 20);
-  const r = wrap ? wrap.getBoundingClientRect() : null;
-  if (stage) { stage.style.setProperty('--fw', `${Math.round(r ? r.width : 104)}px`); stage.style.setProperty('--fh', `${Math.round(r ? r.height : 72)}px`); }
-  const z = Number(document.getElementById('vcat-zoom').value) || 100, ox = Number(document.getElementById('vcat-ox').value) || 0, oy = Number(document.getElementById('vcat-oy').value) || 0;
-  const m = document.getElementById('vcat-mirror').checked ? -1 : 1;
-  [img, ghost].forEach((el) => { if (!el) return; el.style.scale = `${m * z / 100} ${z / 100}`; el.style.translate = `${ox}% ${oy}%`; });
-  document.getElementById('vcat-zoom-v').textContent = `${z} %`;
-  document.getElementById('vcat-ox-v').textContent = String(ox);
-  document.getElementById('vcat-oy-v').textContent = String(oy);
-}
-
 function updateVcatPreview() {
-  updateVcatFit();
   const normal = document.getElementById('vcat-icon-normal').value.trim();
   const sosi = document.getElementById('vcat-icon-sosi').value.trim();
   const pre = document.getElementById('vcat-preview');
@@ -4050,10 +4018,7 @@ async function saveVehicleCat() {
     if (guess) c.spriteGuess = true; else delete c.spriteGuess;
     if (forced) c.frames = forced; else delete c.frames;
     if (mirror) c.mirror = true; else delete c.mirror;
-    const z = Number(document.getElementById('vcat-zoom').value) || 100, ox = Number(document.getElementById('vcat-ox').value) || 0, oy = Number(document.getElementById('vcat-oy').value) || 0;
-    if (z > 100) c.zoom = z; else delete c.zoom;
-    if (ox) c.ox = ox; else delete c.ox;
-    if (oy) c.oy = oy; else delete c.oy;
+    delete c.zoom; delete c.ox; delete c.oy;
   };
   if (_vcatDialogId) {
     const cat = (state.vehicleCategories || []).find((c) => c.id === _vcatDialogId);
@@ -4127,8 +4092,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 140;
-const APP_VERSION_DATE = '19.11.2026';
+const APP_VERSION = 141;
+const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -5973,37 +5938,6 @@ function vehicleIconUrls() {
   return [...set];
 }
 
-/**
- * Quadratische Fahrzeuggrafiken (z. B. 200×200 mit viel transparentem Rand)
- * würden in den breiten Icon-Feldern winzig wirken. Sie bekommen die Klasse
- * „veh-sq“ und werden per CSS auf den Fahrzeugstreifen in der Mitte zugeschnitten.
- */
-function isVehicleIconImg(img) {
-  const src = img.currentSrc || img.src || '';
-  return (state.vehicleCategories || []).some((c) => [catNormal(c), catSoSi(c)].some((u) => {
-    if (!u) return false;
-    if (u === src) return true;
-    try { return new URL(u, location.href).href === src; } catch (_) { return false; }
-  }));
-}
-const vehSquareSrcs = new Set();
-function tagSquareVehicleIcon(img) {
-  if (!img.naturalWidth || !img.naturalHeight) return;
-  const sq = img.naturalWidth / img.naturalHeight < 1.25;
-  const src = img.getAttribute('src') || '';
-  if (sq && isVehicleIconImg(img)) { img.classList.add('veh-sq'); vehSquareSrcs.add(src); }
-  else { img.classList.remove('veh-sq'); vehSquareSrcs.delete(src); }
-}
-// Bereits bekannte quadratische Grafiken schon vor dem ersten Zeichnen markieren
-new MutationObserver((muts) => {
-  if (!vehSquareSrcs.size) return;
-  for (const m of muts) for (const n of m.addedNodes) {
-    if (n.nodeType !== 1) continue;
-    const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll ? n.querySelectorAll('img') : [];
-    imgs.forEach((im) => { if (vehSquareSrcs.has(im.getAttribute('src') || '')) im.classList.add('veh-sq'); });
-  }
-}).observe(document.documentElement, { childList: true, subtree: true });
-document.addEventListener('load', (e) => { if (e.target && e.target.tagName === 'IMG') tagSquareVehicleIcon(e.target); }, true);
 
 async function fetchIconForCache(url) {
   try {
@@ -6187,7 +6121,6 @@ async function syncSpriteIcons(cache, force) {
   }
   if (changed) { saveState(); applyVehicleMirror(); }
   if (changed || made) { // neu zerlegte Bilder anzeigen
-    try { if (document.getElementById('dialog-vehicle-cat').style.display === 'flex') updateVcatFit(); } catch (_) {}
     try { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent(); } catch (_) {}
   }
   return failed;
@@ -8198,9 +8131,6 @@ function init() {
 
   // Vehicle cat dialog: live preview on URL input
   ['vcat-frames', 'vcat-mirror'].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener('change', updateVcatPreview); });
-  ['vcat-zoom', 'vcat-ox', 'vcat-oy'].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener('input', updateVcatFit); });
-  const fitReset = document.getElementById('vcat-fit-reset');
-  if (fitReset) fitReset.addEventListener('click', () => { document.getElementById('vcat-zoom').value = '100'; document.getElementById('vcat-ox').value = '0'; document.getElementById('vcat-oy').value = '0'; updateVcatFit(); });
   ['vcat-icon-normal', 'vcat-icon-sosi'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', updateVcatPreview);
@@ -8391,8 +8321,8 @@ function renderDpShifts(shifts, container) {
           ${saved
             ? (savedChange
               ? `<button type="button" class="btn-primary" data-pc-apply="${escHtml(saved.id)}">Übernehmen</button><button type="button" class="btn-secondary btn-dp-open">Öffnen</button>`
-              : '<button type="button" class="btn-secondary btn-dp-open">✓ Im Tagebuch</button>')
-            : '<button type="button" class="btn-primary btn-dp-import">Ins Tagebuch übernehmen</button>'}
+              : '<button type="button" class="btn-secondary btn-dp-open">✓ Gespeichert</button>')
+            : '<button type="button" class="btn-primary btn-dp-import">Übernehmen</button>'}
         </div>
         ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}`;
       const imp = card.querySelector('.btn-dp-import');
