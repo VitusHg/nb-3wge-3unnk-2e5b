@@ -4092,7 +4092,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 142;
+const APP_VERSION = 143;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -8857,7 +8857,7 @@ async function enablePush() {
   }
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(publicKey) });
   const label = isIOSDevice() ? 'iPhone' : (navigator.userAgentData && navigator.userAgentData.platform) || 'Gerät';
-  await workerApi('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), label } });
+  await workerApi('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), label, notify: pushPrefs() } });
   lsSet(PUSH_ENDPOINT_KEY, sub.endpoint);
   // Schnell-Nachricht beim Worker: Stand übernehmen, immer lautlos
   workerApi('/push/quick', { method: 'POST', body: { endpoint: sub.endpoint, enabled: quickPushEnabled(), sound: false } }).catch(() => {});
@@ -8869,6 +8869,30 @@ async function disablePush() {
   if (endpoint) await workerApi('/push/unsubscribe', { method: 'POST', body: { endpoint } }).catch(() => {});
   if (sub) await sub.unsubscribe().catch(() => {});
   lsSet(PUSH_ENDPOINT_KEY, '');
+}
+
+// — Welche Änderungen eine Mitteilung auslösen (Verlauf/Postfach zeichnen trotzdem alles auf) —
+const PUSH_PREFS_KEY = 'etb_push_prefs';
+const PUSH_PREF_FIELDS = [
+  ['added', 'Neuer Dienst', 'Dienst neu eingetragen'],
+  ['removed', 'Ausfall', 'Dienst aus dem Plan entfernt'],
+  ['time', 'Zeit', 'Beginn oder Ende verschoben'],
+  ['vehicle', 'Fahrzeug', 'anderes Fahrzeug / anderer Dienst'],
+  ['location', 'Ort', 'andere Dienststelle'],
+  ['crew', 'Besatzung', 'Kolleg:innen kommen dazu oder fallen weg'],
+  ['info', 'Info', 'nur der Infotext ändert sich'],
+];
+const PUSH_PREFS_DEFAULT = { added: true, removed: true, time: true, vehicle: true, location: true, crew: true, info: false };
+function pushPrefs() {
+  try { return Object.assign({}, PUSH_PREFS_DEFAULT, JSON.parse(lsGet(PUSH_PREFS_KEY, 'null')) || {}); } catch (_) { return { ...PUSH_PREFS_DEFAULT }; }
+}
+/** Speichert lokal und meldet die Auswahl dem Worker (der filtert vor dem Senden). */
+async function savePushPrefs(prefs) {
+  lsSet(PUSH_PREFS_KEY, JSON.stringify(prefs));
+  const endpoint = lsGet(PUSH_ENDPOINT_KEY);
+  if (!endpoint || !dpConfigured()) return { ok: true };
+  try { await workerApi('/push/prefs', { method: 'POST', body: { endpoint, notify: prefs } }); return { ok: true }; }
+  catch (err) { return { ok: false, err }; }
 }
 
 /** Baut die Gruppe „Benachrichtigungen“ in Einstellungen → Dienstplan auf. */
@@ -8891,9 +8915,23 @@ async function renderPushSettings(host) {
     <p class="set-group-footer">${escHtml(sup.ok
       ? 'Der Worker prüft den Dienstplan im eingestellten Intervall und meldet nach jeder Prüfung neue, geänderte und ausgefallene Dienste – auch wenn die App geschlossen ist.'
       : sup.reason)}</p>
+    ${active ? `<div class="set-group-header">Mitteilung bei</div>
+    <div class="set-group" id="push-prefs">${PUSH_PREF_FIELDS.map(([k, t, sub2]) => `<label class="set-row set-row-switch">
+        <span class="set-row-text"><span class="set-row-title">${t}</span><span class="set-row-sub">${sub2}</span></span>
+        <input type="checkbox" class="set-switch" data-push-pref="${k}" ${pushPrefs()[k] ? 'checked' : ''}>
+      </label>`).join('')}</div>
+    <p class="set-group-footer" id="push-prefs-foot">Ändert sich bei einem Dienst mehreres, kommt die Mitteilung, sobald einer der eingeschalteten Punkte dabei ist. Im Verlauf und im Postfach steht jede Änderung trotzdem.</p>` : ''}
     <div class="set-group-header">Prüfintervall</div>
     <div class="set-group"><div class="iv-box" id="dp-interval"><span class="set-row-sub">Wird geladen…</span></div></div>
     <p class="set-group-footer" id="dp-interval-foot"></p>`;
+  host.querySelectorAll('[data-push-pref]').forEach((cb) => cb.addEventListener('change', async () => {
+    const prefs = pushPrefs();
+    prefs[cb.dataset.pushPref] = cb.checked;
+    const r = await savePushPrefs(prefs);
+    const foot = host.querySelector('#push-prefs-foot');
+    if (r.ok) toast('Gespeichert.', 'success', 1200);
+    else if (foot) foot.textContent = 'Auf diesem Gerät gespeichert – der Worker kennt diese Einstellung aber noch nicht und meldet weiterhin alle Änderungen. Bitte den Worker aktualisieren.';
+  }));
   const on = host.querySelector('#btn-push-on');
   if (on) on.addEventListener('click', async () => {
     on.disabled = true;
@@ -9196,7 +9234,7 @@ function renderDpInbox() {
     markDpRead([key]);
     row.classList.remove('is-unread');
     renderDpInbox();
-    openHistorySheet(key);
+    openHistorySheet(key, { expand: true });
   }));
 }
 
@@ -9405,7 +9443,7 @@ function historyEntryHtml(e) {
   </li>`;
 }
 
-function openHistorySheet(key) {
+function openHistorySheet(key, { expand = false } = {}) {
   const history = readDpHistory();
   let item = history[key];
   if (!item) {
@@ -9429,13 +9467,18 @@ function openHistorySheet(key) {
     <ol class="hist-list">${item.entries.slice().reverse().map(historyEntryHtml).join('')}</ol>
     <p class="hist-foot">Tippe auf eine Änderung, um den ganzen Eintrag vorher und nachher zu sehen. Aufgezeichnet vom Dienstplan-Worker seit dem Einrichten der Benachrichtigungen. Gespeichert bis 30 Tage nach Dienstende.</p>`;
   const items = box.querySelectorAll('.hist-item.is-expandable');
-  const toggle = (li) => { const open = li.classList.toggle('is-open'); li.setAttribute('aria-expanded', String(open)); };
+  // immer höchstens eine Änderung aufgeklappt
+  const toggle = (li) => {
+    const open = !li.classList.contains('is-open');
+    items.forEach((x) => { x.classList.remove('is-open'); x.setAttribute('aria-expanded', 'false'); });
+    if (open) { li.classList.add('is-open'); li.setAttribute('aria-expanded', 'true'); }
+  };
   items.forEach((li) => {
     li.addEventListener('click', () => toggle(li));
     li.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(li); } });
   });
-  // nur eine Änderung: gleich aufgeklappt zeigen
-  if (items.length === 1) toggle(items[0]);
+  // aus einer Mitteilung (neueste Änderung) oder nur eine Änderung: gleich aufgeklappt zeigen
+  if (items.length && (expand || items.length === 1)) toggle(items[0]);
   openDialog('dialog-history');
 }
 
@@ -9506,7 +9549,7 @@ function handleLaunchTarget(hash = location.hash) {
     if (m) {
       const key = decodeURIComponent(m[1]);
       // Verlauf erst frisch laden, dann öffnen (Mitteilung kann neuer sein als der Speicher)
-      loadDpHistory().then(() => openHistorySheet(key)).catch(() => openHistorySheet(key));
+      loadDpHistory().then(() => openHistorySheet(key, { expand: true })).catch(() => openHistorySheet(key, { expand: true }));
     }
     return true;
   }

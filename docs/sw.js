@@ -4,7 +4,7 @@
 // Herkunft. Dieser Worker räumt deshalb NUR seine eigenen Caches
 // (Präfix „etb-cache-“) auf und fasst fremde Caches nie an.
 const CACHE_PREFIX = 'etb-cache-';
-const CACHE_NAME = CACHE_PREFIX + 'v142'; // = APP_VERSION in app.js
+const CACHE_NAME = CACHE_PREFIX + 'v143'; // = APP_VERSION in app.js
 // Fahrzeuggrafiken (fremde Adressen) dauerhaft auf dem Gerät – eigener Cache,
 // der bei App-Updates NICHT geleert wird. Aufräumen übernimmt die App.
 const ICON_CACHE = 'etb-icons';
@@ -143,9 +143,16 @@ self.addEventListener('push', (event) => {
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
     silent: !!msg.silent, // ohne Ton/Vibration (wenn das System es unterstützt)
-    data: { url: msg.url || './#dienstplan', until: msg.until || 0, silent: !!msg.silent },
+    data: { url: msg.url || pushTargetUrl(msg.tag), until: msg.until || 0, silent: !!msg.silent },
   })]));
 });
+
+// Mitteilung zu einem Dienst ohne eigene Adresse: direkt dessen Verlauf öffnen (aufgeklappt)
+function pushTargetUrl(tag) {
+  const t = String(tag || '');
+  if (t.startsWith('etb-') && !['etb-test', 'etb-quick', 'etb-summary'].includes(t)) return './#verlauf=' + encodeURIComponent(t.slice(4));
+  return './#dienstplan';
+}
 
 // Zahl am App-Symbol: ungelesene Dienste (die App schreibt den genauen Stand,
 // bei eingehenden Mitteilungen zählt der Service Worker weiter).
