@@ -1182,6 +1182,10 @@ function isMobile() { return window.matchMedia('(max-width: 700px)').matches; }
 function renderServiceDetail() {
   renderServiceDetailContent();
   updateNavBar();
+  // Dienstplan-Verlauf aktuell halten (wird sonst nur im Dienstplan-Tab geladen)
+  const id = selectedServiceId;
+  const sv = id && state.services.find((x) => x.id === id);
+  if (sv && !sv.isSeg) refreshDpHistory(() => { if (selectedServiceId === id) renderServiceDetailContent(); });
 }
 
 function renderServiceDetailContent() {
@@ -1214,7 +1218,7 @@ function renderServiceDetailContent() {
   const crew = (svc.colleagues || []).filter(Boolean);
   const links = [
     dpUrl ? `<a ${dpLinkAttrs(dpUrl)} class="dv-row dv-link">${ICON_CAL}<span class="dv-link-text">Dienstplan</span><span class="dv-link-ext" aria-hidden="true">↗</span></a>` : '',
-    svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
+    svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}" data-hist-svc="${escHtml(svc.id)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
   ].filter(Boolean).join('');
   contentEl.innerHTML = `
     ${backBtn}
@@ -4092,7 +4096,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 144;
+const APP_VERSION = 145;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -9277,6 +9281,26 @@ async function loadDpHistory() {
   } catch (_) { return readDpHistory(); } // alter Worker oder offline → letzter Stand
 }
 
+/** Verlauf im Hintergrund frisch vom Worker holen (z. B. beim Öffnen eines Diensts aus dem Tagebuch).
+ *  Ruft onChange auf, wenn sich der Verlauf geändert hat. Höchstens alle 20 s, nie doppelt gleichzeitig. */
+let dpHistFresh = null, dpHistFreshAt = 0;
+function refreshDpHistory(onChange) {
+  if (!dpConfigured()) return Promise.resolve(false);
+  const before = lsGet(DP_HISTORY_KEY, '');
+  if (!dpHistFresh) {
+    if (Date.now() - dpHistFreshAt < 20000) return Promise.resolve(false);
+    dpHistFreshAt = Date.now();
+    dpHistFresh = loadDpHistory().finally(() => { dpHistFresh = null; });
+  }
+  return dpHistFresh.then(() => {
+    const now = lsGet(DP_HISTORY_KEY, '');
+    const strip = (x) => { try { return JSON.stringify((JSON.parse(x) || {}).history || {}); } catch (_) { return x; } };
+    const changed = strip(before) !== strip(now);
+    if (changed && onChange) onChange();
+    return changed;
+  }).catch(() => false);
+}
+
 /** Verlaufs-Schlüssel zu einem Dienstplan-Eintrag (UID, sonst gleicher Beginn). */
 function historyKeyForShift(shift, history = readDpHistory()) {
   const st = new Date(shift.start).getTime();
@@ -9443,7 +9467,16 @@ function historyEntryHtml(e) {
   </li>`;
 }
 
-function openHistorySheet(key, { expand = false } = {}) {
+function openHistorySheet(key, { expand = false, svcId = null, fresh = false } = {}) {
+  if (!fresh) {
+    // gleich mit dem lokalen Stand öffnen, dann den aktuellen vom Worker nachladen
+    refreshDpHistory(() => {
+      const dlg = document.getElementById('dialog-history');
+      if (!dlg || dlg.style.display === 'none') return;
+      const sv = svcId && state.services.find((x) => x.id === svcId);
+      openHistorySheet((sv && historyKeyForService(sv)) || key, { expand, svcId, fresh: true });
+    });
+  }
   const history = readDpHistory();
   let item = history[key];
   if (!item) {
@@ -9487,7 +9520,7 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest && e.target.closest('[data-hist]');
   if (!btn) return;
   e.preventDefault(); e.stopPropagation();
-  openHistorySheet(btn.dataset.hist);
+  openHistorySheet(btn.dataset.hist, { svcId: btn.dataset.histSvc || null });
 });
 
 let launchActionDone = false;
