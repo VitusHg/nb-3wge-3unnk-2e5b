@@ -4096,7 +4096,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 145;
+const APP_VERSION = 146;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5070,26 +5070,26 @@ function refreshVehicleAssignList() {
       const src = vehicleIconSrc(v);
       return `<div class="code-item">
         <span class="code-item-icon">${src ? `<img src="${escHtml(src)}" alt="" loading="lazy">` : '—'}</span>
-        <span class="code-item-text">${escHtml(v)}</span>
-        <select class="code-item-select" data-vehicle="${escHtml(v)}" aria-label="Icon für ${escHtml(v)}">
+        <span class="code-item-text"><span class="veh-link" role="button" data-vehicle="${escHtml(v)}" title="Fahrzeug-Profil">${escHtml(v)}</span></span>
+        <select class="code-item-select" data-veh="${escHtml(v)}" aria-label="Icon für ${escHtml(v)}">
           <option value="">kein Icon</option>
           ${cats.map((c) => `<option value="${escHtml(c.id)}"${c.id === curId ? ' selected' : ''}>${escHtml(c.name)}</option>`).join('')}
         </select>
-        <button class="btn-code-del" data-vehicle="${escHtml(v)}" title="${used.has(v) ? 'Zuweisung entfernen' : 'Löschen'}" aria-label="${escHtml(v)} entfernen">✕</button>
+        <button class="btn-code-del" data-veh="${escHtml(v)}" title="${used.has(v) ? 'Zuweisung entfernen' : 'Löschen'}" aria-label="${escHtml(v)} entfernen">✕</button>
       </div>`;
     }).join('')
     : `<div class="code-empty">${q ? 'Kein Fahrzeug für diese Suche.' : 'Noch keine Fahrzeuge. Sie erscheinen automatisch aus deinen Diensten oder oben hinzufügen.'}</div>`;
   el.querySelectorAll('.code-item-select').forEach((sel) => sel.addEventListener('change', () => {
     state.vehicleAssignments = state.vehicleAssignments || {};
-    state.vehicleAssignments[sel.dataset.vehicle] = sel.value || null;
+    state.vehicleAssignments[sel.dataset.veh] = sel.value || null;
     saveState();
     const icon = sel.closest('.code-item').querySelector('.code-item-icon');
-    const src = vehicleIconSrc(sel.dataset.vehicle);
+    const src = vehicleIconSrc(sel.dataset.veh);
     icon.innerHTML = src ? `<img src="${escHtml(src)}" alt="">` : '—';
     renderServiceList(); if (selectedServiceId) renderServiceDetail();
   }));
   el.querySelectorAll('.btn-code-del').forEach((btn) => btn.addEventListener('click', () => {
-    if (state.vehicleAssignments) delete state.vehicleAssignments[btn.dataset.vehicle];
+    if (state.vehicleAssignments) delete state.vehicleAssignments[btn.dataset.veh];
     saveState(); renderVehiclesPopupContent(); renderServiceList();
   }));
   enableCodeListSwipe(el);
