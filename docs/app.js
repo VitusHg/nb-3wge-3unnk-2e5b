@@ -4092,7 +4092,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 141;
+const APP_VERSION = 142;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -9360,6 +9360,31 @@ function historyDiffHtml(b, n) {
   return rows.join('') || '<div class="hist-diff"><span class="hist-diff-val">Kleine Änderung im Kalendereintrag</span></div>';
 }
 
+/** Ganzer Eintrag (Zeit, Fahrzeug, Ort, Besatzung, Info); Felder, die sich gegenüber „other“ unterscheiden, werden markiert. */
+function histFullHtml(x, other, cls) {
+  const c = crewOf(x.d), co = other ? crewOf(other.d) : null;
+  const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const diff = (a, b) => !!other && norm(a) !== norm(b);
+  const row = (label, val, changed) => `<div class="hist-full-row${changed ? ' is-changed' : ''}"><span class="hist-full-label">${label}</span><span class="hist-full-val">${val || '<span class="is-empty">—</span>'}</span></div>`;
+  const otherCrew = co ? new Set(co.colleagues.map(norm)) : null;
+  const crew = c.colleagues.map((n) => `<span class="hist-full-crew${otherCrew && !otherCrew.has(norm(n)) ? ' is-changed' : ''}">${escHtml(n)}</span>`).join('');
+  return `<div class="hist-full ${cls}">
+    ${row('Zeit', escHtml(histFmtRange(x)), !!other && (x.s !== other.s || x.e !== other.e))}
+    ${row('Fahrzeug', escHtml(x.t || ''), diff(x.t, other && other.t))}
+    ${row('Ort', escHtml(x.l || ''), diff(x.l, other && other.l))}
+    ${row('Besatzung', crew, false)}
+    ${row('Info', c.note ? `<span class="hist-full-note">${escHtml(c.note)}</span>` : '', !!co && diff(c.note, co.note))}
+  </div>`;
+}
+
+/** Aufklappbarer Bereich: ganzer Eintrag vorher / nachher. */
+function histCompareHtml(e) {
+  const parts = [];
+  if (e.before) parts.push(`<div class="hist-full-hd">Vorher</div>${histFullHtml(e.before, e.type === 'updated' ? e.now : null, 'is-before')}`);
+  if (e.now && e.type !== 'removed') parts.push(`<div class="hist-full-hd">${e.type === 'added' ? 'Eingetragen' : 'Nachher'}</div>${histFullHtml(e.now, e.type === 'updated' ? e.before : null, 'is-after')}`);
+  return parts.length ? `<div class="hist-compare">${parts.join('')}</div>` : '';
+}
+
 function historyEntryHtml(e) {
   const label = { added: 'Neu', updated: 'Geändert', removed: 'Ausfall' }[e.type] || e.type;
   let body = '';
@@ -9371,10 +9396,12 @@ function historyEntryHtml(e) {
   } else if (e.type === 'removed' && e.before) {
     body = `<div class="hist-detail">Aus dem Dienstplan entfernt: ${escHtml(histFmtRange(e.before))}</div>`;
   }
-  return `<li class="hist-item is-${e.type}">
+  const cmp = histCompareHtml(e);
+  return `<li class="hist-item is-${e.type}${cmp ? ' is-expandable' : ''}"${cmp ? ' tabindex="0" role="button" aria-expanded="false"' : ''}>
     <span class="hist-dot" aria-hidden="true"></span>
-    <div class="hist-head"><span class="dp-chg-badge is-${e.type}">${label}</span><span class="hist-at">am ${escHtml(histFmtAt(e.at))}</span></div>
+    <div class="hist-head"><span class="dp-chg-badge is-${e.type}">${label}</span><span class="hist-at">am ${escHtml(histFmtAt(e.at))}</span>${cmp ? '<span class="hist-chev" aria-hidden="true">›</span>' : ''}</div>
     ${body}
+    ${cmp}
   </li>`;
 }
 
@@ -9400,7 +9427,15 @@ function openHistorySheet(key) {
       ${removed ? '<span class="dp-chg-badge is-removed">Ausgefallen</span>' : ''}
     </div>
     <ol class="hist-list">${item.entries.slice().reverse().map(historyEntryHtml).join('')}</ol>
-    <p class="hist-foot">Aufgezeichnet vom Dienstplan-Worker seit dem Einrichten der Benachrichtigungen. Gespeichert bis 30 Tage nach Dienstende.</p>`;
+    <p class="hist-foot">Tippe auf eine Änderung, um den ganzen Eintrag vorher und nachher zu sehen. Aufgezeichnet vom Dienstplan-Worker seit dem Einrichten der Benachrichtigungen. Gespeichert bis 30 Tage nach Dienstende.</p>`;
+  const items = box.querySelectorAll('.hist-item.is-expandable');
+  const toggle = (li) => { const open = li.classList.toggle('is-open'); li.setAttribute('aria-expanded', String(open)); };
+  items.forEach((li) => {
+    li.addEventListener('click', () => toggle(li));
+    li.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(li); } });
+  });
+  // nur eine Änderung: gleich aufgeklappt zeigen
+  if (items.length === 1) toggle(items[0]);
   openDialog('dialog-history');
 }
 

@@ -4247,3 +4247,27 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
   width: calc(100% - 8px); height: auto; max-width: none; max-height: none;
   object-fit: fill; aspect-ratio: auto; transform: none; translate: none;
 }
+
+/* Dienstplan-Verlauf: Änderung antippen → ganzer Eintrag vorher / nachher */
+.hist-item.is-expandable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.hist-chev { margin-left: auto; color: var(--text3); font-size: 18px; line-height: 1; transition: transform .15s; }
+.hist-item.is-open .hist-chev { transform: rotate(90deg); }
+.hist-compare { display: none; margin-top: 8px; }
+.hist-item.is-open .hist-compare { display: block; }
+.hist-full-hd { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--text2); margin: 10px 0 4px; }
+.hist-full-hd:first-child { margin-top: 0; }
+.hist-full { border-radius: 10px; background: var(--fill); padding: 6px 10px; border-left: 3px solid var(--gray); }
+.hist-full.is-before { border-left-color: var(--text3); }
+.hist-full.is-before .hist-full-row.is-changed .hist-full-val { color: var(--text2); text-decoration: line-through; }
+.hist-full.is-after { border-left-color: var(--accent); }
+.hist-item.is-added .hist-full.is-after { border-left-color: var(--green-light); }
+.hist-item.is-removed .hist-full.is-before { border-left-color: var(--danger); }
+.hist-full.is-after .hist-full-row.is-changed .hist-full-val { color: var(--orange); font-weight: 600; }
+.hist-full-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; font-size: 14px; padding: 3px 0; }
+.hist-full-label { color: var(--text2); }
+.hist-full-val { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.hist-full-val .is-empty { color: var(--text3); }
+.hist-full-crew.is-changed { font-weight: 600; }
+.hist-full.is-after .hist-full-crew.is-changed { color: var(--green-light); }
+.hist-full.is-before .hist-full-crew.is-changed { color: var(--danger); text-decoration: line-through; }
+.hist-full-note { white-space: pre-line; }
