@@ -4280,3 +4280,23 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 @container svccard (max-width: 320px) { .service-card .svc-card-icon-wrap { width: 76px; } }
 /* Computer: Dienstliste breiter (Detailansicht daneben hat genug Platz) → Karten bekommen Raum für größere Fahrzeuge */
 @media (min-width: 1000px) { #service-list-panel { width: 400px; } }
+
+/* Fahrzeuge & Icons, Stichwörter & PZC, Dienststellen als eigene Einstellungsseiten (früher Popups) */
+.setpage-host > .dialog-body { padding: 0 !important; background: none; overflow: visible !important; max-height: none !important; }
+.setpage-host .popup-two-col { display: flex; flex-direction: column !important; gap: 22px !important; }
+.setpage-host .popup-col { max-height: none; overflow: visible; padding: 14px 16px; border-radius: var(--radius); background: var(--card); }
+.setpage-host .popup-col + .popup-col { border: none; }
+.setpage-host .settings-code-list { max-height: none !important; }
+.setpage-host .abt-popup { padding: 14px 16px; }
+@media (min-width: 1240px) { .setpage-host .popup-two-col { flex-direction: row !important; align-items: flex-start; } .setpage-host .popup-col { flex: 1; min-width: 0; } }
+.setpage-host > .abt-popup { background: var(--card) !important; border-radius: var(--radius); padding: 14px 16px !important; }
+
+/* ── Benutzerfreundlichkeit: kleine Tipp-Ziele bekommen eine größere unsichtbare Tippfläche (Aussehen bleibt) ── */
+.dialog-close, .chip-del, .cg-info, .btn-show-all, .hm-link, .pzc-yob-toggle, .inc-next-time { position: relative; }
+.dialog-close::after { content: ''; position: absolute; inset: -7px; }
+.chip-del::after, .cg-info::after { content: ''; position: absolute; inset: -9px; }
+.btn-show-all::after, .hm-link::after, .pzc-yob-toggle::after, .inc-next-time::after { content: ''; position: absolute; inset: -7px -4px; }
+/* Textknöpfe in Formularen und Listen mindestens 32 px hoch */
+.btn-ghost, .set-form .btn-secondary, .abt-popup .btn-secondary { min-height: 32px; }
+/* Fahrzeugname in der Fahrzeugliste: größere Tippfläche zum Profil */
+.code-item-text .veh-link { display: inline-block; padding: 8px 0; }

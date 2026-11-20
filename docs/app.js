@@ -4036,8 +4036,8 @@ async function saveVehicleCat() {
   applyVehicleMirror();
   if (sprite) toast('LstSim-Grafik erkannt – wird aufbereitet …', 'info', 2500);
   syncVehicleIcons({ force: !!sprite }).then(() => {
-    if (sprite) { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); } if (document.getElementById('dialog-vehicles').style.display === 'flex') renderIconCacheRow(); }).catch(() => {});
-  if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent();
+    if (sprite) { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); } if (settingsPageShown('fahrzeuge')) renderIconCacheRow(); }).catch(() => {});
+  if (settingsPageShown('fahrzeuge')) renderVehiclesPopupContent();
   renderServiceList(); if (selectedServiceId) renderServiceDetail();
 }
 
@@ -4096,7 +4096,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 146;
+const APP_VERSION = 147;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4104,6 +4104,9 @@ const SETTINGS_PAGES = {
   dienstplan: 'Dienstplan',
   bedienung: 'Bedienung',
   orte: 'Orte & Ziele',
+  fahrzeuge: 'Fahrzeuge & Icons',
+  stichwoerter: 'Stichwörter & PZC',
+  dienststellen: 'Dienststellen',
   benachrichtigungen: 'Benachrichtigungen',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
@@ -4195,9 +4198,9 @@ function renderSettings() {
 
     <div class="set-group-header">Stammdaten</div>
     <div class="set-group">
-      ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, id: 'btn-open-vehicles-popup' })}
-      ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, id: 'btn-open-codes-popup' })}
-      ${setRow({ icon: 'building', color: 'blue', title: 'Dienststellen', value: abtRowValue(), id: 'btn-open-abt-popup' })}
+      ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, push: 'fahrzeuge' })}
+      ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, push: 'stichwoerter' })}
+      ${setRow({ icon: 'building', color: 'blue', title: 'Dienststellen', value: abtRowValue(), push: 'dienststellen' })}
       ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
     </div>
 
@@ -4216,9 +4219,6 @@ function renderSettings() {
   container.querySelectorAll('[data-push]').forEach((btn) => {
     btn.addEventListener('click', () => openSettingsPage(btn.dataset.push));
   });
-  document.getElementById('btn-open-vehicles-popup').addEventListener('click', openVehiclesPopup);
-  document.getElementById('btn-open-codes-popup').addEventListener('click', openCodesPopup);
-  document.getElementById('btn-open-abt-popup').addEventListener('click', openAbteilungenPopup);
 
   // Computer: Liste links, Seite rechts – es ist immer eine Seite offen
   if (!settingsSub && settingsWide()) settingsSub = 'profil';
@@ -4254,6 +4254,35 @@ function closeSettingsPage() {
   updateNavBar();
 }
 
+// — Fahrzeuge, Stichwörter, Dienststellen: früher Popups, jetzt eigene Seiten. Ihr Inhalt (mit allen
+//   Bedienelementen) wird in die Seite verschoben; vor jedem Neuaufbau der Seite kommt er zurück an seinen Platz.
+const HOSTED_ROOTS = ['veh-root', 'codes-root', 'abt-root'];
+let lastSettingsPageBuilt = null;
+function parkHostedRoots() {
+  HOSTED_ROOTS.forEach((id) => {
+    const node = document.getElementById(id);
+    const home = node && document.querySelector(`[data-root-home="${id}"]`);
+    if (node && home && node.parentElement !== home) home.appendChild(node);
+  });
+}
+function settingsHostPage(el, title, rootId, render) {
+  const node = document.getElementById(rootId);
+  if (node && !node.parentElement.hasAttribute('data-root-home')) {
+    // Heimatplatz merken (im früheren Popup), damit der Inhalt beim Neuaufbau nicht verloren geht
+    const home = node.parentElement; home.setAttribute('data-root-home', rootId);
+  }
+  el.innerHTML = `${title}<div class="setpage-host"></div>`;
+  if (node) el.querySelector('.setpage-host').appendChild(node);
+  render();
+}
+const settingsPageShown = (page) => activeTab === 'einstellungen' && settingsSub === page;
+/** Einstellungsseite öffnen – auch von außerhalb der Einstellungen. */
+function openSettingsSection(page) {
+  document.querySelectorAll('.dialog-overlay').forEach((o) => { if (o.style.display === 'flex' && o.id) closeDialog(o.id); });
+  if (activeTab !== 'einstellungen') switchTab('einstellungen');
+  setTimeout(() => openSettingsPage(page), 60);
+}
+
 function renderSettingsPage() {
   const el = document.getElementById('settings-sub');
   if (!el || !settingsSub) return;
@@ -4269,8 +4298,13 @@ function renderSettingsPage() {
     dienstplan: settingsPageDienstplan,
     daten: settingsPageDaten,
     ueber: settingsPageUeber,
+    fahrzeuge: (e, t) => settingsHostPage(e, t, 'veh-root', renderVehiclesPopupContent),
+    stichwoerter: (e, t) => settingsHostPage(e, t, 'codes-root', renderCodesPopupContent),
+    dienststellen: (e, t) => { if (lastSettingsPageBuilt !== 'dienststellen') _abtEditIdx = null; settingsHostPage(e, t, 'abt-root', renderAbteilungenPopup); },
   };
+  parkHostedRoots();
   builders[settingsSub](el, title);
+  lastSettingsPageBuilt = settingsSub;
 }
 
 // — Profil ——————————————————————————————————————————————————————————————
@@ -4956,15 +4990,11 @@ function updateUserLabel() {
 }
 
 // ── Vehicles Popup ─────────────────────────────────────────────────────────
-function openVehiclesPopup() {
-  const dlg = document.getElementById('dialog-vehicles');
-  if (!dlg) return;
-  renderVehiclesPopupContent();
-  dlg.style.display = 'flex';
-}
+function openVehiclesPopup() { openSettingsSection('fahrzeuge'); }
 
 function renderVehiclesPopupContent() {
-  const popup = document.getElementById('dialog-vehicles');
+  const popup = document.getElementById('veh-root');
+  if (!popup) return;
   const cats = state.vehicleCategories || [];
   const vehicles = allVehicleNames();
   popup.querySelector('.veh-popup-left').innerHTML = `
@@ -5121,14 +5151,10 @@ function abteilungSuggestions() {
     .slice(0, 30);
 }
 
-function openAbteilungenPopup() {
-  _abtEditIdx = null;
-  renderAbteilungenPopup();
-  openDialog('dialog-abteilungen');
-}
+function openAbteilungenPopup() { _abtEditIdx = null; openSettingsSection('dienststellen'); }
 
 function renderAbteilungenPopup() {
-  const body = document.querySelector('#dialog-abteilungen .abt-popup');
+  const body = document.getElementById('abt-root');
   if (!body) return;
   const list = state.dienststellen || [];
   const editing = _abtEditIdx !== null ? list[_abtEditIdx] : null;
@@ -5312,17 +5338,13 @@ function openResetDialog() {
 }
 
 // ── Codes Popup ────────────────────────────────────────────────────────────
-function openCodesPopup() {
-  const dlg = document.getElementById('dialog-codes');
-  if (!dlg) return;
-  renderCodesPopupContent();
-  dlg.style.display = 'flex';
-}
+function openCodesPopup() { openSettingsSection('stichwoerter'); }
 
 function renderCodesPopupContent() {
   const alarm = state.alarmCodes || [];
   const pzc = state.pzcCodes || [];
-  const popup = document.getElementById('dialog-codes');
+  const popup = document.getElementById('codes-root');
+  if (!popup) return;
 
   // Left: Alarmcodes/Stichwörter
   popup.querySelector('.codes-popup-left').innerHTML = `
@@ -5333,10 +5355,10 @@ function renderCodesPopupContent() {
     </div>
     <input type="file" id="file-alarm-json" accept=".json,application/json,text/json,text/plain,.txt" style="display:none">
     <div class="settings-add-row">
-      <input type="text" id="new-alarm-code" class="settings-code-input" placeholder="Neuer Code, z.B. A1 CODE">
+      <input type="text" id="new-alarm-code" class="settings-code-input" placeholder="Neues Stichwort, z. B. Atemnot">
       <button id="btn-add-alarm" class="btn-secondary settings-add-btn">+</button>
     </div>
-    <input type="text" id="alarm-filter" class="settings-filter-input" placeholder="Codes filtern…" value="${escHtml(_alarmFilter)}" style="margin-top:6px">
+    <input type="text" id="alarm-filter" class="settings-filter-input" placeholder="Stichwörter filtern…" value="${escHtml(_alarmFilter)}" style="margin-top:6px">
     <p class="settings-hint kw-legend"><span class="kw-dot is-on"></span> mit Blaulicht · <span class="kw-dot is-off"></span> ohne – Punkt antippen zum Umschalten</p>
     <div class="settings-code-list" id="alarm-code-list" style="margin-top:4px"></div>`;
 
@@ -6125,7 +6147,7 @@ async function syncSpriteIcons(cache, force) {
   }
   if (changed) { saveState(); applyVehicleMirror(); }
   if (changed || made) { // neu zerlegte Bilder anzeigen
-    try { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); if (document.getElementById('dialog-vehicles').style.display === 'flex') renderVehiclesPopupContent(); } catch (_) {}
+    try { renderServiceList(); if (selectedServiceId) renderServiceDetail(); if (activeTab === 'home') renderHome().catch(() => {}); if (settingsPageShown('fahrzeuge')) renderVehiclesPopupContent(); } catch (_) {}
   }
   return failed;
 }
