@@ -4271,3 +4271,12 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .hist-full.is-after .hist-full-crew.is-changed { color: var(--green-light); }
 .hist-full.is-before .hist-full-crew.is-changed { color: var(--danger); text-decoration: line-through; }
 .hist-full-note { white-space: pre-line; }
+
+/* Computer: Icon-Feld der Dienstliste breiter (70 px wirken auf großen Bildschirmen winzig) */
+@media (min-width: 701px) {
+  .svc-card-icon-wrap, .service-card .svc-card-icon-wrap { width: 104px; }
+  [data-compact] .svc-card-icon-wrap, [data-compact] .service-card .svc-card-icon-wrap { width: 72px; }
+}
+@container svccard (max-width: 320px) { .service-card .svc-card-icon-wrap { width: 76px; } }
+/* Computer: Dienstliste breiter (Detailansicht daneben hat genug Platz) → Karten bekommen Raum für größere Fahrzeuge */
+@media (min-width: 1000px) { #service-list-panel { width: 400px; } }
