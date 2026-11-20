@@ -4096,7 +4096,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 147;
+const APP_VERSION = 148;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4271,9 +4271,49 @@ function settingsHostPage(el, title, rootId, render) {
     // Heimatplatz merken (im früheren Popup), damit der Inhalt beim Neuaufbau nicht verloren geht
     const home = node.parentElement; home.setAttribute('data-root-home', rootId);
   }
-  el.innerHTML = `${title}<div class="setpage-host"></div>`;
+  el.innerHTML = `${title}<nav class="setpage-jump" aria-label="Springen zu"></nav><div class="setpage-host"></div>`;
   if (node) el.querySelector('.setpage-host').appendChild(node);
   render();
+  buildSetpageJump(el);
+}
+/** Kleine Sprungknöpfe oben (bleiben beim Scrollen sichtbar): zu den Abschnitten bzw. zu „Anlegen“ und „Suchen“. */
+function setpageScrollTo(nav, target, center) {
+  let sc = target.parentElement;
+  while (sc && sc !== document.body && !(/(auto|scroll)/.test(getComputedStyle(sc).overflowY) && sc.scrollHeight > sc.clientHeight)) sc = sc.parentElement;
+  const win = !sc || sc === document.body;
+  const box = win ? { top: 0, height: window.innerHeight } : sc.getBoundingClientRect();
+  const bar = nav.getBoundingClientRect();
+  const top0 = Math.max(box.top, bar.bottom) + 8;
+  const t = target.getBoundingClientRect();
+  const delta = center ? t.top - (top0 + (box.top + box.height - top0) / 2 - t.height / 2) : t.top - top0;
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const opts = { top: delta, behavior: reduce ? 'auto' : 'smooth' };
+  if (win) window.scrollBy(opts); else sc.scrollBy(opts);
+}
+function buildSetpageJump(el) {
+  const nav = el.querySelector('.setpage-jump');
+  if (!nav) return;
+  const host = el.querySelector('.setpage-host');
+  const titles = [...host.querySelectorAll('.popup-col-title')];
+  const label = (h) => (h.firstChild && h.firstChild.textContent || h.textContent).trim().replace(/^Fahrzeugkategorien$/, 'Kategorien').replace(/^Einsatzstichwörter$/, 'Stichwörter').replace(/^PZC-Codes$/, 'PZC');
+  const multi = titles.length > 1;
+  const cols = multi ? titles.map((h) => h.closest('.popup-col') || host) : [host];
+  const acts = [];
+  const groups = cols.map((col, i) => {
+    const name = multi ? label(titles[i]) : '';
+    const addInp = col.querySelector('.settings-add-row input');
+    const addBtn = col.querySelector('#btn-add-vehicle-cat');
+    const filter = col.querySelector('.settings-filter-input');
+    const btns = [];
+    if (multi) { acts.push(() => setpageScrollTo(nav, titles[i])); btns.push(`<button type="button" class="setpage-jump-btn" data-j="${acts.length - 1}">${escHtml(name)}</button>`); }
+    if (addInp || addBtn) { acts.push(() => { if (addBtn && !addInp) { addBtn.click(); return; } setpageScrollTo(nav, addInp, true); setTimeout(() => addInp.focus({ preventScroll: true }), 300); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Neu') + ' anlegen')}" title="Anlegen">＋${multi ? '' : ' Anlegen'}</button>`); }
+    if (filter) { acts.push(() => { setpageScrollTo(nav, filter, true); setTimeout(() => filter.focus({ preventScroll: true }), 300); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Liste') + ' durchsuchen')}" title="Suchen">🔍${multi ? '' : ' Suchen'}</button>`); }
+    return btns.length ? `<span class="setpage-jump-group">${btns.join('')}</span>` : '';
+  });
+  nav.innerHTML = groups.join('');
+  nav.hidden = !acts.length;
+  const items = acts.map((go) => ({ go }));
+  nav.querySelectorAll('[data-j]').forEach((b) => b.addEventListener('click', () => items[+b.dataset.j].go()));
 }
 const settingsPageShown = (page) => activeTab === 'einstellungen' && settingsSub === page;
 /** Einstellungsseite öffnen – auch von außerhalb der Einstellungen. */

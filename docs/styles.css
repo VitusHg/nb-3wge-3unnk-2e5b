@@ -4300,3 +4300,56 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .btn-ghost, .set-form .btn-secondary, .abt-popup .btn-secondary { min-height: 32px; }
 /* Fahrzeugname in der Fahrzeugliste: größere Tippfläche zum Profil */
 .code-item-text .veh-link { display: inline-block; padding: 8px 0; }
+
+/* ══ Unterseiten Fahrzeuge / Stichwörter & PZC / Dienststellen im Einstellungs-Design ══ */
+.setpage-host .popup-col, .setpage-host > .abt-popup { background: none !important; padding: 0 !important; border-radius: 0; gap: 8px; }
+.setpage-host .popup-two-col { gap: 8px !important; }
+.setpage-host .popup-col-title {
+  margin: 18px 16px 0; font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: .02em; color: var(--text2);
+  scroll-margin-top: calc(var(--chrome-top, 0px) + 56px);
+}
+.setpage-host .popup-col-count { font-size: 13px; color: var(--text3); margin-left: 6px; }
+/* Import / Export: dezente Textknöpfe unter der Überschrift */
+.setpage-host .codes-popup-import-row { gap: 18px; padding: 0 16px; flex-wrap: wrap !important; }
+.setpage-host .codes-popup-import-row .btn-secondary { background: none; border: none; padding: 2px 0; min-height: 0; color: var(--accent); font-size: 15px; font-weight: 500; }
+/* Anlegen: Karte mit Eingabe und rundem ＋ */
+.setpage-host .settings-add-row { background: var(--card); border-radius: var(--radius); padding: 6px 8px 6px 16px; gap: 8px; margin: 0; flex-wrap: nowrap; }
+.setpage-host .settings-add-row input, .setpage-host .abt-addr-input {
+  background: transparent !important; border: none !important; padding: 8px 0 !important; font-size: 16px !important; color: var(--text); min-height: 34px; outline: none;
+}
+.setpage-host .settings-add-row .settings-pzc-code-input { width: 64px; border-right: .5px solid var(--separator) !important; padding-right: 8px !important; }
+.setpage-host .settings-add-btn { width: 34px; height: 34px; border-radius: 50%; background: var(--accent) !important; color: #fff !important; border: none; font-size: 22px; }
+.setpage-host .abt-addr-input { width: 100%; background: var(--card) !important; border-radius: var(--radius) !important; padding: 10px 16px !important; }
+/* Suchen: wie die Suchfelder der App */
+.setpage-host .settings-filter-input {
+  margin-top: 4px !important; background: var(--fill) !important; border: none !important; border-radius: 10px; padding: 9px 12px 9px 34px !important; font-size: 16px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important; background-position: 10px center !important; background-size: 16px !important;
+}
+/* Listen: Karte mit Zeilen und eingerückten Trennlinien wie die Einstellungs-Gruppen */
+.setpage-host .settings-code-list { margin-top: 0 !important; border: none; border-radius: var(--radius); background: var(--card); overflow: hidden; }
+.setpage-host .code-item { position: relative; min-height: 46px; padding: 6px 12px 6px 16px; border-bottom: none; gap: 10px; }
+.setpage-host .code-item + .code-item::before { content: ""; position: absolute; top: 0; right: 0; left: 16px; border-top: .5px solid var(--separator); }
+.setpage-host .code-item-text { font-size: 16px; }
+.setpage-host .code-item-code { font-size: 14px; min-width: 44px; }
+.setpage-host .btn-code-del { width: 32px; height: 32px; font-size: 15px; border-radius: 50%; }
+.setpage-host .code-item-select { font-size: 15px; }
+.setpage-host .code-empty { font-size: 15px; padding: 18px 16px; }
+.setpage-host .settings-hint, .setpage-host .icon-cache-row { margin: 0 16px; font-size: 13px; line-height: 1.4; color: var(--text2); }
+.setpage-host .kw-legend { margin: 2px 16px 0; }
+.setpage-host #btn-add-vehicle-cat { align-self: flex-start; }
+.setpage-host #btn-abt-cancel { margin-left: 16px; }
+
+/* Sprungknöpfe oben – bleiben beim Scrollen sichtbar */
+.setpage-jump {
+  position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -4px 4px; padding: 6px 4px 8px; background: var(--bg);
+}
+.setpage-jump::-webkit-scrollbar { display: none; }
+.setpage-jump-btn { flex: none; min-height: 32px; padding: 5px 13px; border: none; border-radius: 999px; background: var(--card); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.setpage-jump-btn.is-tool { background: var(--fill); color: var(--accent); font-weight: 500; }
+@media (max-width: 700px) { .setpage-jump { top: 0; box-shadow: 0 -6px 0 var(--bg); } }
+.setpage-jump-group { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 2px; border-radius: 999px; background: var(--card); }
+.setpage-jump-group .setpage-jump-btn { background: none; min-height: 30px; padding: 4px 11px; }
+.setpage-jump-group .setpage-jump-btn.is-tool { padding: 4px 9px; background: var(--fill); }
+.setpage-jump-group .setpage-jump-btn + .setpage-jump-btn { margin-left: 2px; }
