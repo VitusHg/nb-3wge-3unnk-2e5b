@@ -4096,7 +4096,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 148;
+const APP_VERSION = 149;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4306,8 +4306,8 @@ function buildSetpageJump(el) {
     const filter = col.querySelector('.settings-filter-input');
     const btns = [];
     if (multi) { acts.push(() => setpageScrollTo(nav, titles[i])); btns.push(`<button type="button" class="setpage-jump-btn" data-j="${acts.length - 1}">${escHtml(name)}</button>`); }
-    if (addInp || addBtn) { acts.push(() => { if (addBtn && !addInp) { addBtn.click(); return; } setpageScrollTo(nav, addInp, true); setTimeout(() => addInp.focus({ preventScroll: true }), 300); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Neu') + ' anlegen')}" title="Anlegen">＋${multi ? '' : ' Anlegen'}</button>`); }
-    if (filter) { acts.push(() => { setpageScrollTo(nav, filter, true); setTimeout(() => filter.focus({ preventScroll: true }), 300); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Liste') + ' durchsuchen')}" title="Suchen">🔍${multi ? '' : ' Suchen'}</button>`); }
+    if (addInp || addBtn) { acts.push(() => { if (addBtn && !addInp) { addBtn.click(); return; } addInp.focus({ preventScroll: true }); setpageScrollTo(nav, addInp, true); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Neu') + ' anlegen')}" title="Anlegen">＋${multi ? '' : ' Anlegen'}</button>`); }
+    if (filter) { acts.push(() => { filter.focus({ preventScroll: true }); setpageScrollTo(nav, filter, true); }); btns.push(`<button type="button" class="setpage-jump-btn is-tool" data-j="${acts.length - 1}" aria-label="${escHtml((name || 'Liste') + ' durchsuchen')}" title="Suchen">🔍${multi ? '' : ' Suchen'}</button>`); }
     return btns.length ? `<span class="setpage-jump-group">${btns.join('')}</span>` : '';
   });
   nav.innerHTML = groups.join('');
