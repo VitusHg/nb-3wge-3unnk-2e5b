@@ -4292,7 +4292,9 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .setpage-host > .abt-popup { background: var(--card) !important; border-radius: var(--radius); padding: 14px 16px !important; }
 
 /* ── Benutzerfreundlichkeit: kleine Tipp-Ziele bekommen eine größere unsichtbare Tippfläche (Aussehen bleibt) ── */
-.dialog-close, .chip-del, .cg-info, .btn-show-all, .hm-link, .pzc-yob-toggle, .inc-next-time { position: relative; }
+.chip-del, .cg-info, .btn-show-all, .hm-link, .pzc-yob-toggle, .inc-next-time { position: relative; }
+/* .dialog-close ist am Handy absolut positioniert – nur sonst relativ setzen */
+@media (min-width: 701px) { .dialog-close { position: relative; } }
 .dialog-close::after { content: ''; position: absolute; inset: -7px; }
 .chip-del::after, .cg-info::after { content: ''; position: absolute; inset: -9px; }
 .btn-show-all::after, .hm-link::after, .pzc-yob-toggle::after, .inc-next-time::after { content: ''; position: absolute; inset: -7px -4px; }
@@ -4353,3 +4355,13 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .setpage-jump-group .setpage-jump-btn { background: none; min-height: 30px; padding: 4px 11px; }
 .setpage-jump-group .setpage-jump-btn.is-tool { padding: 4px 9px; background: var(--fill); }
 .setpage-jump-group .setpage-jump-btn + .setpage-jump-btn { margin-left: 2px; }
+
+/* Dienststellen-Profil */
+.cp-station { border-radius: 18px; }
+.cp-station svg { width: 32px; height: 32px; }
+.srch-av.cp-station { border-radius: 10px; color: #fff; background: linear-gradient(140deg, hsl(var(--h) 60% 52%), hsl(calc(var(--h) + 40) 60% 40%)); }
+.srch-av.cp-station svg { width: 20px; height: 20px; }
+.cp-actions { display: flex; gap: 8px; margin: 4px 0 10px; flex-wrap: wrap; }
+.cp-act { flex: 1 1 0; min-width: 92px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px; border-radius: 14px; background: var(--fill); color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+.cp-act svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+.cp-act svg path[fill] { stroke: none; }

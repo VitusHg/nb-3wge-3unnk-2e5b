@@ -1061,6 +1061,24 @@ function renderServiceList() {
       listEl.appendChild(sec);
     }
   }
+  // Dienststellen → Profil
+  if (q) {
+    const sm = new Map();
+    const hitS = (name) => { if (!name || !String(name).toLowerCase().includes(q)) return; const k = stationKey(name); const e = sm.get(k) || { name: String(name).trim(), n: 0 }; e.n++; sm.set(k, e); };
+    state.services.forEach((sv) => hitS(sv.location));
+    (state.dienststellen || []).forEach((a) => { if (a.name && a.name.toLowerCase().includes(q) && !sm.has(stationKey(a.name))) sm.set(stationKey(a.name), { name: a.name, n: 0 }); });
+    const list = [...sm.values()].sort((a, b) => b.n - a.n).slice(0, 6);
+    if (list.length) {
+      const sec = document.createElement('div');
+      sec.className = 'srch-section';
+      sec.innerHTML = `<div class="svc-month"><span>Dienststellen</span><span class="svc-month-meta">${sm.size} Treffer</span></div>
+        <div class="srch-people">${list.map((v) => `<button type="button" class="srch-person" data-station="${escHtml(v.name)}">
+          <span class="srch-av cp-station" style="--h:${colleagueHue((findAbteilung({ location: v.name }) || v).name)}">${ICON_STATION}</span>
+          <span class="srch-person-t"><b>${escHtml(v.name)}</b><small>${v.n ? `${v.n} ${v.n === 1 ? 'Dienst' : 'Dienste'}` : 'noch keine Dienste'}</small></span>
+          <span class="srch-person-c">›</span></button>`).join('')}</div>`;
+      listEl.appendChild(sec);
+    }
+  }
   if (q && incHits.length) {
     const sec = document.createElement('div');
     sec.className = 'srch-section';
@@ -1231,7 +1249,7 @@ function renderServiceDetailContent() {
     </div>
     ${planChangeBannerHtml(svc)}
     <div class="dv-group">
-      ${row('Dienststelle', escHtml(svc.location || '—'))}
+      ${row('Dienststelle', svc.location ? `<span class="crew-link" role="button" data-station="${escHtml(svc.location)}">${escHtml(svc.location)}</span>` : '—')}
       ${row('Besatzung', crew.length ? crew.map((c) => `<button type="button" class="crew-link" data-colleague="${escHtml(c)}">${escHtml(c)}</button>`).join('<br>') : '<span class="dv-muted">—</span>', 'is-multi')}
       ${svc.note ? row('Notiz', linkifyHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
     </div>
@@ -1417,7 +1435,7 @@ function renderIncidentView() {
       : group('Dienst', [
         row('Zeitraum', escHtml(svcWhen || '—')),
         svc.vehicle && row('Fahrzeug', `<span class="crew-link" role="button" data-vehicle="${escHtml(svc.vehicle)}">${escHtml(svc.vehicle)}</span>`),
-        svc.location && row('Dienststelle', escHtml(svc.location)),
+        svc.location && row('Dienststelle', `<span class="crew-link" role="button" data-station="${escHtml(svc.location)}">${escHtml(svc.location)}</span>`),
         createdStr && row('Erfasst', escHtml(createdStr)),
         `<button type="button" class="iv-jump" id="btn-iv-jump">Dienst öffnen<span aria-hidden="true">›</span></button>`,
       ]));
@@ -4096,7 +4114,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 149;
+const APP_VERSION = 150;
 const APP_VERSION_DATE = '20.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5215,7 +5233,7 @@ function renderAbteilungenPopup() {
     <input type="search" id="abt-filter" class="settings-filter-input" placeholder="Dienststellen filtern…" value="${escHtml(_abtFilter)}" style="margin-top:6px">
     <div class="settings-code-list" id="abt-list" style="margin-top:4px"></div>
     <div id="abt-suggest"></div>
-    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheinen auf Start beim aktuellen bzw. nächsten Dienst Knöpfe für Google Maps und BusBahnBim. Antippen zum Bearbeiten. Mehrere Schreibweisen (z. B. „MINA RKZ“, „MINA West“) dürfen dieselbe ID haben. Import: Liste <code>[{ "name", "deptId" }]</code> oder <code>{ "dienststellen": […] }</code>.</p>`;
+    <p class="settings-hint" style="margin-top:6px">Die ID ist die Zahl am Ende der Tagesdienstplan-Adresse. Mit Standort erscheinen auf Start beim aktuellen bzw. nächsten Dienst Knöpfe für Google Maps und BusBahnBim. Name antippen öffnet das Profil, die übrige Zeile zum Bearbeiten. Mehrere Schreibweisen (z. B. „MINA RKZ“, „MINA West“) dürfen dieselbe ID haben. Import: Liste <code>[{ "name", "deptId" }]</code> oder <code>{ "dienststellen": […] }</code>.</p>`;
 
   const refreshList = () => {
     const el = body.querySelector('#abt-list');
@@ -5224,7 +5242,7 @@ function renderAbteilungenPopup() {
     el.innerHTML = rows.length
       ? rows.map(({ a, i }) => `<div class="code-item code-item-tap${i === _abtEditIdx ? ' is-editing' : ''}" data-idx="${i}">
           <span class="code-item-code">${escHtml(a.deptId || '—')}</span>
-          <span class="code-item-text">${escHtml(a.name || '(ohne Namen)')}${a.address ? `<small class="abt-addr">📍 ${escHtml(a.address.length > 40 ? a.address.slice(0, 39) + '…' : a.address)}</small>` : ''}</span>
+          <span class="code-item-text">${a.name ? `<span class="veh-link" role="button" data-station="${escHtml(a.name)}" title="Dienststellen-Profil">${escHtml(a.name)}</span>` : '(ohne Namen)'}${a.address ? `<small class="abt-addr">📍 ${escHtml(a.address.length > 40 ? a.address.slice(0, 39) + '…' : a.address)}</small>` : ''}</span>
           <button class="btn-code-del" data-idx="${i}" title="Löschen" aria-label="${escHtml(a.name)} löschen">✕</button>
         </div>`).join('')
       : `<div class="code-empty">Keine Einträge${q ? ' für diese Suche' : ''}.</div>`;
@@ -6501,7 +6519,7 @@ function colleagueInitials(name) { return String(name).replace(/,.*$/, '').split
 function colleagueHue(name) { return [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7); }
 
 /** Dienst-Zeile für Profile: Datum, Schicht, Fahrzeug bzw. Dienststelle, Uhrzeit, Besatzung, Einsätze. */
-function cpSvcRowHtml(x, { vehicle, person } = {}) {
+function cpSvcRowHtml(x, { vehicle, person, station } = {}) {
   const d = parseLocalDt(x.startAt), e = parseLocalDt(x.endAt);
   const hm = (t) => `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
   const date = d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
@@ -6509,7 +6527,7 @@ function cpSvcRowHtml(x, { vehicle, person } = {}) {
   const lights = incs.filter((i) => i.lights).length;
   const crew = (x.colleagues || []).filter((c) => !person || !sameName(c, person));
   const title = x.isSeg ? (incs[0] || {}).alarmCode || 'SEG-Einsatz' : vehicle ? x.location || 'Dienst' : x.vehicle || 'Dienst';
-  const sub = [x.isSeg ? `SEG${x.location ? ' · ' + x.location : ''}` : vehicle ? '' : x.location || '', d && e ? `${hm(d)}–${hm(e)}` : '', crew.length ? `👥 ${crew.join(', ')}` : ''].filter(Boolean).join(' · ');
+  const sub = [x.isSeg ? `SEG${x.location && !station ? ' · ' + x.location : ''}` : vehicle || station ? '' : x.location || '', d && e ? `${hm(d)}–${hm(e)}` : '', crew.length ? `👥 ${crew.join(', ')}` : ''].filter(Boolean).join(' · ');
   return `<button type="button" class="cp-svc is-rich" data-cp-svc="${escHtml(x.id)}">
     <span class="cp-svc-d">${shiftCodeHtml(x.startAt, 'is-small')}<span>${escHtml(date)}</span></span>
     <span class="cp-svc-m"><span class="cp-svc-t">${escHtml(title)}</span>${sub ? `<small>${escHtml(sub)}</small>` : ''}</span>
@@ -6557,7 +6575,7 @@ function openColleagueProfile(name) {
     ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${kws.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${wild && (wild.incidents || []).length > 1 ? `<p class="cp-line">🔥 Wildester gemeinsamer Dienst: <strong>${wild.incidents.length} Einsätze</strong> am ${escHtml(day(wild))}</p>` : ''}
     ${vehs.length > 1 ? `<div class="cp-sub">Gemeinsame Fahrzeuge</div><div class="cp-chips">${vehs.map(([k, n]) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
-    ${places.length ? `<div class="cp-sub">Dienststellen</div><div class="cp-chips">${places.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${places.length ? `<div class="cp-sub">Dienststellen</div><div class="cp-chips">${places.map(([k, n]) => `<span class="crew-link" role="button" data-station="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${comps.length ? `<div class="cp-sub">Gemeinsam getroffen</div><div class="cp-chips">${comps.map(([k, n]) => `<span class="crew-link" role="button" data-vehicle="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${others.length ? `<div class="cp-sub">Oft auch dabei</div><div class="cp-chips">${others.map(([k, n]) => `<span class="crew-link" role="button" data-colleague="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     <div class="cp-sub">Gemeinsame Dienste · ${shared.length}</div>
@@ -6590,6 +6608,7 @@ function openVehicleProfile(name) {
   const kws = countTop(ownIncs.map((i) => i.alarmCode), 3);
   const comps = countTop(ownIncs.flatMap((i) => i.extraVehicles || []).filter((v) => !sameName(v, name)), 4);
   const jointKws = countTop(joint.map((x) => x.inc.alarmCode), 3);
+  const vStations = countTop(duty.map((x) => x.location), 4);
   const jointMine = countTop(joint.map((x) => x.svc.vehicle), 3);
   const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
   const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
@@ -6610,6 +6629,7 @@ function openVehicleProfile(name) {
     </div>
     ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(ownIncs.length / duty.length)}</strong> Einsätze pro Dienst · 🌙 ${nights} Nachtdienste</p>` : ''}` : ''}
     ${crew.length ? `<div class="cp-sub">Am öftesten mit dir drauf</div><div class="cp-chips">${crew.map(([k, n]) => `<span class="crew-link" role="button" data-colleague="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
+    ${vStations.length ? `<div class="cp-sub">Dienststellen</div><div class="cp-chips">${vStations.map(([k, n]) => `<span class="crew-link" role="button" data-station="${escHtml(k)}">${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${kws.map(([k, n]) => `<span>${escHtml(k)} · ${n}×</span>`).join('')}</div>` : ''}
     ${comps.length ? `<div class="cp-sub">Oft zusammen mit</div><div class="cp-chips">${comps.map(([k, n]) => vlink(k, n)).join('')}</div>` : ''}
     ${joint.length ? `<div class="cp-sub">Gemeinsame Einsätze · ${joint.length}</div>
@@ -6631,6 +6651,90 @@ function openVehicleProfile(name) {
   box.scrollTop = 0;
   openDialog('dialog-colleague');
 }
+// ── Dienststellen-Profil ────────────────────────────────────────────────────
+/** Schlüssel einer Dienststelle: gleiche ID = gleiche Dienststelle (auch bei anderer Schreibweise). */
+function stationKey(name) {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  const abt = findAbteilung({ location: n });
+  return abt && abt.deptId ? 'id:' + abt.deptId : 'n:' + (abt ? abt.name : n).toLowerCase();
+}
+const ICON_STATION = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V9.5L12 4l8 5.5V21h-5.5v-5h-5v5zM11 8v2H9v2h2v2h2v-2h2v-2h-2V8z" fill="currentColor"/></svg>';
+function openStationProfile(name) {
+  const box = document.getElementById('colleague-body');
+  name = String(name || '').trim();
+  if (!box || !name) return;
+  const key = stationKey(name);
+  const hit = findAbteilung({ location: name });
+  // gleiche ID = eine Dienststelle: erster Listeneintrag ist der Hauptname, Standort vom ersten mit Adresse
+  const group = hit && hit.deptId ? (state.dienststellen || []).filter((a) => a.deptId === hit.deptId) : hit ? [hit] : [];
+  const abt = group[0] || null;
+  const title = abt ? abt.name : name;
+  const own = state.services.filter((x) => x.location && stationKey(x.location) === key)
+    .sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
+  const duty = own.filter((x) => !x.isSeg);
+  const incs = own.flatMap((x) => x.incidents || []);
+  const hours = duty.reduce((n, x) => n + +serviceDurationHours(x), 0);
+  const lights = incs.filter((i) => i.lights).length;
+  const nights = duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length;
+  const vehs = countTop(duty.map((x) => x.vehicle), 6);
+  const crew = countTop(own.flatMap((x) => x.colleagues || []), 8);
+  const kws = countTop(incs.map((i) => i.alarmCode), 4);
+  const dests = countTop(incs.map((i) => String(i.to || '').trim()), 4);
+  const aliases = [...new Set([
+    ...(abt && abt.deptId ? (state.dienststellen || []).filter((a) => a.deptId === abt.deptId).map((a) => a.name) : []),
+    ...own.map((x) => x.location.trim()),
+  ].filter((n) => n && !sameName(n, title)))].slice(0, 6);
+  const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
+  const wild = duty.slice().sort((a, b) => (b.incidents || []).length - (a.incidents || []).length)[0];
+  const addr = String((group.find((a) => String(a.address || '').trim()) || {}).address || '').trim();
+  const isLink = addr && /^https?:\/\//i.test(addr);
+  const today = localDateStr(new Date()) + 'T00:00';
+  const tdp = abt && abt.deptId ? dienstplanUrl({ location: title, startAt: today }) : null;
+  const sub = [abt && abt.deptId ? `ID ${abt.deptId}` : '', own.length ? `seit ${day(own[own.length - 1])}` : 'noch keine Dienste', own.length > 1 ? `zuletzt ${day(own[0])}` : ''].filter(Boolean).join(' · ');
+  const chips = (arr, attr) => arr.map(([k, n]) => `<span${attr ? ` class="crew-link" role="button" ${attr}="${escHtml(k)}"` : ''}>${escHtml(k)} · ${n}×</span>`).join('');
+  document.getElementById('colleague-title').textContent = 'Dienststelle';
+  box.innerHTML = `<div class="cp-head">
+      <span class="cp-av cp-station" style="--h:${colleagueHue(title)}">${ICON_STATION}</span>
+      <div><h3>${escHtml(title)}</h3><span>${escHtml(sub)}</span></div>
+    </div>
+    ${addr || tdp ? `<div class="cp-actions">
+      ${addr ? `<a class="cp-act" href="${escHtml(mapsRouteUrl(addr))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>` : ''}
+      ${addr && !isLink ? `<a class="cp-act" ${safariLinkAttrs('https://verkehrsauskunft.verbundlinie.at/?Z=' + encodeURIComponent(addr))}>${ICON_BUS_FRONT}<span>Öffis</span></a>` : ''}
+      ${tdp ? `<a class="cp-act" ${dpLinkAttrs(tdp)}>${ICON_CAL}<span>Dienstplan heute</span></a>` : ''}
+    </div>` : ''}
+    ${addr && !isLink ? `<p class="cp-line">📍 ${escHtml(addr)}</p>` : ''}
+    ${own.length ? `<div class="cp-tiles">
+      <div><strong>${duty.length}</strong><small>Dienste</small></div>
+      <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
+      <div><strong>${incs.length}</strong><small>Einsätze</small></div>
+      <div><strong>${incs.length ? Math.round((lights / incs.length) * 100) + '%' : '–'}</strong><small>Blaulicht</small></div>
+    </div>` : ''}
+    ${duty.length ? `<p class="cp-line">Ø <strong>${fmt1(incs.length / duty.length)}</strong> Einsätze pro Dienst · 🌙 ${nights} Nachtdienste</p>` : ''}
+    ${wild && (wild.incidents || []).length > 1 ? `<p class="cp-line">🔥 Wildester Dienst hier: <strong>${wild.incidents.length} Einsätze</strong> am ${escHtml(day(wild))}</p>` : ''}
+    ${vehs.length ? `<div class="cp-sub">Fahrzeuge</div><div class="cp-chips">${chips(vehs, 'data-vehicle')}</div>` : ''}
+    ${crew.length ? `<div class="cp-sub">Am öftesten mit dir hier</div><div class="cp-chips">${chips(crew, 'data-colleague')}</div>` : ''}
+    ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${chips(kws)}</div>` : ''}
+    ${dests.length ? `<div class="cp-sub">Häufigste Ziele</div><div class="cp-chips">${chips(dests)}</div>` : ''}
+    ${aliases.length ? `<div class="cp-sub">Auch eingetragen als</div><div class="cp-chips">${aliases.map((a) => `<span>${escHtml(a)}</span>`).join('')}</div>` : ''}
+    ${own.length ? `<div class="cp-sub">Deine Dienste hier · ${own.length}</div>
+    <div class="cp-list">${own.slice(0, 40).map((x) => cpSvcRowHtml(x, { station: true })).join('')}
+      ${own.length > 40 ? `<p class="cp-line">… und ${own.length - 40} weitere</p>` : ''}</div>` : ''}`;
+  box.querySelectorAll('[data-cp-svc]').forEach((b) => b.addEventListener('click', () => {
+    const sv = state.services.find((x) => x.id === b.dataset.cpSvc);
+    closeDialog('dialog-colleague'); document.querySelectorAll('.lp-ov').forEach((x) => x.remove()); if (story) closeStory();
+    setTimeout(() => { if (sv && sv.isSeg) openIncidentView(sv.id, (sv.incidents[0] || {}).id); else if (sv) openServiceDetail(sv.id); }, 260);
+  }));
+  box.scrollTop = 0;
+  openDialog('dialog-colleague');
+}
+document.addEventListener('click', (e) => {
+  const st = e.target.closest && e.target.closest('[data-station]');
+  if (!st) return;
+  e.stopPropagation(); e.preventDefault();
+  openStationProfile(st.dataset.station);
+}, true);
 document.addEventListener('click', (e) => {
   const v = e.target.closest && e.target.closest('[data-vehicle]');
   if (!v) return;
