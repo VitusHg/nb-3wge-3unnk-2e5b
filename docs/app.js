@@ -4134,7 +4134,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 151;
+const APP_VERSION = 152;
 const APP_VERSION_DATE = '22.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6672,12 +6672,57 @@ function openVehicleProfile(name) {
   openDialog('dialog-colleague');
 }
 // ── Dienststellen-Profil ────────────────────────────────────────────────────
-/** Schlüssel einer Dienststelle: gleiche ID = gleiche Dienststelle (auch bei anderer Schreibweise). */
+/** Schlüssel einer Dienststelle: jeder Listeneintrag ist eigenständig (die ID verbindet nur zum
+ *  Tagesdienstplan). Dienst-Einträge werden wie beim Dienstplan-Link dem passenden Namen zugeordnet. */
 function stationKey(name) {
   const n = String(name || '').trim();
   if (!n) return '';
   const abt = findAbteilung({ location: n });
-  return abt && abt.deptId ? 'id:' + abt.deptId : 'n:' + (abt ? abt.name : n).toLowerCase();
+  return 'n:' + (abt ? abt.name : n).toLowerCase();
+}
+
+// ── Karte (OpenStreetMap) für die Dienststellen-Visitenkarte ──
+const GEO_CACHE_KEY = 'etb_geo_cache';
+/** Koordinaten aus einem Google-Maps-Link (falls enthalten). */
+function coordsFromMapsLink(url) {
+  const m = String(url).match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || String(url).match(/[?&](?:q|query|ll|destination|center)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/) || String(url).match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+  return m ? { lat: +m[1], lon: +m[2] } : null;
+}
+let geoQueue = Promise.resolve();
+/** Adresse → Koordinaten (Nominatim, höchstens 1 Abfrage/s, Ergebnis wird auf dem Gerät gemerkt). */
+function geocodeAddress(addr) {
+  const a = String(addr || '').trim();
+  if (!a) return Promise.resolve(null);
+  if (/^https?:\/\//i.test(a)) return Promise.resolve(coordsFromMapsLink(a));
+  let cache = {};
+  try { cache = JSON.parse(lsGet(GEO_CACHE_KEY, '{}')) || {}; } catch (_) {}
+  const hit = cache[a.toLowerCase()];
+  if (hit && (hit.lat !== undefined || Date.now() - hit.at < 7 * 864e5)) return Promise.resolve(hit.lat !== undefined ? hit : null);
+  if (!navigator.onLine) return Promise.resolve(null);
+  const run = () => fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=de&q=${encodeURIComponent(a)}`, { headers: { Accept: 'application/json' } })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+    .then((list) => {
+      const x = Array.isArray(list) && list[0];
+      const res = x ? { lat: +x.lat, lon: +x.lon, at: Date.now() } : { at: Date.now() };
+      try { const c = JSON.parse(lsGet(GEO_CACHE_KEY, '{}')) || {}; c[a.toLowerCase()] = res; lsSet(GEO_CACHE_KEY, JSON.stringify(c)); } catch (_) {}
+      return x ? res : null;
+    })
+    .catch(() => null);
+  const p = geoQueue.then(run);
+  geoQueue = p.then(() => new Promise((r) => setTimeout(r, 1100)));
+  return p;
+}
+/** Kartenausschnitt aus OSM-Kacheln, Punkt in der Mitte (ohne Bibliothek). */
+function osmTilesHtml(lat, lon, z = 16) {
+  const n = 2 ** z, rad = (lat * Math.PI) / 180;
+  const x = ((lon + 180) / 360) * n, y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+  const fx = Math.floor(x), fy = Math.floor(y);
+  let out = '';
+  for (let tx = fx - 2; tx <= fx + 2; tx++) for (let ty = fy - 1; ty <= fy + 1; ty++) {
+    if (ty < 0 || ty >= n) continue;
+    out += `<img src="https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png" alt="" loading="lazy" decoding="async" referrerpolicy="strict-origin-when-cross-origin" style="left:calc(50% + ${Math.round((tx - x) * 256)}px);top:calc(50% + ${Math.round((ty - y) * 256)}px)">`;
+  }
+  return `<div class="st-map-tiles">${out}</div><span class="st-pin" aria-hidden="true"></span>`;
 }
 const ICON_STATION = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V9.5L12 4l8 5.5V21h-5.5v-5h-5v5zM11 8v2H9v2h2v2h2v-2h2v-2h-2V8z" fill="currentColor"/></svg>';
 function openStationProfile(name) {
@@ -6685,10 +6730,7 @@ function openStationProfile(name) {
   name = String(name || '').trim();
   if (!box || !name) return;
   const key = stationKey(name);
-  const hit = findAbteilung({ location: name });
-  // gleiche ID = eine Dienststelle: erster Listeneintrag ist der Hauptname, Standort vom ersten mit Adresse
-  const group = hit && hit.deptId ? (state.dienststellen || []).filter((a) => a.deptId === hit.deptId) : hit ? [hit] : [];
-  const abt = group[0] || null;
+  const abt = findAbteilung({ location: name });
   const title = abt ? abt.name : name;
   const own = state.services.filter((x) => x.location && stationKey(x.location) === key)
     .sort((a, b) => (b.startAt || '').localeCompare(a.startAt || ''));
@@ -6701,30 +6743,30 @@ function openStationProfile(name) {
   const crew = countTop(own.flatMap((x) => x.colleagues || []), 8);
   const kws = countTop(incs.map((i) => i.alarmCode), 4);
   const dests = countTop(incs.map((i) => String(i.to || '').trim()), 4);
-  const aliases = [...new Set([
-    ...(abt && abt.deptId ? (state.dienststellen || []).filter((a) => a.deptId === abt.deptId).map((a) => a.name) : []),
-    ...own.map((x) => x.location.trim()),
-  ].filter((n) => n && !sameName(n, title)))].slice(0, 6);
+  const aliases = [...new Set(own.map((x) => x.location.trim()).filter((n) => n && !sameName(n, title)))].slice(0, 6);
   const fmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
   const day = (x) => { const d = parseLocalDt(x.startAt); return d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''; };
   const wild = duty.slice().sort((a, b) => (b.incidents || []).length - (a.incidents || []).length)[0];
-  const addr = String((group.find((a) => String(a.address || '').trim()) || {}).address || '').trim();
+  const addr = abt ? String(abt.address || '').trim() : '';
   const isLink = addr && /^https?:\/\//i.test(addr);
   const today = localDateStr(new Date()) + 'T00:00';
   const tdp = abt && abt.deptId ? dienstplanUrl({ location: title, startAt: today }) : null;
   const sub = [abt && abt.deptId ? `ID ${abt.deptId}` : '', own.length ? `seit ${day(own[own.length - 1])}` : 'noch keine Dienste', own.length > 1 ? `zuletzt ${day(own[0])}` : ''].filter(Boolean).join(' · ');
   const chips = (arr, attr) => arr.map(([k, n]) => `<span${attr ? ` class="crew-link" role="button" ${attr}="${escHtml(k)}"` : ''}>${escHtml(k)} · ${n}×</span>`).join('');
   document.getElementById('colleague-title').textContent = 'Dienststelle';
-  box.innerHTML = `<div class="cp-head">
-      <span class="cp-av cp-station" style="--h:${colleagueHue(title)}">${ICON_STATION}</span>
-      <div><h3>${escHtml(title)}</h3><span>${escHtml(sub)}</span></div>
+  box.innerHTML = `<div class="st-card" style="--h:${colleagueHue(title)}">
+      <div class="st-map" aria-hidden="true"></div>
+      <div class="st-card-body">
+        <span class="cp-av cp-station">${ICON_STATION}</span>
+        <div class="st-card-t"><h3>${escHtml(title)}</h3><span>${escHtml(sub)}</span>${addr && !isLink ? `<span class="st-addr">📍 ${escHtml(addr)}</span>` : ''}</div>
+      </div>
+      <span class="st-attrib" hidden>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span>
     </div>
     ${addr || tdp ? `<div class="cp-actions">
       ${addr ? `<a class="cp-act" href="${escHtml(mapsRouteUrl(addr))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>` : ''}
       ${addr && !isLink ? `<a class="cp-act" ${safariLinkAttrs('https://verkehrsauskunft.verbundlinie.at/?Z=' + encodeURIComponent(addr))}>${ICON_BUS_FRONT}<span>Öffis</span></a>` : ''}
       ${tdp ? `<a class="cp-act" ${dpLinkAttrs(tdp)}>${ICON_CAL}<span>Dienstplan heute</span></a>` : ''}
     </div>` : ''}
-    ${addr && !isLink ? `<p class="cp-line">📍 ${escHtml(addr)}</p>` : ''}
     ${own.length ? `<div class="cp-tiles">
       <div><strong>${duty.length}</strong><small>Dienste</small></div>
       <div><strong>${Math.round(hours)}</strong><small>Stunden</small></div>
@@ -6748,6 +6790,13 @@ function openStationProfile(name) {
   }));
   box.scrollTop = 0;
   openDialog('dialog-colleague');
+  if (addr) geocodeAddress(addr).then((c) => {
+    const card = box.querySelector('.st-card');
+    if (!c || !card || !card.isConnected) return;
+    card.querySelector('.st-map').innerHTML = osmTilesHtml(c.lat, c.lon);
+    card.classList.add('has-map');
+    card.querySelector('.st-attrib').hidden = false;
+  });
 }
 document.addEventListener('click', (e) => {
   const st = e.target.closest && e.target.closest('[data-station]');
