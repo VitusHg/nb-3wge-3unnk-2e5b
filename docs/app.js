@@ -2674,6 +2674,25 @@ function renderPieSvg(items) {
   return `<div class="pie-wrap"><svg viewBox="0 0 120 120" class="pie-svg">${paths}</svg><div class="pie-legend">${legend}</div></div>`;
 }
 
+/** Torte fürs Ranglisten-Popup: Top 8 + „Sonstige“, Summe in der Mitte. */
+function lpPieHtml(items, total, unit) {
+  if (!total || items.length < 2) return '';
+  const top = items.slice(0, 8), rest = total - top.reduce((n, [, c]) => n + c, 0);
+  const parts = rest > 0 ? [...top, ['Sonstige', rest]] : top;
+  const cx = 70, cy = 70, r = 62, inner = 38;
+  let angle = -Math.PI / 2, paths = '';
+  parts.forEach(([label, count], i) => {
+    const sweep = Math.min((count / total) * 2 * Math.PI, 2 * Math.PI - 0.001);
+    const p = (rad, a) => `${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`;
+    const large = sweep > Math.PI ? 1 : 0;
+    const col = i < top.length ? PIE_COLORS[i % PIE_COLORS.length] : 'var(--fill2)';
+    paths += `<path d="M${p(r, angle)} A${r},${r},0,${large},1,${p(r, angle + sweep)} L${p(inner, angle + sweep)} A${inner},${inner},0,${large},0,${p(inner, angle)} Z" fill="${col}"><title>${escHtml(String(label))}: ${count} (${Math.round((count / total) * 100)} %)</title></path>`;
+    angle += (count / total) * 2 * Math.PI;
+  });
+  const legend = parts.map(([l, c], i) => `<li><span class="pie-dot" style="background:${i < top.length ? PIE_COLORS[i % PIE_COLORS.length] : 'var(--fill2)'}"></span><span class="pie-lbl">${escHtml(String(l))}</span><span class="pie-cnt">${Math.round((c / total) * 100)} %</span></li>`).join('');
+  return `<div class="lp-pie"><div class="lp-pie-chart"><svg viewBox="0 0 140 140" aria-hidden="true">${paths}</svg><span class="lp-pie-sum"><b>${total}</b><small>${escHtml(unit || 'gesamt')}</small></span></div><ul class="lp-pie-legend">${legend}</ul></div>`;
+}
+
 /** Vollständige Rangliste als Popup – mit Podest-Medaillen, Anteil und Suche. */
 function showListPopup(title, items, meta = {}) {
   const color = meta.color || 'var(--accent)';
@@ -2681,7 +2700,7 @@ function showListPopup(title, items, meta = {}) {
   const max = items.length ? items[0][1] : 1;
   const medal = ['🥇', '🥈', '🥉'];
   const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}${meta.vehicle ? ` data-vehicle="${escHtml(String(label))}"` : ''}>
-      <span class="lp-n">${i < 3 ? medal[i] : i + 1}</span>
+      <span class="lp-n"${i < 8 && items.length > 1 ? ` style="--pc:${PIE_COLORS[i % PIE_COLORS.length]}"` : ''}>${i < 3 ? medal[i] : i + 1}</span>
       ${meta.lead ? meta.lead(label) : ''}
       <span class="lp-main"><span class="lp-l">${escHtml(String(label))}</span>
         <span class="lp-bar"><span style="width:${Math.max(4, Math.round((count / max) * 100))}%"></span></span></span>
@@ -2697,7 +2716,7 @@ function showListPopup(title, items, meta = {}) {
       <button class="dialog-close lp-x" aria-label="Schließen">✕</button>
     </div>
     ${items.length > 8 ? '<div class="lp-search"><input type="search" placeholder="Suchen …" aria-label="Suchen"></div>' : ''}
-    <div class="dialog-body lp-body"><ol class="lp-list">${items.map(row).join('') || '<li class="lp-empty">Keine Daten</li>'}</ol></div>
+    <div class="dialog-body lp-body">${lpPieHtml(items, total, meta.unit)}<ol class="lp-list">${items.map(row).join('') || '<li class="lp-empty">Keine Daten</li>'}</ol></div>
   </div>`;
   const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
   ov.querySelector('.dialog-close').addEventListener('click', close);
@@ -2706,6 +2725,7 @@ function showListPopup(title, items, meta = {}) {
   if (q) q.addEventListener('input', () => {
     const v = q.value.trim().toLowerCase();
     ov.querySelectorAll('.lp-row').forEach((li) => { li.hidden = !!v && !li.dataset.q.includes(v); });
+    const pie = ov.querySelector('.lp-pie'); if (pie) pie.hidden = !!v;
   });
   document.body.appendChild(ov);
 }
@@ -4114,8 +4134,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 150;
-const APP_VERSION_DATE = '20.11.2026';
+const APP_VERSION = 151;
+const APP_VERSION_DATE = '22.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',

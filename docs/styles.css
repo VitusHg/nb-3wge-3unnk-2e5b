@@ -4365,3 +4365,16 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .cp-act { flex: 1 1 0; min-width: 92px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px; border-radius: 14px; background: var(--fill); color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
 .cp-act svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; }
 .cp-act svg path[fill] { stroke: none; }
+
+/* Torte im „Alle“-Popup der Statistik */
+.lp-pie { display: flex; align-items: center; gap: 16px; margin: 2px 4px 12px; padding: 12px; border-radius: 16px; background: var(--fill); }
+.lp-pie-chart { position: relative; flex: none; width: 132px; height: 132px; }
+.lp-pie-chart svg { width: 100%; height: 100%; display: block; }
+.lp-pie-sum { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; pointer-events: none; }
+.lp-pie-sum b { font-size: 20px; font-weight: 800; color: var(--text); }
+.lp-pie-sum small { font-size: 11px; color: var(--text2); }
+.lp-pie-legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.lp-pie-legend li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+@media (max-width: 360px) { .lp-pie { flex-direction: column; align-items: stretch; } .lp-pie-chart { align-self: center; } }
+.lp-n[style*="--pc"] { position: relative; }
+.lp-n[style*="--pc"]::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 14px; height: 3px; margin-left: -7px; border-radius: 2px; background: var(--pc); }
