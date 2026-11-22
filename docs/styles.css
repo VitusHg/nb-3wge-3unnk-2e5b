@@ -4399,3 +4399,12 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .st-card-t .st-addr { color: #fff; font-weight: 500; }
 .st-attrib { position: absolute; z-index: 2; top: 6px; right: 8px; padding: 1px 6px; border-radius: 6px; font-size: 10px; background: rgba(0,0,0,.45); color: rgba(255,255,255,.85); }
 .st-attrib a { color: inherit; }
+.st-open { position: absolute; inset: 0; z-index: 1; }
+.st-card-body { pointer-events: none; }
+.st-card.has-map .st-card-body { z-index: 2; }
+.st-card.has-map .st-open { z-index: 3; }
+.st-zoom { position: absolute; z-index: 4; top: 8px; left: 8px; display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; background: rgba(0,0,0,.55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.st-zoom button { width: 34px; height: 34px; border: none; background: none; color: #fff; font-size: 20px; font-weight: 600; line-height: 1; cursor: pointer; }
+.st-zoom button + button { border-top: 1px solid rgba(255,255,255,.2); }
+.st-attrib { z-index: 4; }
+.st-map-tiles img { transition: opacity .2s; }

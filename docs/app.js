@@ -247,7 +247,7 @@ function normalizeState(s) {
   // früher „abteilungen“ – jetzt eine Liste der Dienststellen (Name, Dienstplan-ID, Standort)
   if (!Array.isArray(s.dienststellen) && Array.isArray(s.abteilungen)) s.dienststellen = s.abteilungen;
   delete s.abteilungen;
-  s.dienststellen = Array.isArray(s.dienststellen) ? s.dienststellen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? ''), ...(toDisplayName(a.address) ? { address: toDisplayName(a.address) } : {}) })) : [];
+  s.dienststellen = Array.isArray(s.dienststellen) ? s.dienststellen.filter(isObj).map((a) => ({ name: toDisplayName(a.name), deptId: String(a.deptId ?? a.id ?? ''), ...(toDisplayName(a.address) ? { address: toDisplayName(a.address) } : {}), ...(+a.mapZoom >= 11 && +a.mapZoom <= 18 ? { mapZoom: +a.mapZoom } : {}) })) : [];
   // Einträge ohne Objektform (null, Zahlen …) verwerfen statt später abzustürzen
   s.services = objList(s.services);
   s.alarmCodes = Array.isArray(s.alarmCodes) ? s.alarmCodes.filter((c) => typeof c === 'string') : [];
@@ -4134,7 +4134,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 152;
+const APP_VERSION = 153;
 const APP_VERSION_DATE = '22.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5313,7 +5313,8 @@ function renderAbteilungenPopup() {
     const address = body.querySelector('#new-abt-addr').value.trim();
     if (!name || (!deptId && !address)) { toast('Bitte Name und ID oder Standort eingeben.', 'error'); return; }
     state.dienststellen = list;
-    const entry = { name, deptId, ...(address ? { address } : {}) };
+    const prev = _abtEditIdx !== null ? list[_abtEditIdx] : null;
+    const entry = { name, deptId, ...(address ? { address } : {}), ...(prev && prev.mapZoom && (prev.address || '') === address ? { mapZoom: prev.mapZoom } : {}) };
     const clash = list.findIndex((a, i) => a.name.toLowerCase() === name.toLowerCase() && i !== _abtEditIdx);
     if (clash >= 0) list.splice(clash, 1, entry);
     else if (_abtEditIdx !== null) list.splice(_abtEditIdx, 1, entry);
@@ -6713,7 +6714,8 @@ function geocodeAddress(addr) {
   return p;
 }
 /** Kartenausschnitt aus OSM-Kacheln, Punkt in der Mitte (ohne Bibliothek). */
-function osmTilesHtml(lat, lon, z = 16) {
+const ST_MAP_ZOOM = 15, ST_MAP_ZOOM_MIN = 11, ST_MAP_ZOOM_MAX = 18;
+function osmTilesHtml(lat, lon, z = ST_MAP_ZOOM) {
   const n = 2 ** z, rad = (lat * Math.PI) / 180;
   const x = ((lon + 180) / 360) * n, y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
   const fx = Math.floor(x), fy = Math.floor(y);
@@ -6761,6 +6763,8 @@ function openStationProfile(name) {
         <div class="st-card-t"><h3>${escHtml(title)}</h3><span>${escHtml(sub)}</span>${addr && !isLink ? `<span class="st-addr">📍 ${escHtml(addr)}</span>` : ''}</div>
       </div>
       <span class="st-attrib" hidden>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span>
+      <a class="st-open" hidden target="_blank" rel="noopener" aria-label="Standort in Google Maps öffnen"></a>
+      <span class="st-zoom" hidden><button type="button" data-z="-1" aria-label="Karte weiter weg">−</button><button type="button" data-z="1" aria-label="Karte näher">＋</button></span>
     </div>
     ${addr || tdp ? `<div class="cp-actions">
       ${addr ? `<a class="cp-act" href="${escHtml(mapsRouteUrl(addr))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>` : ''}
@@ -6793,9 +6797,24 @@ function openStationProfile(name) {
   if (addr) geocodeAddress(addr).then((c) => {
     const card = box.querySelector('.st-card');
     if (!c || !card || !card.isConnected) return;
-    card.querySelector('.st-map').innerHTML = osmTilesHtml(c.lat, c.lon);
+    let z = Math.min(ST_MAP_ZOOM_MAX, Math.max(ST_MAP_ZOOM_MIN, +(abt && abt.mapZoom) || ST_MAP_ZOOM));
+    const draw = () => { card.querySelector('.st-map').innerHTML = osmTilesHtml(c.lat, c.lon, z); };
+    draw();
     card.classList.add('has-map');
     card.querySelector('.st-attrib').hidden = false;
+    const open = card.querySelector('.st-open');
+    open.href = isLink ? addr : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
+    open.hidden = false;
+    const zb = card.querySelector('.st-zoom');
+    zb.hidden = false;
+    // Zoom je Dienststelle merken
+    zb.querySelectorAll('[data-z]').forEach((b) => b.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const nz = Math.min(ST_MAP_ZOOM_MAX, Math.max(ST_MAP_ZOOM_MIN, z + +b.dataset.z));
+      if (nz === z) return;
+      z = nz; draw();
+      if (abt) { if (z === ST_MAP_ZOOM) delete abt.mapZoom; else abt.mapZoom = z; saveState(); }
+    }));
   });
 }
 document.addEventListener('click', (e) => {
