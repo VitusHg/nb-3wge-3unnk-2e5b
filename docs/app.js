@@ -1231,12 +1231,14 @@ function renderServiceDetailContent() {
   const backBtn = '';
   const addIncBtn = `<button class="btn-primary" id="btn-add-incident">+ Einsatz</button>`;
   const dpUrl = dienstplanUrl(svc);
-  const svcHistKey = historyKeyForService(svc);
+  const svcHistKeys = historyKeysForService(svc);
+  const svcHistKey = svcHistKeys.join(',');
+  const svcHistCount = (() => { const h = readDpHistory(); return svcHistKeys.reduce((n, k) => n + ((h[k] || {}).entries || []).length, 0); })();
   const row = (label, value, cls = '') => `<div class="dv-row ${cls}"><span class="dv-label">${label}</span><span class="dv-value">${value}</span></div>`;
   const crew = (svc.colleagues || []).filter(Boolean);
   const links = [
     dpUrl ? `<a ${dpLinkAttrs(dpUrl)} class="dv-row dv-link">${ICON_CAL}<span class="dv-link-text">Dienstplan</span><span class="dv-link-ext" aria-hidden="true">↗</span></a>` : '',
-    svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}" data-hist-svc="${escHtml(svc.id)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${readDpHistory()[svcHistKey].entries.length}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
+    svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}" data-hist-svc="${escHtml(svc.id)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${svcHistCount}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
   ].filter(Boolean).join('');
   contentEl.innerHTML = `
     ${backBtn}
@@ -4134,7 +4136,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 155;
+const APP_VERSION = 156;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -9679,6 +9681,16 @@ function historyKeyForService(svc, history = readDpHistory()) {
   return best;
 }
 
+/** Alle Verläufe zu einem Tagebuch-Dienst – bei zusammengefassten Diensten die aller Teile. */
+function historyKeysForService(svc, history = readDpHistory()) {
+  const st = parseLocalDt(svc && svc.startAt), en = parseLocalDt(svc && svc.endAt);
+  if (!st || svc.isSeg) return [];
+  const keys = en ? Object.keys(history).filter((k) => { const l = history[k].last; return l && Math.min(l.e, +en) - Math.max(l.s, +st) >= PART_MIN_OVERLAP; }) : [];
+  const one = historyKeyForService(svc, history);
+  if (one && !keys.includes(one)) keys.push(one);
+  return keys.sort((a, b) => ((history[a].last || {}).s || 0) - ((history[b].last || {}).s || 0));
+}
+
 /** Eine Verlaufszeile als Text, z. B. „11.11. 09:12 · Zeit 07:00–19:00 → 08:00–20:00 · Besatzung + Probe Paul“. */
 function planLogText(e) {
   const p2 = (n) => String(n).padStart(2, '0');
@@ -9707,15 +9719,18 @@ function persistPlanLogs(history = readDpHistory()) {
   let changed = false;
   for (const svc of state.services) {
     if (svc.isSeg) continue;
-    const key = historyKeyForService(svc, history);
-    if (!key) continue;
+    const keys = historyKeysForService(svc, history);
+    if (!keys.length) continue;
     const have = new Set((svc.planLog || []).map((x) => x.id));
-    for (const e of history[key].entries || []) {
+    const haveTxt = new Map((svc.planLog || []).map((x) => [x.id, x.txt]));
+    for (const [k, e] of keys.flatMap((k) => (history[k].entries || []).map((e) => [k, e]))) {
       if (isEndOfShiftRemoval(e) || e.type === 'relinked') continue;
-      const id = `${e.at}-${e.type}`;
-      if (have.has(id)) continue;
-      const txt = planLogText(e);
-      if (!txt) continue;
+      // mehrere Teile können im selben Abruf geändert worden sein → Teil-Schlüssel anhängen
+      const base = `${e.at}-${e.type}`, id = keys.length > 1 ? `${base}-${k}` : base;
+      const plain = planLogText(e);
+      if (!plain || have.has(id) || haveTxt.get(base) === plain) continue;
+      const l = history[k].last;
+      const txt = keys.length > 1 && l ? `${plain} (Teil ${formatTimeHM(new Date(l.s))}–${formatTimeHM(new Date(l.e))})` : plain;
       (svc.planLog = svc.planLog || []).push({ id, at: e.at, txt });
       have.add(id); changed = true;
     }
@@ -9826,11 +9841,21 @@ function openHistorySheet(key, { expand = false, svcId = null, fresh = false } =
       const dlg = document.getElementById('dialog-history');
       if (!dlg || dlg.style.display === 'none') return;
       const sv = svcId && state.services.find((x) => x.id === svcId);
-      openHistorySheet((sv && historyKeyForService(sv)) || key, { expand, svcId, fresh: true });
+      openHistorySheet((sv && historyKeysForService(sv).join(',')) || key, { expand, svcId, fresh: true });
     });
   }
   const history = readDpHistory();
-  let item = history[key];
+  const multi = String(key).split(',').filter((k) => history[k]);
+  let item = multi.length > 1 ? null : history[key];
+  if (multi.length > 1) {
+    // zusammengefasster Dienst: Änderungen aller Teile, jeweils mit dem Teil gekennzeichnet
+    const lasts = multi.map((k) => history[k].last).filter(Boolean);
+    const partOf = (k) => { const l = history[k].last; return l ? `${formatTimeHM(new Date(l.s))}–${formatTimeHM(new Date(l.e))}` : ''; };
+    const entries = multi.flatMap((k) => (history[k].entries || []).map((e) => ({ ...e, part: partOf(k) }))).sort((a, b) => a.at - b.at);
+    const s0 = Math.min(...lasts.map((l) => l.s)), e0 = Math.max(...lasts.map((l) => l.e));
+    item = { uid: multi[0], entries, multi: multi.length, allRemoved: multi.every((k) => { const en = history[k].entries || []; return en.length && en[en.length - 1].type === 'removed'; }),
+      last: { ...lasts[0], s: s0, e: e0 } };
+  }
   if (!item) {
     // kein gespeicherter Verlauf (z. B. älterer Worker): aus der Änderungsliste zusammenstellen
     const entries = recentDpChanges().filter((c) => (c.key || c.uid) === key).sort((a, b) => a.at - b.at)
@@ -9841,15 +9866,16 @@ function openHistorySheet(key, { expand = false, svcId = null, fresh = false } =
   if (!box) return;
   if (!item) { toast('Zu diesem Dienst gibt es keinen Verlauf.', 'info'); return; }
   const last = item.last || {};
-  const removed = item.entries.length && item.entries[item.entries.length - 1].type === 'removed';
+  const removed = item.multi ? item.allRemoved : item.entries.length && item.entries[item.entries.length - 1].type === 'removed';
   document.getElementById('hist-title').textContent = last.t || 'Dienst';
   box.innerHTML = `
     <div class="hist-summary${removed ? ' is-removed' : ''}">
       ${shiftCodeHtml(new Date(last.s), 'is-small')}
       <span>${escHtml(histFmtRange(last))}${last.l ? ' · ' + escHtml(last.l) : ''}</span>
       ${removed ? '<span class="dp-chg-badge is-removed">Ausgefallen</span>' : ''}
+      ${item.multi ? `<span class="hist-multi">🔗 aus ${item.multi} Dienstplan-Einträgen</span>` : ''}
     </div>
-    <ol class="hist-list">${item.entries.slice().reverse().map(historyEntryHtml).join('')}</ol>
+    <ol class="hist-list">${item.entries.slice().reverse().map((e) => { const h = historyEntryHtml(e); return e.part ? h.replace('<span class="hist-at">', `<span class="hist-part">${escHtml(e.part)}</span><span class="hist-at">`) : h; }).join('')}</ol>
     <p class="hist-foot">Tippe auf eine Änderung, um den ganzen Eintrag vorher und nachher zu sehen. Aufgezeichnet vom Dienstplan-Worker seit dem Einrichten der Benachrichtigungen. Gespeichert bis 30 Tage nach Dienstende.</p>`;
   const items = box.querySelectorAll('.hist-item.is-expandable');
   // immer höchstens eine Änderung aufgeklappt

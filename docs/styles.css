@@ -4425,3 +4425,5 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .ch-res-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--border); }
 .ch-res-row span { color: var(--text2); font-size: 13px; }
 .ch-go { width: 100%; margin-top: 14px; }
+.hist-part { padding: 1px 7px; border-radius: 6px; background: var(--fill); color: var(--text2); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hist-multi { flex-basis: 100%; font-size: 12px; color: var(--text2); }
