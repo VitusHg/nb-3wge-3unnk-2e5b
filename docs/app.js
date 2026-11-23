@@ -235,6 +235,7 @@ function defaultState() {
     vehicleAssignments: {},
     dienststellen: [],
     places: [],
+    placeAddresses: {},
   };
 }
 
@@ -245,6 +246,8 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
+  s.placeAddresses = (s.placeAddresses && typeof s.placeAddresses === 'object' && !Array.isArray(s.placeAddresses))
+    ? Object.fromEntries(Object.entries(s.placeAddresses).map(([k, v]) => [String(k).trim().toLowerCase().replace(/\s+/g, ' '), toDisplayName(v)]).filter(([k, v]) => k && v)) : {};
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
   // früher „abteilungen“ – jetzt eine Liste der Dienststellen (Name, Dienstplan-ID, Standort)
   if (!Array.isArray(s.dienststellen) && Array.isArray(s.abteilungen)) s.dienststellen = s.abteilungen;
@@ -2797,7 +2800,7 @@ function openPlaceMap(incs) {
     });
     const tick = () => { status.textContent = done < shown.length ? `Orte werden gesucht … ${done}/${shown.length}` : `${found} von ${places.length} Orten auf der Karte${found < shown.length ? ` · ${shown.length - found} nicht gefunden` : ''}`; };
     tick();
-    shown.forEach((p) => geocodeAddress(p.name, near).then((c) => {
+    shown.forEach((p) => geocodeAddress(placeAddress(p.name) || p.name, near).then((c) => {
       done++;
       if (c && ov.isConnected) { found++; markers.push({ p, c }); redraw(); }
       tick();
@@ -3024,6 +3027,21 @@ function renderStats() {
     const d = Math.round(((c - p) / p) * 100);
     return `<span class="sx-delta ${d > 0 ? 'is-up' : d < 0 ? 'is-down' : ''}">${d > 0 ? '▲ +' : d < 0 ? '▼ ' : '± '}${d} %</span>`;
   };
+  const cmpRow = (label, c, p, fmt, opt) => `<tr><th>${label}</th><td>${c === null ? '–' : fmt(c)}</td><td>${p === null ? '–' : fmt(p)}</td><td>${deltaHtml(c, p, opt)}</td></tr>`;
+  const cmpFmt1 = (n) => String(Math.round(n * 10) / 10).replace('.', ',');
+  const compareBodyHtml = `${fromD ? '' : `<div class="pm-seg sx-cmp-seg" role="group" aria-label="Zeitraum"><button type="button" data-cmp="month"${statsCmpMode === 'month' ? ' class="is-on"' : ''}>Monat</button><button type="button" data-cmp="year"${statsCmpMode === 'year' ? ' class="is-on"' : ''}>Jahr</button></div>`}
+    <table class="sx-cmp-t"><thead><tr><th></th><th>${escHtml(cmpPeriods.label)}</th><th>${escHtml(cmpPeriods.prevLabel)}</th><th></th></tr></thead><tbody>
+      ${cmpRow('Einsätze', cmpCur.inc, cmpPrev.inc, String)}
+      ${cmpRow('Dienste', cmpCur.svc, cmpPrev.svc, String)}
+      ${cmpRow('Stunden', cmpCur.hours, cmpPrev.hours, (v) => String(Math.round(v)))}
+      ${cmpRow('pro Dienst', cmpCur.perSvc, cmpPrev.perSvc, cmpFmt1)}
+      ${cmpRow('Blaulicht', cmpCur.lights, cmpPrev.lights, (v) => Math.round(v) + ' %', { pts: true })}
+      ${cmpRow('Nachtdienste', cmpCur.nights, cmpPrev.nights, String)}
+    </tbody></table>`;
+  const statsToolsHtml = `<div class="sx-tools">
+      <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
+      <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
+    </div>`;
   const totalInc = allInc.length;
   const nonSegSvcs = filteredSvcs.filter((s) => !s.isSeg);
   const totalSvcs = nonSegSvcs.length;
@@ -3162,6 +3180,8 @@ function renderStats() {
       <div class="fact-tile"><div class="fact-tile-value">${blaulichtQuote}</div><div class="fact-tile-label">Blaulicht</div></div>
       <div class="fact-tile"><div class="fact-tile-value">${avgAge !== null ? avgAge : '—'}</div><div class="fact-tile-label">Ø Alter</div></div>
     </div>
+    ${statsToolsHtml}
+    <div class="stats-rank-section sx-cmp is-classic"><div class="stats-section-head"><h4>Vergleich</h4></div>${compareBodyHtml}</div>
     <div class="stats-grid">
       ${statsCard('Top Einsätze', allAlarm, true)}
       ${statsCard('Top Kolleg:innen', allColleagues, true)}
@@ -3322,17 +3342,7 @@ function renderStats() {
   const avgNaca = nacaVals.length ? nacaVals.reduce((x, y) => x + y, 0) / nacaVals.length : null;
   const kpi = (v, l, sub, delta = '') => `<div class="sx-kpi"><b>${v}</b><span>${l}${delta}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
   const hd = fromD ? { inc: deltaHtml(cmpCur.inc, cmpPrev.inc), svc: deltaHtml(cmpCur.svc, cmpPrev.svc), hours: deltaHtml(cmpCur.hours, cmpPrev.hours) } : {};
-  const cmpRow = (label, c, p, fmt, opt) => `<tr><th>${label}</th><td>${c === null ? '–' : fmt(c)}</td><td>${p === null ? '–' : fmt(p)}</td><td>${deltaHtml(c, p, opt)}</td></tr>`;
-  const compareCard = `<section class="sx-card sx-cmp" style="--mc:#64d2ff">${head('📈', 'Vergleich', '')}
-    ${fromD ? '' : `<div class="pm-seg sx-cmp-seg" role="group" aria-label="Zeitraum"><button type="button" data-cmp="month"${statsCmpMode === 'month' ? ' class="is-on"' : ''}>Monat</button><button type="button" data-cmp="year"${statsCmpMode === 'year' ? ' class="is-on"' : ''}>Jahr</button></div>`}
-    <table class="sx-cmp-t"><thead><tr><th></th><th>${escHtml(cmpPeriods.label)}</th><th>${escHtml(cmpPeriods.prevLabel)}</th><th></th></tr></thead><tbody>
-      ${cmpRow('Einsätze', cmpCur.inc, cmpPrev.inc, String)}
-      ${cmpRow('Dienste', cmpCur.svc, cmpPrev.svc, String)}
-      ${cmpRow('Stunden', cmpCur.hours, cmpPrev.hours, (v) => String(Math.round(v)))}
-      ${cmpRow('pro Dienst', cmpCur.perSvc, cmpPrev.perSvc, (v) => fmt1(v))}
-      ${cmpRow('Blaulicht', cmpCur.lights, cmpPrev.lights, (v) => Math.round(v) + ' %', { pts: true })}
-      ${cmpRow('Nachtdienste', cmpCur.nights, cmpPrev.nights, String)}
-    </tbody></table></section>`;
+  const compareCard = `<section class="sx-card sx-cmp" style="--mc:#64d2ff">${head('📈', 'Vergleich', '')}${compareBodyHtml}</section>`;
   const hero = `<section class="sx-hero">
     ${kpi(totalInc, 'Einsätze', `${lightPct} % Blaulicht${segInc ? ` · ${segInc} SEG` : ''}`, hd.inc)}
     ${kpi(totalSvcs, 'Dienste', `${nights} Nacht · ${totalSvcs - nights} Tag`, hd.svc)}
@@ -3359,10 +3369,7 @@ function renderStats() {
       ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
     </div>
     ${hero}
-    <div class="sx-tools">
-      <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
-      <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
-    </div>
+    ${statsToolsHtml}
     <div class="sx-grid">
       ${compareCard}
       ${podiumCard({ key: 'Top Einsätze', title: 'Top-Stichwörter', icon: '🚨', color: '#ff453a', items: allAlarm })}
@@ -4420,7 +4427,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 157;
+const APP_VERSION = 158;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5127,18 +5134,31 @@ function settingsPageOrte(el, title) {
     </div>` : ''}
     <div class="set-group-header">Deine Kürzel</div>
     <div class="set-group">
-      ${places.length ? order.map((i) => [places[i], i]).map(([p, i]) => `<div class="set-row place-row"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten">${mode === 'freq' && count(p) ? `<span class="place-n">${count(p)}×</span>` : ''}<button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
+      ${places.length ? order.map((i) => [places[i], i]).map(([p, i]) => `<div class="set-row place-row"><div class="place-fields"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten"><input type="text" class="place-addr" data-i="${i}" value="${escHtml(placeAddress(p))}" placeholder="📍 Adresse für Karte (optional)" autocomplete="off" enterkeyhint="done" aria-label="Adresse zu ${escHtml(p)}"></div>${mode === 'freq' && count(p) ? `<span class="place-n">${count(p)}×</span>` : ''}<button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
       <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neues Kürzel" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
     </div>
-    <p class="set-group-footer">Zum Bearbeiten in den Eintrag tippen.</p>`;
+    <p class="set-group-footer">Zum Bearbeiten in den Eintrag tippen. Mit Adresse (oder Google-Maps-Link) findet die Karte den Ort sicher – auch bei Kürzeln wie „KH Oberwart ZAE“.</p>`;
   const save = (list) => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); };
-  el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => save(places.filter((_, i) => i !== +b.dataset.i))));
+  const addrs = () => (state.placeAddresses = state.placeAddresses || {});
+  el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => { delete addrs()[placeKey(places[+b.dataset.i])]; save(places.filter((_, i) => i !== +b.dataset.i)); }));
+  el.querySelectorAll('.place-addr').forEach((inp) => {
+    const commit = () => {
+      const k = placeKey(places[+inp.dataset.i]), v = inp.value.trim();
+      if (v === (addrs()[k] || '')) return;
+      if (v) addrs()[k] = v; else delete addrs()[k];
+      saveState();
+    };
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  });
   el.querySelectorAll('[data-place-sort]').forEach((b) => b.addEventListener('click', () => { lsSet('etb_places_sort', b.dataset.placeSort === 'alpha' ? 'alpha' : null); renderSettingsPage(); }));
   el.querySelectorAll('.place-edit').forEach((inp) => {
     const commit = () => {
       const i = +inp.dataset.i, v = inp.value.trim();
       if (v === places[i]) return;
       if (!v) { inp.value = places[i]; return; } // leer = nichts ändern (Löschen über „Entfernen“)
+      const a = addrs(), ok = placeKey(places[i]);
+      if (a[ok] && !a[placeKey(v)]) { a[placeKey(v)] = a[ok]; delete a[ok]; }
       const list = [...places]; list[i] = v; save(list);
     };
     inp.addEventListener('blur', commit);
@@ -5960,7 +5980,7 @@ function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
   if (sel.profile) payload.dienststellen = state.dienststellen || [];
-  if (sel.profile) payload.places = state.places || [];
+  if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; }
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
   if (sel.vehicles) {
@@ -6053,6 +6073,7 @@ function doSelectiveImport(data, chosen) {
     if (n) state.profile.displayName = n;
     if (Array.isArray(data.dienststellen || data.abteilungen)) state.dienststellen = data.dienststellen || data.abteilungen; // ältere Sicherungen: „abteilungen“
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
+    if (data.placeAddresses && typeof data.placeAddresses === 'object') state.placeAddresses = { ...(state.placeAddresses || {}), ...data.placeAddresses };
     msgs.push('Profil');
   }
   if (chosen['imp-settings'] && data.settings && typeof data.settings === 'object') {
@@ -7086,6 +7107,8 @@ function openStationProfile(name) {
 // ── Orte-Profil (Ziele und Startorte von Einsätzen) ──────────────────────────
 const placeKey = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const ICON_PLACE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a7 7 0 0 0-7 7c0 5.2 7 12 7 12s7-6.8 7-12a7 7 0 0 0-7-7zm0 9.6a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2z" fill="currentColor"/></svg>';
+/** Hinterlegte Adresse eines Orts (Einstellungen → Orte & Ziele), sonst der Name selbst. */
+function placeAddress(name) { return ((state.placeAddresses || {})[placeKey(name)] || '').trim(); }
 /** Visitenkarte für einen Ort (Ziel oder Startort) mit Karte, Kennzahlen und den Einsätzen dort. */
 function openPlaceProfile(name) {
   const box = document.getElementById('colleague-body');
@@ -7118,15 +7141,16 @@ function openPlaceProfile(name) {
       <div class="st-map" aria-hidden="true"></div>
       <div class="st-card-body">
         <span class="cp-av cp-station">${ICON_PLACE}</span>
-        <div class="st-card-t"><h3>${escHtml(display)}</h3><span>${escHtml(sub)}</span></div>
+        <div class="st-card-t"><h3>${escHtml(display)}</h3><span>${escHtml(sub)}</span>${placeAddress(display) ? `<span class="st-addr">📍 ${escHtml(placeAddress(display))}</span>` : ''}</div>
       </div>
       <span class="st-attrib" hidden>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span>
       <a class="st-open" hidden target="_blank" rel="noopener" aria-label="In Google Maps öffnen"></a>
       <span class="st-zoom" hidden><button type="button" data-z="-1" aria-label="Karte weiter weg">−</button><button type="button" data-z="1" aria-label="Karte näher">＋</button></span>
     </div>
     ${!isLink ? `<div class="cp-actions">
-      <a class="cp-act" href="${escHtml(mapsRouteUrl(display))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>
-      <a class="cp-act" ${safariLinkAttrs('https://verkehrsauskunft.verbundlinie.at/?Z=' + encodeURIComponent(display))}>${ICON_BUS_FRONT}<span>Öffis</span></a>
+      <a class="cp-act" href="${escHtml(mapsRouteUrl(placeAddress(display) || display))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>
+      ${/^https?:\/\//i.test(placeAddress(display)) ? '' : `<a class="cp-act" ${safariLinkAttrs('https://verkehrsauskunft.verbundlinie.at/?Z=' + encodeURIComponent(placeAddress(display) || display))}>${ICON_BUS_FRONT}<span>Öffis</span></a>`}
+      <button type="button" class="cp-act" id="pl-addr">📍<span>${placeAddress(display) ? 'Adresse ändern' : 'Adresse festlegen'}</span></button>
     </div>` : ''}
     <div class="cp-tiles">
       <div><strong>${asTo.length}</strong><small>als Ziel</small></div>
@@ -7152,7 +7176,16 @@ function openPlaceProfile(name) {
   }));
   box.scrollTop = 0;
   openDialog('dialog-colleague');
-  fillPlaceMap(box.querySelector('.st-card'), isLink ? name : display, null, homeGeoBias());
+  fillPlaceMap(box.querySelector('.st-card'), placeAddress(display) || (isLink ? name : display), null, homeGeoBias());
+  const ab = box.querySelector('#pl-addr');
+  if (ab) ab.addEventListener('click', () => {
+    const cur = placeAddress(display);
+    const v = prompt(`Adresse für „${display}“ (für Karte und Route):`, cur);
+    if (v === null) return;
+    state.placeAddresses = state.placeAddresses || {};
+    if (v.trim()) state.placeAddresses[key] = v.trim(); else delete state.placeAddresses[key];
+    saveState(); openPlaceProfile(display);
+  });
 }
 /** Bezugspunkt für die Ortssuche: erste Dienststelle mit bekanntem Standort (Treffer in der Nähe bevorzugen). */
 function homeGeoBias() {
