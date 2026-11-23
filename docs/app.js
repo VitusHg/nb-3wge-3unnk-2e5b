@@ -191,6 +191,8 @@ let state = loadState();
 let activeTab = 'home';
 let selectedServiceId = null;
 let statsFromDate = null;
+let statsPlaceIncidents = [];
+let statsCmpMode = 'year';
 let statsToDate = null;
 let statsVehicles = [];
 let statsLocations = [];
@@ -1079,6 +1081,22 @@ function renderServiceList() {
       listEl.appendChild(sec);
     }
   }
+  // Ziele & Startorte → Profil
+  if (q) {
+    const pm = new Map();
+    state.services.forEach((sv) => (sv.incidents || []).forEach((i) => [i.to, i.from].forEach((v) => { if (!v || !String(v).toLowerCase().includes(q)) return; const k = placeKey(v); const e = pm.get(k) || { name: String(v).trim(), n: 0 }; e.n++; pm.set(k, e); })));
+    const list = [...pm.values()].sort((a, b) => b.n - a.n).slice(0, 6);
+    if (list.length) {
+      const sec = document.createElement('div');
+      sec.className = 'srch-section';
+      sec.innerHTML = `<div class="svc-month"><span>Orte</span><span class="svc-month-meta">${pm.size} Treffer</span></div>
+        <div class="srch-people">${list.map((v) => `<button type="button" class="srch-person" data-place="${escHtml(v.name)}">
+          <span class="srch-av cp-station" style="--h:${colleagueHue(v.name)}">${ICON_PLACE}</span>
+          <span class="srch-person-t"><b>${escHtml(v.name)}</b><small>${v.n} ${v.n === 1 ? 'Einsatz' : 'Einsätze'}</small></span>
+          <span class="srch-person-c">›</span></button>`).join('')}</div>`;
+      listEl.appendChild(sec);
+    }
+  }
   if (q && incHits.length) {
     const sec = document.createElement('div');
     sec.className = 'srch-section';
@@ -1423,7 +1441,7 @@ function renderIncidentView() {
       row('NACA', naca),
     ])
     + (Object.keys(inc.times || {}).length ? group('Zeiten', [incTimesViewHtml(inc.times)]) : '')
-    + (inc.from || inc.to ? group('Transport', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${escHtml(inc.from || '—')}</span><span><i class="route-dot is-to"></i>${escHtml(inc.to || '—')}</span></div>`]) : '')
+    + (inc.from || inc.to ? group('Transport', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${inc.from ? `<span class="crew-link" role="button" data-place="${escHtml(inc.from)}">${escHtml(inc.from)}</span>` : '—'}</span><span><i class="route-dot is-to"></i>${inc.to ? `<span class="crew-link" role="button" data-place="${escHtml(inc.to)}">${escHtml(inc.to)}</span>` : '—'}</span></div>`]) : '')
     + ((inc.links || []).length ? group('Berichte & Links', [`<div class="inc-links is-view">${inc.links.map((l) => linkChipHtml(l, false)).join('')}</div>`]) : '')
     + (inc.note ? group('Notiz', [`<div class="iv-note">${linkifyHtml(inc.note)}</div>`]) : '')
     + (svc.isSeg
@@ -2695,13 +2713,220 @@ function lpPieHtml(items, total, unit) {
   return `<div class="lp-pie"><div class="lp-pie-chart"><svg viewBox="0 0 140 140" aria-hidden="true">${paths}</svg><span class="lp-pie-sum"><b>${total}</b><small>${escHtml(unit || 'gesamt')}</small></span></div><ul class="lp-pie-legend">${legend}</ul></div>`;
 }
 
+// ── Karte aller Einsatzorte (Leaflet, bei Bedarf geladen) ──────────────────
+let leafletP = null;
+function loadLeaflet() {
+  if (window.L && window.L.map) return Promise.resolve(window.L);
+  if (leafletP) return leafletP;
+  leafletP = new Promise((res, rej) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='; css.crossOrigin = '';
+    document.head.appendChild(css);
+    const sc = document.createElement('script');
+    sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    sc.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo='; sc.crossOrigin = '';
+    sc.onload = () => res(window.L);
+    sc.onerror = () => { leafletP = null; sc.remove(); rej(new Error('Karte konnte nicht geladen werden')); };
+    document.head.appendChild(sc);
+  });
+  return leafletP;
+}
+const PLACE_MAP_MAX = 60;
+function openPlaceMap(incs) {
+  const agg = new Map();
+  (incs || []).forEach((i) => [['to', i.to], ['from', i.from]].forEach(([k, v]) => {
+    const key = placeKey(v);
+    if (!key || /^(lokal|vor ort|-|—)$/.test(key)) return;
+    const e = agg.get(key) || { name: String(v).trim(), to: 0, from: 0 };
+    e[k]++; agg.set(key, e);
+  }));
+  const places = [...agg.values()].sort((a, b) => b.to + b.from - a.to - a.from);
+  const shown = places.slice(0, PLACE_MAP_MAX);
+  document.querySelectorAll('.pm-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay pm-ov';
+  ov.style.zIndex = '1500';
+  ov.innerHTML = `<div class="pm-box">
+    <div class="pm-head"><div><h3>Einsatzorte</h3><span class="pm-status">${places.length ? `${shown.length} von ${places.length} Orten` : 'Keine Start- oder Zielorte erfasst'}</span></div>
+      <div class="pm-seg" role="group" aria-label="Anzeigen">
+        <button type="button" class="is-on" data-pm="all">Alle</button><button type="button" data-pm="to">Ziele</button><button type="button" data-pm="from">Start</button></div>
+      <button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="pm-map" id="pm-map"></div>
+    <div class="pm-legend"><span><i style="background:#ff375f"></i>meist Ziel</span><span><i style="background:#5e5ce6"></i>meist Start</span><span>Größe = Anzahl</span></div>
+  </div>`;
+  const close = () => { ov.classList.add('closing'); const dc = document.getElementById('dialog-colleague'); if (dc) dc.style.zIndex = ''; setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').onclick = close;
+  document.body.appendChild(ov);
+  const status = ov.querySelector('.pm-status');
+  if (!shown.length) return;
+  if (!navigator.onLine) { status.textContent = 'Offline – die Karte braucht eine Internetverbindung.'; return; }
+  status.textContent = 'Karte wird geladen …';
+  loadLeaflet().then((L) => {
+    if (!ov.isConnected) return;
+    const map = L.map(ov.querySelector('#pm-map'), { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(map);
+    const near = homeGeoBias();
+    map.setView(near ? [near.lat, near.lon] : [47.5, 14.5], near ? 10 : 7);
+    const layer = L.featureGroup().addTo(map);
+    const maxN = Math.max(...shown.map((p) => p.to + p.from));
+    const markers = [];
+    let mode = 'all', touched = false, found = 0, done = 0;
+    map.on('dragstart zoomstart', (e) => { if (e && e.originalEvent !== undefined) touched = true; });
+    const radius = (n) => 7 + 18 * Math.sqrt(n / maxN);
+    const redraw = () => {
+      layer.clearLayers();
+      markers.forEach(({ p, c }) => {
+        const n = mode === 'all' ? p.to + p.from : p[mode];
+        if (!n) return;
+        const col = p.to >= p.from ? '#ff375f' : '#5e5ce6';
+        L.circleMarker([c.lat, c.lon], { radius: radius(n), color: '#fff', weight: 1.5, fillColor: mode === 'from' ? '#5e5ce6' : mode === 'to' ? '#ff375f' : col, fillOpacity: 0.75 })
+          .bindPopup(`<b>${escHtml(p.name)}</b><br>${[p.to ? `${p.to}× Ziel` : '', p.from ? `${p.from}× Start` : ''].filter(Boolean).join(' · ')}<br><button type="button" class="pm-prof" data-pm-place="${escHtml(p.name)}">Profil öffnen ›</button>`)
+          .addTo(layer);
+      });
+      if (!touched && layer.getLayers().length) map.fitBounds(layer.getBounds().pad(0.15), { maxZoom: 14 });
+    };
+    ov.querySelectorAll('[data-pm]').forEach((b) => b.addEventListener('click', () => {
+      mode = b.dataset.pm; ov.querySelectorAll('[data-pm]').forEach((x) => x.classList.toggle('is-on', x === b)); touched = false; redraw();
+    }));
+    ov.addEventListener('click', (e) => {
+      const pb = e.target.closest && e.target.closest('[data-pm-place]');
+      if (!pb) return;
+      const dc = document.getElementById('dialog-colleague'); if (dc) dc.style.zIndex = '1600';
+      openPlaceProfile(pb.dataset.pmPlace);
+    });
+    const tick = () => { status.textContent = done < shown.length ? `Orte werden gesucht … ${done}/${shown.length}` : `${found} von ${places.length} Orten auf der Karte${found < shown.length ? ` · ${shown.length - found} nicht gefunden` : ''}`; };
+    tick();
+    shown.forEach((p) => geocodeAddress(p.name, near).then((c) => {
+      done++;
+      if (c && ov.isConnected) { found++; markers.push({ p, c }); redraw(); }
+      tick();
+    }));
+    setTimeout(() => map.invalidateSize(), 250);
+  }).catch((err) => { status.textContent = err.message; });
+}
+
+// ── Monatsübersicht für die Abrechnung ─────────────────────────────────────
+/** Gesetzliche Feiertage in Österreich (YYYY-MM-DD). */
+function atHolidays(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const easter = new Date(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1);
+  const rel = (n) => { const x = new Date(easter); x.setDate(x.getDate() + n); return localDateStr(x); };
+  const fix = (mo, da) => `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+  return new Map([
+    [fix(1, 1), 'Neujahr'], [fix(1, 6), 'Heilige Drei Könige'], [rel(1), 'Ostermontag'], [fix(5, 1), 'Staatsfeiertag'],
+    [rel(39), 'Christi Himmelfahrt'], [rel(50), 'Pfingstmontag'], [rel(60), 'Fronleichnam'], [fix(8, 15), 'Mariä Himmelfahrt'],
+    [fix(10, 26), 'Nationalfeiertag'], [fix(11, 1), 'Allerheiligen'], [fix(12, 8), 'Mariä Empfängnis'], [fix(12, 25), 'Christtag'], [fix(12, 26), 'Stefanitag'],
+  ]);
+}
+const NIGHT_KEY = 'etb_night_window';
+function nightWindow() { const m = String(lsGet(NIGHT_KEY, '22-6')).match(/^(\d{1,2})-(\d{1,2})$/); return m ? [+m[1] % 24, +m[2] % 24] : [22, 6]; }
+/** Stunden eines Dienstes aufgeteilt: gesamt, Nacht, Wochenende (Sa/So), Feiertag. */
+function serviceHourSplit(svc, [nf, nt] = nightWindow()) {
+  const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt);
+  const out = { total: 0, night: 0, weekend: 0, holiday: 0, holidays: [] };
+  if (!a || !b || b <= a || b - a > 48 * 3600e3) return out;
+  const hol = new Map();
+  for (let t = +a; t < +b; t += 60000) {
+    const d = new Date(t), h = d.getHours(), ds = localDateStr(d), yr = d.getFullYear();
+    if (!hol.has(yr)) hol.set(yr, atHolidays(yr));
+    out.total++;
+    if (nf > nt ? (h >= nf || h < nt) : (h >= nf && h < nt)) out.night++;
+    if (d.getDay() === 0 || d.getDay() === 6) out.weekend++;
+    const hn = hol.get(yr).get(ds);
+    if (hn) { out.holiday++; if (!out.holidays.includes(hn)) out.holidays.push(hn); }
+  }
+  ['total', 'night', 'weekend', 'holiday'].forEach((k) => { out[k] = out[k] / 60; });
+  return out;
+}
+const fmtH = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+let monthSheetYM = null;
+function monthSheetData(y, m) {
+  const svcs = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return !x.isSeg && d && d.getFullYear() === y && d.getMonth() === m; })
+    .sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  const nw = nightWindow();
+  const rows = svcs.map((svc) => ({ svc, h: serviceHourSplit(svc, nw) }));
+  const sum = rows.reduce((t, { h }) => ({ total: t.total + h.total, night: t.night + h.night, weekend: t.weekend + h.weekend, holiday: t.holiday + h.holiday }), { total: 0, night: 0, weekend: 0, holiday: 0 });
+  const segs = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return x.isSeg && d && d.getFullYear() === y && d.getMonth() === m; });
+  return { rows, sum, nw, incs: svcs.reduce((n, x) => n + (x.incidents || []).length, 0), segs };
+}
+function openMonthSheet(y, m) {
+  const now = new Date();
+  if (y === undefined) { const last = monthSheetYM || [now.getFullYear(), now.getMonth()]; [y, m] = last; }
+  monthSheetYM = [y, m];
+  const { rows, sum, nw, incs, segs } = monthSheetData(y, m);
+  const title = new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tm = (d) => `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const dd = (d) => d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  document.querySelectorAll('.ms-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov ms-ov';
+  ov.style.zIndex = '2000';
+  ov.innerHTML = `<div class="dialog-box lp-box ms-box" style="--mc:#0a84ff">
+    <div class="lp-head"><span class="lp-ic">📄</span>
+      <div class="lp-head-t"><h3>Monatsübersicht</h3><span>für die Abrechnung</span></div>
+      <button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="dialog-body lp-body">
+      <div class="ms-nav"><button type="button" class="ms-step" data-d="-1" aria-label="Voriger Monat">‹</button><b>${escHtml(title)}</b><button type="button" class="ms-step" data-d="1" aria-label="Nächster Monat">›</button></div>
+      <div class="cp-tiles ms-tiles">
+        <div><strong>${rows.length}</strong><small>Dienste</small></div>
+        <div><strong>${fmtH(sum.total)}</strong><small>Stunden</small></div>
+        <div><strong>${fmtH(sum.night)}</strong><small>Nacht ${nw[0]}–${nw[1]} Uhr</small></div>
+        <div><strong>${fmtH(sum.weekend)}</strong><small>Sa/So</small></div>
+        <div><strong>${fmtH(sum.holiday)}</strong><small>Feiertag</small></div>
+      </div>
+      ${rows.length ? `<div class="ms-table-wrap"><table class="ms-table">
+        <thead><tr><th>Dienst</th><th>Std.</th><th>Nacht</th><th>Sa/So</th><th>Ftg.</th></tr></thead>
+        <tbody>${rows.map(({ svc, h }) => { const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt); return `<tr data-ms-svc="${escHtml(svc.id)}">
+          <td><b>${escHtml(dd(a))}</b> ${tm(a)}–${b ? tm(b) : '?'}<small class="ms-sub">${escHtml([svc.vehicle, svc.location].filter(Boolean).join(' · ') || '—')}</small>${h.holidays.length ? `<small class="ms-hol">🎉 ${escHtml(h.holidays.join(', '))}</small>` : ''}</td>
+          <td>${fmtH(h.total)}</td><td>${h.night ? fmtH(h.night) : ''}</td><td>${h.weekend ? fmtH(h.weekend) : ''}</td><td>${h.holiday ? fmtH(h.holiday) : ''}</td></tr>`; }).join('')}</tbody>
+        <tfoot><tr><td>Summe</td><td>${fmtH(sum.total)}</td><td>${fmtH(sum.night)}</td><td>${fmtH(sum.weekend)}</td><td>${fmtH(sum.holiday)}</td></tr></tfoot>
+      </table></div>` : '<p class="sx-empty">In diesem Monat keine Dienste im Tagebuch.</p>'}
+      <p class="cp-line">${incs} Einsätze${segs.length ? ` · ${segs.length} SEG-Einsätze (nicht in den Stunden)` : ''} · Monat nach Dienstbeginn</p>
+      <label class="ms-night">Nachtstunden von <select id="ms-nf">${Array.from({ length: 24 }, (_, i) => `<option${i === nw[0] ? ' selected' : ''}>${i}</option>`).join('')}</select> bis <select id="ms-nt">${Array.from({ length: 24 }, (_, i) => `<option${i === nw[1] ? ' selected' : ''}>${i}</option>`).join('')}</select> Uhr</label>
+      <div class="ms-actions">
+        <button type="button" class="btn-secondary" id="ms-csv"${rows.length ? '' : ' disabled'}>CSV (Excel)</button>
+        <button type="button" class="btn-primary" id="ms-print"${rows.length ? '' : ' disabled'}>Drucken / PDF</button>
+      </div>
+    </div></div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').onclick = close;
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelectorAll('.ms-step').forEach((b) => b.addEventListener('click', () => { const d = new Date(y, m + +b.dataset.d, 1); ov.remove(); openMonthSheet(d.getFullYear(), d.getMonth()); }));
+  const setNight = () => { lsSet(NIGHT_KEY, `${ov.querySelector('#ms-nf').value}-${ov.querySelector('#ms-nt').value}`); ov.remove(); openMonthSheet(y, m); };
+  ov.querySelector('#ms-nf').addEventListener('change', setNight);
+  ov.querySelector('#ms-nt').addEventListener('change', setNight);
+  ov.querySelectorAll('[data-ms-svc]').forEach((tr) => tr.addEventListener('click', () => { close(); setTimeout(() => { switchTab('dienste'); openServiceDetail(tr.dataset.msSvc); }, 220); }));
+  ov.querySelector('#ms-csv').addEventListener('click', () => {
+    const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const lines = [['Datum', 'Beginn', 'Ende', 'Fahrzeug', 'Dienststelle', 'Stunden', `Nacht ${nw[0]}-${nw[1]}`, 'Sa/So', 'Feiertag', 'Feiertagsname', 'Einsätze'].map(q).join(';')];
+    rows.forEach(({ svc, h }) => { const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt); lines.push([a.toLocaleDateString('de-AT'), tm(a), b ? tm(b) : '', svc.vehicle || '', svc.location || '', fmtH(h.total), fmtH(h.night), fmtH(h.weekend), fmtH(h.holiday), h.holidays.join(', '), (svc.incidents || []).length].map(q).join(';')); });
+    lines.push(['Summe', '', '', '', '', fmtH(sum.total), fmtH(sum.night), fmtH(sum.weekend), fmtH(sum.holiday), '', incs].map(q).join(';'));
+    saveFile(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `Dienste-${y}-${p2(m + 1)}.csv`, 'Monatsübersicht');
+  });
+  ov.querySelector('#ms-print').addEventListener('click', () => {
+    let area = document.getElementById('print-area');
+    if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
+    const who = (state.profile && state.profile.displayName) || '';
+    area.innerHTML = `<h1>Dienste ${escHtml(title)}</h1>${who ? `<p>${escHtml(who)}</p>` : ''}${ov.querySelector('.ms-table-wrap').innerHTML}
+      <p>Nachtstunden ${nw[0]}–${nw[1]} Uhr · Feiertage: gesetzliche Feiertage Österreich · erstellt am ${escHtml(new Date().toLocaleDateString('de-AT'))}</p>`;
+    document.body.classList.add('printing');
+    const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => { window.print(); setTimeout(done, 1500); }, 50);
+  });
+  document.body.appendChild(ov);
+}
+
 /** Vollständige Rangliste als Popup – mit Podest-Medaillen, Anteil und Suche. */
 function showListPopup(title, items, meta = {}) {
   const color = meta.color || 'var(--accent)';
   const total = items.reduce((n, [, c]) => n + c, 0);
   const max = items.length ? items[0][1] : 1;
   const medal = ['🥇', '🥈', '🥉'];
-  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}${meta.vehicle ? ` data-vehicle="${escHtml(String(label))}"` : ''}>
+  const row = ([label, count], i) => `<li class="lp-row${i < 3 ? ' is-top' : ''}" style="--i:${Math.min(i, 12)}" data-q="${escHtml(String(label).toLowerCase())}"${meta.colleague ? ` data-colleague="${escHtml(String(label))}"` : ''}${meta.vehicle ? ` data-vehicle="${escHtml(String(label))}"` : ''}${meta.place ? ` data-place="${escHtml(String(label))}"` : ''}${meta.station ? ` data-station="${escHtml(String(label))}"` : ''}>
       <span class="lp-n"${i < 8 && items.length > 1 ? ` style="--pc:${PIE_COLORS[i % PIE_COLORS.length]}"` : ''}>${i < 3 ? medal[i] : i + 1}</span>
       ${meta.lead ? meta.lead(label) : ''}
       <span class="lp-main"><span class="lp-l">${escHtml(String(label))}</span>
@@ -2740,15 +2965,18 @@ function renderStats() {
   let fromD = statsFromDate ? parseLocalDt(statsFromDate + 'T00:00') : null;
   let toD = statsToDate ? parseLocalDt(statsToDate + 'T23:59') : null;
 
+  const svcMatch = (svc) => {
+    if (statsVehicles.length > 0 && !statsVehicles.includes(svc.vehicle || '')) return false;
+    if (statsLocations.length > 0 && !statsLocations.includes(svc.location || '')) return false;
+    if (statsColleagues.length > 0 && !statsColleagues.some((c) => (svc.colleagues || []).some((col) => col.toLowerCase().includes(c.toLowerCase())))) return false;
+    return true;
+  };
   const filteredSvcs = state.services.filter((svc) => {
     const start = parseLocalDt(svc.startAt);
     if (!start) return true;
     if (fromD && start < fromD) return false;
     if (toD && start > toD) return false;
-    if (statsVehicles.length > 0 && !statsVehicles.includes(svc.vehicle || '')) return false;
-    if (statsLocations.length > 0 && !statsLocations.includes(svc.location || '')) return false;
-    if (statsColleagues.length > 0 && !statsColleagues.some((c) => (svc.colleagues || []).some((col) => col.toLowerCase().includes(c.toLowerCase())))) return false;
-    return true;
+    return svcMatch(svc);
   });
 
   // Incident-level filters applied after service filter
@@ -2762,6 +2990,40 @@ function renderStats() {
   };
 
   const allInc = filteredSvcs.flatMap((s) => s.incidents || []).filter(incFilter);
+  statsPlaceIncidents = allInc;
+  // ── Vergleich mit dem Vorzeitraum (gleiche Filter außer Datum) ──
+  const aggPeriod = (a, b) => {
+    const sv = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return d && d >= a && d <= b && svcMatch(x); });
+    const duty = sv.filter((x) => !x.isSeg);
+    const inc = sv.flatMap((x) => x.incidents || []).filter(incFilter);
+    const segN = sv.filter((x) => x.isSeg).flatMap((x) => x.incidents || []).filter(incFilter).length;
+    return { inc: inc.length, svc: duty.length, hours: duty.reduce((n, x) => n + +serviceDurationHours(x), 0), lights: inc.length ? (inc.filter((i) => i.lights).length / inc.length) * 100 : null,
+      perSvc: duty.length ? (inc.length - segN) / duty.length : null, nights: duty.filter((x) => { const c = shiftCode(x.startAt); return c && !c.day; }).length };
+  };
+  const cmpPeriods = (() => {
+    const now = new Date();
+    if (fromD) {
+      const b = toD || now, span = b - fromD;
+      return { label: 'Filterzeitraum', prevLabel: 'gleich langer Zeitraum davor', cur: [fromD, b], prev: [new Date(+fromD - span - 1), new Date(+fromD - 1)] };
+    }
+    if (statsCmpMode === 'month') {
+      const a = new Date(now.getFullYear(), now.getMonth(), 1), pa = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const pb = new Date(pa.getFullYear(), pa.getMonth(), Math.min(now.getDate(), new Date(pa.getFullYear(), pa.getMonth() + 1, 0).getDate()), now.getHours(), now.getMinutes());
+      const mn = (d) => d.toLocaleDateString('de-AT', { month: 'long' });
+      return { label: `${mn(now)} bis heute`, prevLabel: `${mn(pa)} bis zum ${pb.getDate()}.`, cur: [a, now], prev: [pa, pb] };
+    }
+    const a = new Date(now.getFullYear(), 0, 1), pa = new Date(now.getFullYear() - 1, 0, 1);
+    const pb = new Date(now); pb.setFullYear(now.getFullYear() - 1);
+    return { label: `${now.getFullYear()} bis heute`, prevLabel: `${now.getFullYear() - 1} bis ${pb.toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' })}`, cur: [a, now], prev: [pa, pb] };
+  })();
+  const cmpCur = aggPeriod(...cmpPeriods.cur), cmpPrev = aggPeriod(...cmpPeriods.prev);
+  const deltaHtml = (c, p, { pts = false } = {}) => {
+    if (c === null || p === null || (!p && !c)) return '';
+    if (pts) { const d = Math.round(c - p); return `<span class="sx-delta ${d > 0 ? 'is-up' : d < 0 ? 'is-down' : ''}">${d > 0 ? '+' : ''}${d} %-P.</span>`; }
+    if (!p) return '<span class="sx-delta is-up">neu</span>';
+    const d = Math.round(((c - p) / p) * 100);
+    return `<span class="sx-delta ${d > 0 ? 'is-up' : d < 0 ? 'is-down' : ''}">${d > 0 ? '▲ +' : d < 0 ? '▼ ' : '± '}${d} %</span>`;
+  };
   const totalInc = allInc.length;
   const nonSegSvcs = filteredSvcs.filter((s) => !s.isSeg);
   const totalSvcs = nonSegSvcs.length;
@@ -3058,11 +3320,23 @@ function renderStats() {
   const totT = timeStats.find((t) => t.k === 'Gesamt');
   const nacaVals = allInc.map((i) => parseInt(i.naca, 10)).filter((v) => v >= 0 && v <= 7);
   const avgNaca = nacaVals.length ? nacaVals.reduce((x, y) => x + y, 0) / nacaVals.length : null;
-  const kpi = (v, l, sub) => `<div class="sx-kpi"><b>${v}</b><span>${l}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const kpi = (v, l, sub, delta = '') => `<div class="sx-kpi"><b>${v}</b><span>${l}${delta}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const hd = fromD ? { inc: deltaHtml(cmpCur.inc, cmpPrev.inc), svc: deltaHtml(cmpCur.svc, cmpPrev.svc), hours: deltaHtml(cmpCur.hours, cmpPrev.hours) } : {};
+  const cmpRow = (label, c, p, fmt, opt) => `<tr><th>${label}</th><td>${c === null ? '–' : fmt(c)}</td><td>${p === null ? '–' : fmt(p)}</td><td>${deltaHtml(c, p, opt)}</td></tr>`;
+  const compareCard = `<section class="sx-card sx-cmp" style="--mc:#64d2ff">${head('📈', 'Vergleich', '')}
+    ${fromD ? '' : `<div class="pm-seg sx-cmp-seg" role="group" aria-label="Zeitraum"><button type="button" data-cmp="month"${statsCmpMode === 'month' ? ' class="is-on"' : ''}>Monat</button><button type="button" data-cmp="year"${statsCmpMode === 'year' ? ' class="is-on"' : ''}>Jahr</button></div>`}
+    <table class="sx-cmp-t"><thead><tr><th></th><th>${escHtml(cmpPeriods.label)}</th><th>${escHtml(cmpPeriods.prevLabel)}</th><th></th></tr></thead><tbody>
+      ${cmpRow('Einsätze', cmpCur.inc, cmpPrev.inc, String)}
+      ${cmpRow('Dienste', cmpCur.svc, cmpPrev.svc, String)}
+      ${cmpRow('Stunden', cmpCur.hours, cmpPrev.hours, (v) => String(Math.round(v)))}
+      ${cmpRow('pro Dienst', cmpCur.perSvc, cmpPrev.perSvc, (v) => fmt1(v))}
+      ${cmpRow('Blaulicht', cmpCur.lights, cmpPrev.lights, (v) => Math.round(v) + ' %', { pts: true })}
+      ${cmpRow('Nachtdienste', cmpCur.nights, cmpPrev.nights, String)}
+    </tbody></table></section>`;
   const hero = `<section class="sx-hero">
-    ${kpi(totalInc, 'Einsätze', `${lightPct} % Blaulicht${segInc ? ` · ${segInc} SEG` : ''}`)}
-    ${kpi(totalSvcs, 'Dienste', `${nights} Nacht · ${totalSvcs - nights} Tag`)}
-    ${kpi(Math.round(totalHours), 'Stunden', totalSvcs ? `Ø ${fmt1(totalHours / totalSvcs)} h · max ${fmt1(longestH)} h` : '')}
+    ${kpi(totalInc, 'Einsätze', `${lightPct} % Blaulicht${segInc ? ` · ${segInc} SEG` : ''}`, hd.inc)}
+    ${kpi(totalSvcs, 'Dienste', `${nights} Nacht · ${totalSvcs - nights} Tag`, hd.svc)}
+    ${kpi(Math.round(totalHours), 'Stunden', totalSvcs ? `Ø ${fmt1(totalHours / totalSvcs)} h · max ${fmt1(longestH)} h` : '', hd.hours)}
     ${kpi(String(avgInc).replace('.', ','), 'pro Dienst', maxShift ? `Rekord: ${maxShift}` : '')}
     ${totT && totT.n ? kpi(totT.avg < 60 ? `${totT.avg} min` : `${hmShort(totT.avg)} h`, 'Ø Dauer', `${totT.n} mit Zeiten`) : ''}
     ${avgNaca !== null ? kpi(fmt1(avgNaca), 'Ø NACA', avgAge !== null ? `Ø Alter ${avgAge}` : `${nacaVals.length} erfasst`) : ''}
@@ -3085,16 +3359,21 @@ function renderStats() {
       ${activeFilterCount > 0 ? `<button class="stats-filter-bar-reset" id="btn-stats-reset" title="Filter zurücksetzen">✕ Zurücksetzen</button>` : ''}
     </div>
     ${hero}
+    <div class="sx-tools">
+      <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
+      <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
+    </div>
     <div class="sx-grid">
+      ${compareCard}
       ${podiumCard({ key: 'Top Einsätze', title: 'Top-Stichwörter', icon: '🚨', color: '#ff453a', items: allAlarm })}
       ${podiumCard({ key: 'Top Fahrzeug', title: 'Fahrzeuge', icon: '🚑', color: '#0a84ff', items: allVehicle.filter(([k]) => k !== '-'), lead: vehLead, attr: (l) => `data-vehicle="${escHtml(String(l))}"` })}
       ${podiumCard({ key: 'Top Kolleg:innen', title: 'Crew', icon: '🤝', color: '#30d158', items: allColleagues, lead: avLead, attr: (l) => `data-colleague="${escHtml(String(l))}"` })}
-      ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-') })}
+      ${podiumCard({ key: 'Top Dienststelle', title: 'Dienststellen', icon: '🏠', color: '#ff9f0a', items: allLocation.filter(([k]) => k !== '-'), attr: (l) => `data-station="${escHtml(String(l))}"` })}
       ${(() => { const comp = countTop(allInc.flatMap((i) => i.extraVehicles || []), 999); return comp.length ? podiumCard({ key: 'Companions', title: 'Liebste Companions', icon: '🚨', color: '#64d2ff', items: comp, meta: `${allInc.filter((i) => (i.extraVehicles || []).length).length} Einsätze`, lead: vehLead, attr: (l) => `data-vehicle="${escHtml(String(l))}"` }) : ''; })()}
       ${timeCard()}
       ${timesFilled ? timesCard() : ''}
-      ${allTo.length ? podiumCard({ key: 'Top Ziele', title: 'Häufigste Ziele', icon: '🏥', color: '#ff375f', items: allTo, meta: `${routeFilled}/${totalInc} Einsätze` }) : ''}
-      ${allFrom.length ? podiumCard({ key: 'Top Startorte', title: 'Häufigste Startorte', icon: '📍', color: '#5e5ce6', items: allFrom }) : ''}
+      ${allTo.length ? podiumCard({ key: 'Top Ziele', title: 'Häufigste Ziele', icon: '🏥', color: '#ff375f', items: allTo, meta: `${routeFilled}/${totalInc} Einsätze`, attr: (l) => `data-place="${escHtml(String(l))}"` }) : ''}
+      ${allFrom.length ? podiumCard({ key: 'Top Startorte', title: 'Häufigste Startorte', icon: '📍', color: '#5e5ce6', items: allFrom, attr: (l) => `data-place="${escHtml(String(l))}"` }) : ''}
       <div class="stats-group-title sx-group">Kennzahlen &amp; Patient</div>
       ${shareCard({ key: 'Einsatzart', title: 'Einsatzart', icon: '🧭', color: '#0a84ff', items: allEinsatzart, meta: `${eaFilled}/${totalInc} Einsätze` })}
       ${shareCard({ key: 'Statistikkennzahl', title: 'Statistikkennzahl', icon: '📊', color: '#30d158', items: allStatKz, meta: `${kzFilled}/${totalInc} Einsätze` })}
@@ -3147,15 +3426,20 @@ function renderStats() {
     'Statistikkennzahl': { icon: '📊', color: '#30d158', unit: 'Einsätze' },
     'Top Kolleg:innen': { icon: '🤝', color: '#30d158', unit: 'Dienste', lead: popupAv, colleague: true },
     'Top Fahrzeug': { icon: '🚑', color: '#0a84ff', unit: 'Dienste', lead: popupVeh, vehicle: true },
-    'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste' },
-    'Top Ziele': { icon: '🏥', color: '#ff375f', unit: 'Einsätze' },
-    'Top Startorte': { icon: '📍', color: '#5e5ce6', unit: 'Einsätze' },
+    'Top Dienststelle': { icon: '🏠', color: '#ff9f0a', unit: 'Dienste', station: true },
+    'Top Ziele': { icon: '🏥', color: '#ff375f', unit: 'Einsätze', place: true },
+    'Top Startorte': { icon: '📍', color: '#5e5ce6', unit: 'Einsätze', place: true },
     'Companions': { icon: '🚨', color: '#64d2ff', unit: 'Einsätze', lead: popupVeh, vehicle: true },
   };
   container.querySelectorAll('.btn-show-all').forEach((btn) => {
     btn.addEventListener('click', () => showListPopup(btn.dataset.title, popupData[btn.dataset.title] || [], popupMeta[btn.dataset.title]));
   });
 
+  container.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => { statsCmpMode = b.dataset.cmp; renderStats(); }));
+  const msb = document.getElementById('btn-month-sheet');
+  if (msb) msb.addEventListener('click', () => openMonthSheet());
+  const pmb = document.getElementById('btn-place-map');
+  if (pmb) pmb.addEventListener('click', () => openPlaceMap(statsPlaceIncidents));
   document.getElementById('btn-open-stats-filter').addEventListener('click', () => {
     openStatsFilterPopup();
   });
@@ -4136,7 +4420,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 156;
+const APP_VERSION = 157;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6693,7 +6977,7 @@ function coordsFromMapsLink(url) {
 }
 let geoQueue = Promise.resolve();
 /** Adresse → Koordinaten (Nominatim, höchstens 1 Abfrage/s, Ergebnis wird auf dem Gerät gemerkt). */
-function geocodeAddress(addr) {
+function geocodeAddress(addr, near = null) {
   const a = String(addr || '').trim();
   if (!a) return Promise.resolve(null);
   if (/^https?:\/\//i.test(a)) return Promise.resolve(coordsFromMapsLink(a));
@@ -6702,7 +6986,8 @@ function geocodeAddress(addr) {
   const hit = cache[a.toLowerCase()];
   if (hit && (hit.lat !== undefined || Date.now() - hit.at < 7 * 864e5)) return Promise.resolve(hit.lat !== undefined ? hit : null);
   if (!navigator.onLine) return Promise.resolve(null);
-  const run = () => fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=de&q=${encodeURIComponent(a)}`, { headers: { Accept: 'application/json' } })
+  const vb = near ? `&viewbox=${near.lon - 0.8},${near.lat + 0.6},${near.lon + 0.8},${near.lat - 0.6}` : '';
+  const run = () => fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=de${vb}&q=${encodeURIComponent(a)}`, { headers: { Accept: 'application/json' } })
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
     .then((list) => {
       const x = Array.isArray(list) && list[0];
@@ -6796,9 +7081,97 @@ function openStationProfile(name) {
   }));
   box.scrollTop = 0;
   openDialog('dialog-colleague');
-  if (addr) geocodeAddress(addr).then((c) => {
-    const card = box.querySelector('.st-card');
-    if (!c || !card || !card.isConnected) return;
+  if (addr) fillPlaceMap(box.querySelector('.st-card'), addr, abt);
+}
+// ── Orte-Profil (Ziele und Startorte von Einsätzen) ──────────────────────────
+const placeKey = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const ICON_PLACE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a7 7 0 0 0-7 7c0 5.2 7 12 7 12s7-6.8 7-12a7 7 0 0 0-7-7zm0 9.6a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2z" fill="currentColor"/></svg>';
+/** Visitenkarte für einen Ort (Ziel oder Startort) mit Karte, Kennzahlen und den Einsätzen dort. */
+function openPlaceProfile(name) {
+  const box = document.getElementById('colleague-body');
+  name = String(name || '').trim();
+  if (!box || !name) return;
+  const key = placeKey(name);
+  const rows = state.services.flatMap((svc) => (svc.incidents || []).map((inc) => ({ inc, svc })))
+    .filter(({ inc }) => placeKey(inc.to) === key || placeKey(inc.from) === key)
+    .sort((a, b) => `${b.svc.startAt || ''}|${b.inc.createdAt || ''}`.localeCompare(`${a.svc.startAt || ''}|${a.inc.createdAt || ''}`));
+  const asTo = rows.filter(({ inc }) => placeKey(inc.to) === key);
+  const asFrom = rows.filter(({ inc }) => placeKey(inc.from) === key);
+  const incs = rows.map((x) => x.inc);
+  const lights = incs.filter((i) => i.lights).length;
+  const kws = countTop(incs.map((i) => i.alarmCode), 5);
+  const pzcs = countTop(incs.map((i) => (i.pzc && i.pzc.diag ? i.pzc.diag + (pzcDiagnosis(i.pzc.diag) ? ' – ' + pzcDiagnosis(i.pzc.diag) : '') : '')), 4);
+  const vehs = countTop(rows.map(({ svc }) => svc.vehicle), 5);
+  const fromHere = countTop(asTo.map(({ inc }) => String(inc.from || '').trim()), 4);
+  const toThere = countTop(asFrom.map(({ inc }) => String(inc.to || '').trim()), 4);
+  const tMin = asTo.map(({ inc }) => hmDiff((inc.times || {}).transport, (inc.times || {}).ziel)).filter((m) => m !== null && m > 0 && m < 240);
+  const avgT = tMin.length ? Math.round(tMin.reduce((a, b) => a + b, 0) / tMin.length) : null;
+  const ages = asTo.map(({ inc }) => parseInt((inc.pzc || {}).age, 10)).filter((a) => a >= 0 && a < 120);
+  const display = (() => { const m = countTop(rows.flatMap(({ inc }) => [inc.to, inc.from].filter((v) => placeKey(v) === key).map((v) => String(v).trim())), 1)[0]; return m ? m[0] : name; })();
+  const day = (d) => (d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
+  const dOf = (x) => parseLocalDt(x.svc.startAt);
+  const sub = [rows.length ? `seit ${day(dOf(rows[rows.length - 1]))}` : 'noch keine Einsätze', rows.length > 1 ? `zuletzt ${day(dOf(rows[0]))}` : ''].filter(Boolean).join(' · ');
+  const chips = (arr, attr) => arr.map(([k, n]) => `<span${attr ? ` class="crew-link" role="button" ${attr}="${escHtml(k)}"` : ''}>${escHtml(k)} · ${n}×</span>`).join('');
+  const isLink = /^https?:\/\//i.test(name);
+  document.getElementById('colleague-title').textContent = asTo.length >= asFrom.length ? 'Ziel' : 'Startort';
+  box.innerHTML = `<div class="st-card is-place" style="--h:${colleagueHue(display)}">
+      <div class="st-map" aria-hidden="true"></div>
+      <div class="st-card-body">
+        <span class="cp-av cp-station">${ICON_PLACE}</span>
+        <div class="st-card-t"><h3>${escHtml(display)}</h3><span>${escHtml(sub)}</span></div>
+      </div>
+      <span class="st-attrib" hidden>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></span>
+      <a class="st-open" hidden target="_blank" rel="noopener" aria-label="In Google Maps öffnen"></a>
+      <span class="st-zoom" hidden><button type="button" data-z="-1" aria-label="Karte weiter weg">−</button><button type="button" data-z="1" aria-label="Karte näher">＋</button></span>
+    </div>
+    ${!isLink ? `<div class="cp-actions">
+      <a class="cp-act" href="${escHtml(mapsRouteUrl(display))}" target="_blank" rel="noopener">${ICON_CAR_FRONT}<span>Route</span></a>
+      <a class="cp-act" ${safariLinkAttrs('https://verkehrsauskunft.verbundlinie.at/?Z=' + encodeURIComponent(display))}>${ICON_BUS_FRONT}<span>Öffis</span></a>
+    </div>` : ''}
+    <div class="cp-tiles">
+      <div><strong>${asTo.length}</strong><small>als Ziel</small></div>
+      <div><strong>${asFrom.length}</strong><small>als Start</small></div>
+      <div><strong>${incs.length ? Math.round((lights / incs.length) * 100) + '%' : '–'}</strong><small>Blaulicht</small></div>
+      <div><strong>${avgT !== null ? avgT + '′' : '–'}</strong><small>Ø Transport</small></div>
+    </div>
+    ${ages.length ? `<p class="cp-line">Ø Patientenalter <strong>${Math.round(ages.reduce((a, b) => a + b, 0) / ages.length)}</strong> Jahre (${ages.length} erfasst)</p>` : ''}
+    ${kws.length ? `<div class="cp-sub">Häufigste Stichwörter</div><div class="cp-chips">${chips(kws)}</div>` : ''}
+    ${pzcs.length ? `<div class="cp-sub">Häufigste PZC</div><div class="cp-chips">${chips(pzcs)}</div>` : ''}
+    ${fromHere.length ? `<div class="cp-sub">Gebracht von</div><div class="cp-chips">${chips(fromHere, 'data-place')}</div>` : ''}
+    ${toThere.length ? `<div class="cp-sub">Von hier nach</div><div class="cp-chips">${chips(toThere, 'data-place')}</div>` : ''}
+    ${vehs.length ? `<div class="cp-sub">Mit Fahrzeug</div><div class="cp-chips">${chips(vehs, 'data-vehicle')}</div>` : ''}
+    ${rows.length ? `<div class="cp-sub">Einsätze · ${rows.length}</div>
+    <div class="cp-list">${rows.slice(0, 40).map(({ inc, svc }) => `<button type="button" class="cp-svc" data-pl-inc="${escHtml(inc.id)}" data-pl-svc="${escHtml(svc.id)}">
+        <span class="cp-svc-d">${shiftCodeHtml(svc.startAt, 'is-small')}<span>${escHtml(day(parseLocalDt(svc.startAt)))}</span></span>
+        <span class="cp-svc-m"><span class="cp-svc-t">${inc.lights ? '🔵 ' : ''}${escHtml(inc.alarmCode || 'Einsatz')}</span><small>${escHtml(placeKey(inc.to) === key ? `von ${inc.from || '—'}` : `nach ${inc.to || '—'}`)}</small></span>
+        <span class="cp-svc-n">${escHtml(svc.vehicle || '')}</span></button>`).join('')}
+      ${rows.length > 40 ? `<p class="cp-line">… und ${rows.length - 40} weitere</p>` : ''}</div>` : ''}`;
+  box.querySelectorAll('[data-pl-inc]').forEach((b) => b.addEventListener('click', () => {
+    closeDialog('dialog-colleague'); document.querySelectorAll('.lp-ov').forEach((x) => x.remove()); if (story) closeStory();
+    setTimeout(() => openIncidentView(b.dataset.plSvc, b.dataset.plInc), 260);
+  }));
+  box.scrollTop = 0;
+  openDialog('dialog-colleague');
+  fillPlaceMap(box.querySelector('.st-card'), isLink ? name : display, null, homeGeoBias());
+}
+/** Bezugspunkt für die Ortssuche: erste Dienststelle mit bekanntem Standort (Treffer in der Nähe bevorzugen). */
+function homeGeoBias() {
+  let cache = {};
+  try { cache = JSON.parse(lsGet(GEO_CACHE_KEY, '{}')) || {}; } catch (_) {}
+  for (const a of state.dienststellen || []) {
+    const ad = String(a.address || '').trim();
+    if (!ad) continue;
+    const c = /^https?:\/\//i.test(ad) ? coordsFromMapsLink(ad) : cache[ad.toLowerCase()];
+    if (c && c.lat !== undefined) return { lat: c.lat, lon: c.lon };
+  }
+  return null;
+}
+/** Karte in eine Visitenkarte laden (Zoom je Dienststelle merken, falls `abt`). */
+function fillPlaceMap(card, addr, abt, near = null) {
+  if (!card || !addr) return;
+  const isLink = /^https?:\/\//i.test(addr);
+  geocodeAddress(addr, near).then((c) => {
+    if (!c || !card.isConnected) return;
     let z = Math.min(ST_MAP_ZOOM_MAX, Math.max(ST_MAP_ZOOM_MIN, +(abt && abt.mapZoom) || ST_MAP_ZOOM));
     const draw = () => { card.querySelector('.st-map').innerHTML = osmTilesHtml(c.lat, c.lon, z); };
     draw();
@@ -6809,7 +7182,6 @@ function openStationProfile(name) {
     open.hidden = false;
     const zb = card.querySelector('.st-zoom');
     zb.hidden = false;
-    // Zoom je Dienststelle merken
     zb.querySelectorAll('[data-z]').forEach((b) => b.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
       const nz = Math.min(ST_MAP_ZOOM_MAX, Math.max(ST_MAP_ZOOM_MIN, z + +b.dataset.z));
@@ -6819,6 +7191,12 @@ function openStationProfile(name) {
     }));
   });
 }
+document.addEventListener('click', (e) => {
+  const pl = e.target.closest && e.target.closest('[data-place]');
+  if (!pl) return;
+  e.stopPropagation(); e.preventDefault();
+  openPlaceProfile(pl.dataset.place);
+}, true);
 document.addEventListener('click', (e) => {
   const st = e.target.closest && e.target.closest('[data-station]');
   if (!st) return;
