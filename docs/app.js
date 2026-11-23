@@ -2736,8 +2736,10 @@ function loadLeaflet() {
   return leafletP;
 }
 const PLACE_MAP_MAX = 60;
-// Straßenrouten (OSRM-Demo-Server, höchstens 1 Abfrage/s, Ergebnis wird auf dem Gerät gemerkt)
-const ROUTE_CACHE_KEY = 'etb_route_cache';
+// Straßenrouten (OSRM-Demo-Server, höchstens 1 Abfrage/s). Nur im Arbeitsspeicher, solange die App offen ist –
+// nichts davon wird auf dem Gerät gespeichert.
+const routeMem = new Map();
+try { localStorage.removeItem('etb_route_cache'); } catch (_) {} // frühere Version hat Routen gespeichert
 let routeQueue = Promise.resolve();
 function decodePolyline(str) {
   const out = []; let i = 0, lat = 0, lon = 0;
@@ -2755,24 +2757,24 @@ function decodePolyline(str) {
 function roadRoute(a, b) {
   const r4 = (x) => Math.round(x * 1e4) / 1e4;
   const key = `${r4(a.lat)},${r4(a.lon)}|${r4(b.lat)},${r4(b.lon)}`;
-  let cache = {};
-  try { cache = JSON.parse(lsGet(ROUTE_CACHE_KEY, '{}')) || {}; } catch (_) {}
-  if (cache[key] !== undefined) return Promise.resolve(cache[key] ? decodePolyline(cache[key]) : null);
+  if (routeMem.has(key)) return Promise.resolve(routeMem.get(key));
   if (!navigator.onLine) return Promise.resolve(null);
   const run = () => fetch(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=simplified&geometries=polyline`)
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
     .then((j) => {
       const g = j && j.routes && j.routes[0] && j.routes[0].geometry;
-      try { const c = JSON.parse(lsGet(ROUTE_CACHE_KEY, '{}')) || {}; c[key] = g || ''; lsSet(ROUTE_CACHE_KEY, JSON.stringify(c)); } catch (_) {}
-      return g ? decodePolyline(g) : null;
+      const pts = g ? decodePolyline(g) : null;
+      routeMem.set(key, pts);
+      return pts;
     })
     .catch(() => null);
   const p = routeQueue.then(run);
   routeQueue = p.then(() => new Promise((r) => setTimeout(r, 1100)));
   return p;
 }
-const PM_LINES_KEY = 'etb_pm_lines', PM_ROAD_KEY = 'etb_pm_road', PM_PAIRS_MAX = 80;
+const PM_LINES_KEY = 'etb_pm_lines', PM_ROAD_KEY = 'etb_pm_road', PM_ALL_KEY = 'etb_pm_all', PM_PAIRS_MAX = 80;
 function openPlaceMap(incs) {
+  const showAll = lsGet(PM_ALL_KEY) === '1';
   const agg = new Map();
   const skip = (key) => !key || /^(lokal|vor ort|-|—)$/.test(key);
   (incs || []).forEach((i) => [['to', i.to], ['from', i.from]].forEach(([k, v]) => {
@@ -2789,9 +2791,11 @@ function openPlaceMap(incs) {
     const k = a < b ? `${a}\n${b}` : `${b}\n${a}`;
     const e = pairMap.get(k) || { a: a < b ? a : b, b: a < b ? b : a, n: 0 }; e.n++; pairMap.set(k, e);
   });
-  const pairs = [...pairMap.values()].sort((x, y) => y.n - x.n).slice(0, PM_PAIRS_MAX);
+  const allPairs = [...pairMap.values()].sort((x, y) => y.n - x.n);
+  const pairs = showAll ? allPairs : allPairs.slice(0, PM_PAIRS_MAX);
   const places = [...agg.values()].sort((a, b) => b.to + b.from - a.to - a.from);
-  const shown = places.slice(0, PLACE_MAP_MAX);
+  const shown = showAll ? places : places.slice(0, PLACE_MAP_MAX);
+  const capped = places.length > PLACE_MAP_MAX || allPairs.length > PM_PAIRS_MAX;
   document.querySelectorAll('.pm-ov').forEach((x) => x.remove());
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay pm-ov';
@@ -2808,6 +2812,7 @@ function openPlaceMap(incs) {
       <span><i style="background:#ff375f"></i>meist Ziel</span><span><i style="background:#5e5ce6"></i>meist Start</span>
       <label class="pm-switch"><input type="checkbox" id="pm-lines"${showLines ? ' checked' : ''}${pairs.length ? '' : ' disabled'}> Fahrten${pairs.length ? ` (${pairs.length})` : ''}</label>
       <label class="pm-switch"><input type="checkbox" id="pm-road"${showRoad ? ' checked' : ''}${showLines ? '' : ' disabled'}> echte Route</label>
+      ${capped || showAll ? `<label class="pm-switch" title="Sonst nur die ${PLACE_MAP_MAX} häufigsten Orte und ${PM_PAIRS_MAX} häufigsten Fahrten"><input type="checkbox" id="pm-all"${showAll ? ' checked' : ''}> alles (${places.length} Orte · ${allPairs.length} Fahrten)</label>` : ''}
     </div>
   </div>`;
   const close = () => { ov.classList.add('closing'); const dc = document.getElementById('dialog-colleague'); if (dc) dc.style.zIndex = ''; setTimeout(() => ov.remove(), 200); };
@@ -2876,6 +2881,8 @@ function openPlaceMap(incs) {
     }));
     const roadBox = ov.querySelector('#pm-road');
     ov.querySelector('#pm-lines').addEventListener('change', (e) => { showLines = e.target.checked; lsSet(PM_LINES_KEY, showLines ? '1' : null); roadBox.disabled = !showLines; drawLines(); loadRoads(); tick(); });
+    const allBox = ov.querySelector('#pm-all');
+    if (allBox) allBox.addEventListener('change', (e) => { lsSet(PM_ALL_KEY, e.target.checked ? '1' : null); openPlaceMap(incs); });
     roadBox.addEventListener('change', (e) => { showRoad = e.target.checked; lsSet(PM_ROAD_KEY, showRoad ? '1' : null); drawLines(); loadRoads(); tick(); });
     ov.addEventListener('click', (e) => {
       const pb = e.target.closest && e.target.closest('[data-pm-place]');
@@ -4546,7 +4553,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 160;
+const APP_VERSION = 161;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
