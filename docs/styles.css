@@ -4508,3 +4508,7 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .place-fields .place-addr::placeholder { color: var(--text3); }
 .sx-cmp.is-classic .sx-cmp-seg { margin-top: 0; }
 button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.place-star { flex: none; width: 34px; height: 34px; margin-right: 4px; border: none; background: none; color: var(--text3); font-size: 20px; line-height: 1; cursor: pointer; }
+.place-star.is-on { color: #ffcc00; }
+.place-name { font-size: 16px; color: var(--text); text-decoration: none; align-self: flex-start; }
+#places-filter { margin: 0 0 8px; }

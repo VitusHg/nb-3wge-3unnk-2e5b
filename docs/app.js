@@ -4427,7 +4427,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 158;
+const APP_VERSION = 159;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4532,7 +4532,7 @@ function renderSettings() {
       ${setRow({ icon: 'car', color: 'orange', title: 'Fahrzeuge &amp; Icons', value: `${cats.length} · ${vehicles.size}`, push: 'fahrzeuge' })}
       ${setRow({ icon: 'siren', color: 'green', title: 'Stichwörter &amp; PZC', value: `${(state.alarmCodes || []).length} · ${(state.pzcCodes || []).length}`, push: 'stichwoerter' })}
       ${setRow({ icon: 'building', color: 'blue', title: 'Dienststellen', value: abtRowValue(), push: 'dienststellen' })}
-      ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Kürzel für Start → Ziel', value: String((state.places || []).length), push: 'orte' })}
+      ${setRow({ icon: 'pin', color: 'teal', title: 'Orte &amp; Ziele', sub: 'Favoriten, Adressen für die Karte', value: String((state.places || []).length), push: 'orte' })}
     </div>
 
     <div class="set-group-header">Daten</div>
@@ -5117,33 +5117,56 @@ function settingsPageBedienung(el, title) {
 }
 
 // — Orte & Ziele ——————————————————————————————————————————————————————
+let _placesFilter = '';
 function settingsPageOrte(el, title) {
   const places = state.places || [];
-  // Anzeige sortiert (Häufigkeit in Start/Ziel oder alphabetisch); data-i bleibt der echte Index
+  const favKeys = new Set(places.map(placeKey));
   const mode = lsGet('etb_places_sort') === 'alpha' ? 'alpha' : 'freq';
+  // alle in Einsätzen eingegebenen Orte (Start und Ziel) mit Häufigkeit und häufigster Schreibweise
   const used = new Map();
-  allIncidentsFlat().forEach((inc) => [inc.from, inc.to].forEach((v) => { const k = String(v || '').trim().toLowerCase(); if (k) used.set(k, (used.get(k) || 0) + 1); }));
-  const count = (p) => used.get(p.toLowerCase()) || 0;
-  const order = places.map((p, i) => i).sort((a, b) => mode === 'alpha'
-    ? places[a].localeCompare(places[b], 'de')
-    : count(places[b]) - count(places[a]) || places[a].localeCompare(places[b], 'de'));
+  allIncidentsFlat().forEach((inc) => [inc.from, inc.to].forEach((v) => {
+    const k = placeKey(v); if (!k) return;
+    const e = used.get(k) || { n: 0, names: new Map() };
+    e.n++; const nm = String(v).trim(); e.names.set(nm, (e.names.get(nm) || 0) + 1); used.set(k, e);
+  }));
+  const count = (p) => (used.get(placeKey(p)) || {}).n || 0;
+  const byMode = (a, b) => (mode === 'alpha' ? a.localeCompare(b, 'de') : count(b) - count(a) || a.localeCompare(b, 'de'));
+  const favOrder = places.map((p, i) => i).sort((a, b) => byMode(places[a], places[b]));
+  const others = [...used.entries()].filter(([k]) => !favKeys.has(k))
+    .map(([, e]) => [...e.names.entries()].sort((a, b) => b[1] - a[1] || /^[A-ZÄÖÜ]/.test(b[0]) - /^[A-ZÄÖÜ]/.test(a[0]))[0][0]).sort(byMode);
+  const q = _placesFilter.trim().toLowerCase();
+  const shownOthers = others.filter((p) => !q || p.toLowerCase().includes(q) || placeAddress(p).toLowerCase().includes(q));
+  const LIMIT = 150;
+  const addrInput = (p, attr) => `<input type="text" class="place-addr" ${attr} value="${escHtml(placeAddress(p))}" placeholder="📍 Adresse für Karte (optional)" autocomplete="off" enterkeyhint="done" aria-label="Adresse zu ${escHtml(p)}">`;
   el.innerHTML = `${title}
-    ${places.length > 1 ? `<div class="place-sort" role="radiogroup" aria-label="Sortierung">
+    <div class="place-sort" role="radiogroup" aria-label="Sortierung">
       <button type="button" role="radio" aria-checked="${mode === 'freq'}" data-place-sort="freq">Häufigkeit</button>
       <button type="button" role="radio" aria-checked="${mode === 'alpha'}" data-place-sort="alpha">A–Z</button>
-    </div>` : ''}
-    <div class="set-group-header">Deine Kürzel</div>
-    <div class="set-group">
-      ${places.length ? order.map((i) => [places[i], i]).map(([p, i]) => `<div class="set-row place-row"><div class="place-fields"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Kürzel bearbeiten"><input type="text" class="place-addr" data-i="${i}" value="${escHtml(placeAddress(p))}" placeholder="📍 Adresse für Karte (optional)" autocomplete="off" enterkeyhint="done" aria-label="Adresse zu ${escHtml(p)}"></div>${mode === 'freq' && count(p) ? `<span class="place-n">${count(p)}×</span>` : ''}<button type="button" class="btn-ghost place-del" data-i="${i}" aria-label="Entfernen">Entfernen</button></div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Kürzel – z. B. „KH Oberwart ZAE“ oder „AH Menda“.</span></div>'}
-      <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neues Kürzel" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
     </div>
-    <p class="set-group-footer">Zum Bearbeiten in den Eintrag tippen. Mit Adresse (oder Google-Maps-Link) findet die Karte den Ort sicher – auch bei Kürzeln wie „KH Oberwart ZAE“.</p>`;
-  const save = (list) => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); };
+    <div class="set-group-header">⭐ Favoriten <span class="popup-col-count">${places.length}</span></div>
+    <div class="set-group">
+      ${places.length ? favOrder.map((i) => [places[i], i]).map(([p, i]) => `<div class="set-row place-row"><button type="button" class="place-star is-on" data-unfav="${i}" aria-label="${escHtml(p)} aus Favoriten entfernen" title="Aus Favoriten entfernen">★</button><div class="place-fields"><input type="text" class="place-edit" data-i="${i}" value="${escHtml(p)}" autocomplete="off" enterkeyhint="done" aria-label="Favorit bearbeiten">${addrInput(p, `data-addr="${escHtml(p)}"`)}</div>${count(p) ? `<span class="place-n">${count(p)}×</span>` : ''}</div>`).join('') : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Favoriten – unten bei „Alle Orte“ den ☆ antippen oder hier ein Kürzel anlegen, z. B. „KH Oberwart ZAE“.</span></div>'}
+      <div class="set-row place-add-row"><input type="text" id="place-new" placeholder="Neuer Favorit" autocomplete="off" enterkeyhint="done"><button type="button" class="btn-secondary" id="btn-place-add">Hinzufügen</button></div>
+    </div>
+    <p class="set-group-footer">Favoriten erscheinen beim Erfassen von Start und Ziel ganz oben. Mit Adresse findet die Karte den Ort sicher – auch ungefähr, z. B. „8230 Hartberg“ für „Whg, Hartberg“.</p>
+    <div class="set-group-header">Alle Orte aus Einsätzen <span class="popup-col-count">${others.length}</span></div>
+    ${others.length > 8 ? `<input type="search" id="places-filter" class="settings-filter-input" placeholder="Orte filtern…" value="${escHtml(_placesFilter)}">` : ''}
+    <div class="set-group" id="places-all">
+      ${shownOthers.length ? shownOthers.slice(0, LIMIT).map((p) => `<div class="set-row place-row"><button type="button" class="place-star" data-fav="${escHtml(p)}" aria-label="${escHtml(p)} zu Favoriten" title="Zu Favoriten">☆</button><div class="place-fields"><span class="place-name crew-link" role="button" data-place="${escHtml(p)}">${escHtml(p)}</span>${addrInput(p, `data-addr="${escHtml(p)}"`)}</div><span class="place-n">${count(p)}×</span></div>`).join('')
+        : `<div class="set-row"><span class="set-row-text set-row-sub">${others.length ? 'Keine Treffer.' : 'Alle Orte aus deinen Einsätzen sind schon Favoriten.'}</span></div>`}
+      ${shownOthers.length > LIMIT ? `<div class="set-row"><span class="set-row-text set-row-sub">… und ${shownOthers.length - LIMIT} weitere – Filter verwenden</span></div>` : ''}
+    </div>
+    <p class="set-group-footer">Ortsnamen antippen öffnet die Visitenkarte. Die Adresse ändert nur die Karte und die Route, nicht deine Einsätze.</p>`;
+  const scroller = el.closest('#settings-sub') || el;
+  const keepScroll = (fn) => { const y = scroller.scrollTop; fn(); requestAnimationFrame(() => { scroller.scrollTop = y; }); };
+  const save = (list) => keepScroll(() => { state.places = [...new Set(list.map((x) => x.trim()).filter(Boolean))]; saveState(); renderSettingsPage(); });
   const addrs = () => (state.placeAddresses = state.placeAddresses || {});
-  el.querySelectorAll('.place-del').forEach((b) => b.addEventListener('click', () => { delete addrs()[placeKey(places[+b.dataset.i])]; save(places.filter((_, i) => i !== +b.dataset.i)); }));
+  el.querySelectorAll('[data-unfav]').forEach((b) => b.addEventListener('click', () => save(places.filter((_, i) => i !== +b.dataset.unfav))));
+  el.querySelectorAll('[data-fav]').forEach((b) => b.addEventListener('click', () => save([...places, b.dataset.fav])));
+  el.querySelectorAll('[data-place-sort]').forEach((b) => b.addEventListener('click', () => { lsSet('etb_places_sort', b.dataset.placeSort === 'alpha' ? 'alpha' : null); renderSettingsPage(); }));
   el.querySelectorAll('.place-addr').forEach((inp) => {
     const commit = () => {
-      const k = placeKey(places[+inp.dataset.i]), v = inp.value.trim();
+      const k = placeKey(inp.dataset.addr), v = inp.value.trim();
       if (v === (addrs()[k] || '')) return;
       if (v) addrs()[k] = v; else delete addrs()[k];
       saveState();
@@ -5151,18 +5174,23 @@ function settingsPageOrte(el, title) {
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
   });
-  el.querySelectorAll('[data-place-sort]').forEach((b) => b.addEventListener('click', () => { lsSet('etb_places_sort', b.dataset.placeSort === 'alpha' ? 'alpha' : null); renderSettingsPage(); }));
   el.querySelectorAll('.place-edit').forEach((inp) => {
     const commit = () => {
       const i = +inp.dataset.i, v = inp.value.trim();
       if (v === places[i]) return;
-      if (!v) { inp.value = places[i]; return; } // leer = nichts ändern (Löschen über „Entfernen“)
+      if (!v) { inp.value = places[i]; return; } // leer = nichts ändern (Entfernen über den Stern)
       const a = addrs(), ok = placeKey(places[i]);
       if (a[ok] && !a[placeKey(v)]) { a[placeKey(v)] = a[ok]; delete a[ok]; }
       const list = [...places]; list[i] = v; save(list);
     };
     inp.addEventListener('blur', commit);
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { inp.value = places[+inp.dataset.i]; inp.blur(); } });
+  });
+  const flt = el.querySelector('#places-filter');
+  if (flt) flt.addEventListener('input', () => {
+    _placesFilter = flt.value;
+    const v = flt.value.trim().toLowerCase();
+    el.querySelectorAll('#places-all .place-row').forEach((r) => { r.hidden = !!v && !r.textContent.toLowerCase().includes(v) && !(r.querySelector('.place-addr').value || '').toLowerCase().includes(v); });
   });
   const inp = el.querySelector('#place-new');
   const add = () => { if (inp.value.trim()) save([...places, inp.value]); };
