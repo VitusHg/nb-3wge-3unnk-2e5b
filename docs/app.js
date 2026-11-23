@@ -4134,7 +4134,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 154;
+const APP_VERSION = 155;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -8588,7 +8588,7 @@ function renderDpShifts(shifts, container) {
               ? `<button type="button" class="btn-primary" data-pc-apply="${escHtml(saved.id)}">Übernehmen</button><button type="button" class="btn-secondary btn-dp-open">Öffnen</button>`
               : '<button type="button" class="btn-secondary btn-dp-open">✓ Gespeichert</button>')
             : '<button type="button" class="btn-primary btn-dp-import">Übernehmen</button>'}
-          ${chain ? `<button type="button" class="btn-secondary btn-dp-chain">🔗 Zusammen ${escHtml(dpFormatTime(chain[0].start))}–${escHtml(dpFormatTime(chain[chain.length - 1].end))}</button>` : ''}
+          ${chain ? `<button type="button" class="btn-secondary btn-dp-chain">🔗 Zusammenfassen (${chain.length})</button>` : ''}
         </div>
         ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}`;
       const imp = card.querySelector('.btn-dp-import');
@@ -8641,10 +8641,57 @@ function dpShiftChains(shifts) {
   if (cur.length > 1) chains.push(cur);
   return chains;
 }
+/** Auswahl: zwischen welchen Teilen getrennt wird (✂︎) bzw. welche zu einem Dienst verbunden werden (🔗). */
 function importShiftChain(parts) {
-  const c = combinePlanParts(parts);
-  const v = planValuesFromShift(c);
-  openServiceDialog(null, { start: v.startAt, end: v.endAt, location: v.location, vehicle: v.vehicle, colleagues: v.colleagues, dpUid: c.uid || '' });
+  const joined = parts.slice(1).map(() => true); // joined[i]: Teil i und i+1 verbunden
+  const groups = () => { const g = [[parts[0]]]; parts.slice(1).forEach((p, i) => { if (joined[i]) g[g.length - 1].push(p); else g.push([p]); }); return g; };
+  const hm = (iso) => dpFormatTime(iso);
+  const crewOfPart = (x) => planValuesFromShift(x).colleagues.join(' · ');
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov';
+  ov.style.zIndex = '2000';
+  const render = () => {
+    const g = groups();
+    ov.innerHTML = `<div class="dialog-box lp-box ch-box" style="--mc:var(--accent)">
+      <div class="lp-head"><span class="lp-ic">🔗</span>
+        <div class="lp-head-t"><h3>Dienste zusammenfassen</h3><span>${parts.length} Einträge · Zwischen den Teilen antippen zum Trennen oder Verbinden</span></div>
+        <button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+      <div class="dialog-body lp-body">
+        <ol class="ch-list">${parts.map((x, i) => `<li class="ch-part">
+            <span class="ch-time">${escHtml(hm(x.start))}–${escHtml(hm(x.end))}</span>
+            <span class="ch-info"><b>${escHtml(x.summary || 'Dienst')}</b>${crewOfPart(x) ? `<small>👥 ${escHtml(crewOfPart(x))}</small>` : ''}</span>
+            <span class="ch-dur">${escHtml(dpDuration(x.start, x.end))}</span></li>
+          ${i < parts.length - 1 ? `<li class="ch-gap"><button type="button" class="ch-toggle${joined[i] ? ' is-on' : ''}" data-i="${i}" aria-pressed="${joined[i]}">${joined[i] ? '🔗 verbunden' : '✂︎ getrennt'}</button></li>` : ''}`).join('')}</ol>
+        <div class="ch-result"><div class="cp-sub">Ergebnis · ${g.length} ${g.length === 1 ? 'Dienst' : 'Dienste'}</div>
+          ${g.map((x) => `<div class="ch-res-row"><b>${escHtml(hm(x[0].start))}–${escHtml(hm(x[x.length - 1].end))}</b><span>${escHtml(dpDuration(x[0].start, x[x.length - 1].end))}${x.length > 1 ? ` · aus ${x.length} Teilen` : ''}</span></div>`).join('')}</div>
+        <button type="button" class="btn-primary ch-go">${g.length === 1 ? 'Übernehmen' : `${g.length} Dienste anlegen`}</button>
+      </div></div>`;
+    ov.querySelector('.dialog-close').onclick = close;
+    ov.querySelectorAll('.ch-toggle').forEach((b) => b.addEventListener('click', () => { joined[+b.dataset.i] = !joined[+b.dataset.i]; const st = ov.querySelector('.lp-body').scrollTop; render(); ov.querySelector('.lp-body').scrollTop = st; }));
+    ov.querySelector('.ch-go').onclick = () => {
+      const g2 = groups();
+      close();
+      if (g2.length === 1) {
+        // ein Dienst: wie gewohnt im Dialog prüfen und speichern
+        const c = combinePlanParts(g2[0]), v = planValuesFromShift(c);
+        setTimeout(() => openServiceDialog(null, { start: v.startAt, end: v.endAt, location: v.location, vehicle: v.vehicle, colleagues: v.colleagues, dpUid: c.uid || '' }), 220);
+        return;
+      }
+      // mehrere Dienste: direkt anlegen
+      g2.forEach((grp) => {
+        const c = grp.length > 1 ? combinePlanParts(grp) : grp[0];
+        const v = planValuesFromShift(c);
+        state.services.push({ id: uid(), startAt: v.startAt, endAt: v.endAt, vehicle: v.vehicle, location: v.location, colleagues: v.colleagues, note: '', incidents: [], isSeg: false, ...(c.uid ? { dpUid: c.uid } : {}) });
+      });
+      saveState();
+      toast(`${g2.length} Dienste angelegt.`, 'success');
+      refreshAfterPlanChange();
+    };
+  };
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  render();
+  document.body.appendChild(ov);
 }
 
 /** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */
