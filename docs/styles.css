@@ -4408,3 +4408,5 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .st-zoom button + button { border-top: 1px solid rgba(255,255,255,.2); }
 .st-attrib { z-index: 4; }
 .st-map-tiles img { transition: opacity .2s; }
+.dp-part-hint { color: var(--green-light, #30d158); }
+.btn-dp-chain { white-space: nowrap; }

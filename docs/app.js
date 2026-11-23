@@ -4134,8 +4134,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 153;
-const APP_VERSION_DATE = '22.11.2026';
+const APP_VERSION = 154;
+const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -8549,6 +8549,9 @@ function renderDpShifts(shifts, container) {
   }
   const changes = recentDpChanges();
   const hist = readDpHistory();
+  // aneinander anschließende, noch nicht übernommene Einträge → „Zusammen übernehmen“ am ersten Teil
+  const chainStart = new Map();
+  dpShiftChains(shifts.filter((x) => !findSavedServiceForShift(x))).forEach((c) => chainStart.set(c[0], c));
   container.innerHTML = '';
   updateDpInboxBadge();
   for (const dayShifts of groups.values()) {
@@ -8558,6 +8561,9 @@ function renderDpShifts(shifts, container) {
     for (const s of dayShifts) {
       const saved = findSavedServiceForShift(s);
       const savedChange = saved ? pendingPlanChange(saved) : null;
+      const savedPlan = saved ? planShiftForService(saved) : null;
+      const partOf = savedPlan && savedPlan.parts ? `Teil von ${dpFormatTime(savedPlan.start)}–${dpFormatTime(savedPlan.end)} im Tagebuch` : '';
+      const chain = !saved && chainStart.get(s);
       const dpLink = (saved && dienstplanUrl(saved)) || dienstplanUrl({ location: s.location || '', startAt: localDtStr(new Date(s.start)) });
       const chg = dpChangeFor(s, changes);
       const histKey = historyKeyForShift(s, hist);
@@ -8573,6 +8579,7 @@ function renderDpShifts(shifts, container) {
         <div class="dp-shift-summary">${escHtml(s.summary || '—')}</div>
         ${s.location ? `<div class="dp-shift-meta">📍 ${escHtml(s.location)}</div>` : ''}
         ${dpCrewHtml(s)}
+        ${partOf ? `<div class="dp-shift-meta dp-part-hint">🔗 ${escHtml(partOf)}</div>` : ''}
         ${savedChange ? `<div class="dp-shift-meta dp-pc-hint">⚠︎ Tagebuch weicht ab: ${escHtml(savedChange.diff.map((d) => d.label).join(', '))}</div>` : ''}
         <div class="dp-shift-actions">
           ${historyCountHtml(histKey, hist)}
@@ -8581,10 +8588,13 @@ function renderDpShifts(shifts, container) {
               ? `<button type="button" class="btn-primary" data-pc-apply="${escHtml(saved.id)}">Übernehmen</button><button type="button" class="btn-secondary btn-dp-open">Öffnen</button>`
               : '<button type="button" class="btn-secondary btn-dp-open">✓ Gespeichert</button>')
             : '<button type="button" class="btn-primary btn-dp-import">Übernehmen</button>'}
+          ${chain ? `<button type="button" class="btn-secondary btn-dp-chain">🔗 Zusammen ${escHtml(dpFormatTime(chain[0].start))}–${escHtml(dpFormatTime(chain[chain.length - 1].end))}</button>` : ''}
         </div>
         ${dpLink ? `<a ${dpLinkAttrs(dpLink)} class="dp-icon-link" title="Tagesdienstplan öffnen" aria-label="Tagesdienstplan öffnen">${ICON_CAL}</a>` : ''}`;
       const imp = card.querySelector('.btn-dp-import');
       if (imp) imp.addEventListener('click', () => importShiftToService(s));
+      const chb = card.querySelector('.btn-dp-chain');
+      if (chb) chb.addEventListener('click', () => importShiftChain(chain));
       const open = card.querySelector('.btn-dp-open');
       if (open) open.addEventListener('click', () => { selectedServiceId = saved.id; switchTab('dienste'); });
       group.appendChild(card);
@@ -8601,6 +8611,42 @@ function dpCrewHtml(shift) {
     + (p.note ? `<div class="dp-shift-meta is-note">ℹ️ ${escHtml(p.note).replace(/\n/g, ' · ')}</div>` : '');
 }
 
+// ── Mehrteilige Dienste: ein Tagebuch-Dienst über mehrere Dienstplan-Einträge ──
+const PART_MIN_OVERLAP = 30 * 60000, PART_MAX_GAP = 10 * 60000;
+/** Dienstplan-Einträge, die zeitlich im Tagebuch-Dienst liegen (≥ 30 min Überschneidung). */
+function planPartsForService(svc, shifts) {
+  const st = parseLocalDt(svc && svc.startAt), en = parseLocalDt(svc && svc.endAt);
+  if (!st || !en || svc.isSeg || !Array.isArray(shifts)) return [];
+  return shifts.filter((x) => x && x.start && x.end && Math.min(+new Date(x.end), +en) - Math.max(+new Date(x.start), +st) >= PART_MIN_OVERLAP)
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+}
+/** Mehrere Einträge zu einem Plan-Stand zusammenfassen: Beginn des ersten, Ende des letzten, alle Personen. */
+function combinePlanParts(parts) {
+  const vals = parts.map(planValuesFromShift);
+  const crew = [];
+  vals.forEach((v) => v.colleagues.forEach((c) => { if (!crew.some((x) => sameName(x, c))) crew.push(c); }));
+  const end = parts.reduce((m, x) => (new Date(x.end) > new Date(m) ? x.end : m), parts[0].end);
+  return { uid: parts[0].uid, start: parts[0].start, end, summary: parts[0].summary || '', location: vals[0].location, colleagues: crew, note: '', parts };
+}
+/** Direkt aneinander anschließende Einträge (gleiche Dienststelle) zu Ketten gruppieren. */
+function dpShiftChains(shifts) {
+  const chains = [];
+  let cur = [];
+  for (const s of shifts) {
+    const prev = cur[cur.length - 1];
+    const gap = prev ? new Date(s.start) - new Date(prev.end) : Infinity;
+    if (prev && gap >= 0 && gap <= PART_MAX_GAP && (s.location || '').trim().toLowerCase() === (prev.location || '').trim().toLowerCase()) cur.push(s);
+    else { if (cur.length > 1) chains.push(cur); cur = [s]; }
+  }
+  if (cur.length > 1) chains.push(cur);
+  return chains;
+}
+function importShiftChain(parts) {
+  const c = combinePlanParts(parts);
+  const v = planValuesFromShift(c);
+  openServiceDialog(null, { start: v.startAt, end: v.endAt, location: v.location, vehicle: v.vehicle, colleagues: v.colleagues, dpUid: c.uid || '' });
+}
+
 /** Bereits ins Tagebuch übernommener Dienst zu einem Dienstplan-Eintrag (±90 min). */
 function findSavedServiceForShift(shift) {
   const svcs = state.services.filter((x) => !x.isSeg);
@@ -8615,6 +8661,9 @@ function findSavedServiceForShift(shift) {
     const viaPlan = svcs.find((x) => { const p = planShiftForService(x); return p && p.uid === shift.uid && p.start === shift.start; });
     if (viaPlan) return viaPlan;
   }
+  // Tagebuch-Dienst, in dem der Eintrag zeitlich liegt (z. B. 07–19 für die Teile 07–12, 12–17, 17–19)
+  const cover = svcs.find((x) => planPartsForService(x, [shift]).length);
+  if (cover) return cover;
   const st = new Date(shift.start);
   return svcs.find((x) => { const d = parseLocalDt(x.startAt); return d && Math.abs(d - st) < 5400000; }) || null;
 }
@@ -8674,6 +8723,8 @@ function planShiftForService(svc) {
   if (!svc || svc.isSeg) return null;
   const cache = readIcsCache();
   if (!cache || !Array.isArray(cache.shifts)) return null;
+  const parts = planPartsForService(svc, cache.shifts);
+  if (parts.length > 1) return combinePlanParts(parts);
   const st = parseLocalDt(svc.startAt);
   const byUid = (uid) => {
     const hits = cache.shifts.filter((x) => x.uid === uid);
