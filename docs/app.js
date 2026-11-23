@@ -2736,32 +2736,85 @@ function loadLeaflet() {
   return leafletP;
 }
 const PLACE_MAP_MAX = 60;
+// Straßenrouten (OSRM-Demo-Server, höchstens 1 Abfrage/s, Ergebnis wird auf dem Gerät gemerkt)
+const ROUTE_CACHE_KEY = 'etb_route_cache';
+let routeQueue = Promise.resolve();
+function decodePolyline(str) {
+  const out = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let b, shift = 0, res = 0;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = res & 1 ? ~(res >> 1) : res >> 1;
+      if (k === 0) lat += d; else lon += d;
+    }
+    out.push([lat / 1e5, lon / 1e5]);
+  }
+  return out;
+}
+function roadRoute(a, b) {
+  const r4 = (x) => Math.round(x * 1e4) / 1e4;
+  const key = `${r4(a.lat)},${r4(a.lon)}|${r4(b.lat)},${r4(b.lon)}`;
+  let cache = {};
+  try { cache = JSON.parse(lsGet(ROUTE_CACHE_KEY, '{}')) || {}; } catch (_) {}
+  if (cache[key] !== undefined) return Promise.resolve(cache[key] ? decodePolyline(cache[key]) : null);
+  if (!navigator.onLine) return Promise.resolve(null);
+  const run = () => fetch(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=simplified&geometries=polyline`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+    .then((j) => {
+      const g = j && j.routes && j.routes[0] && j.routes[0].geometry;
+      try { const c = JSON.parse(lsGet(ROUTE_CACHE_KEY, '{}')) || {}; c[key] = g || ''; lsSet(ROUTE_CACHE_KEY, JSON.stringify(c)); } catch (_) {}
+      return g ? decodePolyline(g) : null;
+    })
+    .catch(() => null);
+  const p = routeQueue.then(run);
+  routeQueue = p.then(() => new Promise((r) => setTimeout(r, 1100)));
+  return p;
+}
+const PM_LINES_KEY = 'etb_pm_lines', PM_ROAD_KEY = 'etb_pm_road', PM_PAIRS_MAX = 80;
 function openPlaceMap(incs) {
   const agg = new Map();
+  const skip = (key) => !key || /^(lokal|vor ort|-|—)$/.test(key);
   (incs || []).forEach((i) => [['to', i.to], ['from', i.from]].forEach(([k, v]) => {
     const key = placeKey(v);
-    if (!key || /^(lokal|vor ort|-|—)$/.test(key)) return;
-    const e = agg.get(key) || { name: String(v).trim(), to: 0, from: 0 };
+    if (skip(key)) return;
+    const e = agg.get(key) || { key, name: String(v).trim(), to: 0, from: 0 };
     e[k]++; agg.set(key, e);
   }));
+  // Fahrten Start → Ziel (gleiche Strecke zusammengefasst, Richtung egal)
+  const pairMap = new Map();
+  (incs || []).forEach((i) => {
+    const a = placeKey(i.from), b = placeKey(i.to);
+    if (skip(a) || skip(b) || a === b) return;
+    const k = a < b ? `${a}\n${b}` : `${b}\n${a}`;
+    const e = pairMap.get(k) || { a: a < b ? a : b, b: a < b ? b : a, n: 0 }; e.n++; pairMap.set(k, e);
+  });
+  const pairs = [...pairMap.values()].sort((x, y) => y.n - x.n).slice(0, PM_PAIRS_MAX);
   const places = [...agg.values()].sort((a, b) => b.to + b.from - a.to - a.from);
   const shown = places.slice(0, PLACE_MAP_MAX);
   document.querySelectorAll('.pm-ov').forEach((x) => x.remove());
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay pm-ov';
   ov.style.zIndex = '1500';
+  let showLines = lsGet(PM_LINES_KEY) === '1', showRoad = lsGet(PM_ROAD_KEY) === '1';
   ov.innerHTML = `<div class="pm-box">
     <div class="pm-head"><div><h3>Einsatzorte</h3><span class="pm-status">${places.length ? `${shown.length} von ${places.length} Orten` : 'Keine Start- oder Zielorte erfasst'}</span></div>
       <div class="pm-seg" role="group" aria-label="Anzeigen">
         <button type="button" class="is-on" data-pm="all">Alle</button><button type="button" data-pm="to">Ziele</button><button type="button" data-pm="from">Start</button></div>
       <button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="pm-missing" hidden></div>
     <div class="pm-map" id="pm-map"></div>
-    <div class="pm-legend"><span><i style="background:#ff375f"></i>meist Ziel</span><span><i style="background:#5e5ce6"></i>meist Start</span><span>Größe = Anzahl</span></div>
+    <div class="pm-legend">
+      <span><i style="background:#ff375f"></i>meist Ziel</span><span><i style="background:#5e5ce6"></i>meist Start</span>
+      <label class="pm-switch"><input type="checkbox" id="pm-lines"${showLines ? ' checked' : ''}${pairs.length ? '' : ' disabled'}> Fahrten${pairs.length ? ` (${pairs.length})` : ''}</label>
+      <label class="pm-switch"><input type="checkbox" id="pm-road"${showRoad ? ' checked' : ''}${showLines ? '' : ' disabled'}> echte Route</label>
+    </div>
   </div>`;
   const close = () => { ov.classList.add('closing'); const dc = document.getElementById('dialog-colleague'); if (dc) dc.style.zIndex = ''; setTimeout(() => ov.remove(), 200); };
   ov.querySelector('.dialog-close').onclick = close;
   document.body.appendChild(ov);
   const status = ov.querySelector('.pm-status');
+  const missingBox = ov.querySelector('.pm-missing');
   if (!shown.length) return;
   if (!navigator.onLine) { status.textContent = 'Offline – die Karte braucht eine Internetverbindung.'; return; }
   status.textContent = 'Karte wird geladen …';
@@ -2771,38 +2824,104 @@ function openPlaceMap(incs) {
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(map);
     const near = homeGeoBias();
     map.setView(near ? [near.lat, near.lon] : [47.5, 14.5], near ? 10 : 7);
+    const lineLayer = L.featureGroup().addTo(map);
     const layer = L.featureGroup().addTo(map);
     const maxN = Math.max(...shown.map((p) => p.to + p.from));
-    const markers = [];
-    let mode = 'all', touched = false, found = 0, done = 0;
-    map.on('dragstart zoomstart', (e) => { if (e && e.originalEvent !== undefined) touched = true; });
+    const coords = new Map(); // key → {lat, lon}
+    const missing = [];
+    let mode = 'all', touched = false, done = 0;
+    map.on('dragstart', () => { touched = true; });
     const radius = (n) => 7 + 18 * Math.sqrt(n / maxN);
+    const maxPair = Math.max(1, ...pairs.map((x) => x.n));
+    const roads = new Map(); // Paar → Koordinatenliste der Straßenroute
+    let roadsPending = 0;
+    const drawLines = () => {
+      lineLayer.clearLayers();
+      if (!showLines) return;
+      pairs.forEach((pr) => {
+        const a = coords.get(pr.a), b = coords.get(pr.b);
+        if (!a || !b) return;
+        const pts = (showRoad && roads.get(`${pr.a}\n${pr.b}`)) || [[a.lat, a.lon], [b.lat, b.lon]];
+        L.polyline(pts, { color: '#ff9f0a', weight: 1.5 + 5 * (pr.n / maxPair), opacity: 0.75, dashArray: showRoad && !roads.get(`${pr.a}\n${pr.b}`) ? '4 6' : null })
+          .bindTooltip(`${escHtml((agg.get(pr.a) || {}).name || pr.a)} ↔ ${escHtml((agg.get(pr.b) || {}).name || pr.b)}: ${pr.n}×`, { sticky: true })
+          .addTo(lineLayer);
+      });
+    };
+    const loadRoads = () => {
+      if (!showLines || !showRoad) return;
+      pairs.forEach((pr) => {
+        const k = `${pr.a}\n${pr.b}`, a = coords.get(pr.a), b = coords.get(pr.b);
+        if (!a || !b || roads.has(k)) return;
+        roads.set(k, null); roadsPending++; tick();
+        roadRoute(a, b).then((pts) => { roadsPending--; if (pts) roads.set(k, pts); if (ov.isConnected) { drawLines(); tick(); } });
+      });
+    };
     const redraw = () => {
       layer.clearLayers();
-      markers.forEach(({ p, c }) => {
+      shown.forEach((p) => {
+        const c = coords.get(p.key);
+        if (!c) return;
         const n = mode === 'all' ? p.to + p.from : p[mode];
         if (!n) return;
         const col = p.to >= p.from ? '#ff375f' : '#5e5ce6';
         L.circleMarker([c.lat, c.lon], { radius: radius(n), color: '#fff', weight: 1.5, fillColor: mode === 'from' ? '#5e5ce6' : mode === 'to' ? '#ff375f' : col, fillOpacity: 0.75 })
-          .bindPopup(`<b>${escHtml(p.name)}</b><br>${[p.to ? `${p.to}× Ziel` : '', p.from ? `${p.from}× Start` : ''].filter(Boolean).join(' · ')}<br><button type="button" class="pm-prof" data-pm-place="${escHtml(p.name)}">Profil öffnen ›</button>`)
+          .bindPopup(`<b>${escHtml(p.name)}</b><br>${[p.to ? `${p.to}× Ziel` : '', p.from ? `${p.from}× Start` : ''].filter(Boolean).join(' · ')}${placeAddress(p.name) ? `<br><small>📍 ${escHtml(placeAddress(p.name))}</small>` : ''}<br><button type="button" class="pm-prof" data-pm-place="${escHtml(p.name)}">Profil öffnen ›</button>`)
           .addTo(layer);
       });
+      drawLines();
       if (!touched && layer.getLayers().length) map.fitBounds(layer.getBounds().pad(0.15), { maxZoom: 14 });
     };
     ov.querySelectorAll('[data-pm]').forEach((b) => b.addEventListener('click', () => {
       mode = b.dataset.pm; ov.querySelectorAll('[data-pm]').forEach((x) => x.classList.toggle('is-on', x === b)); touched = false; redraw();
     }));
+    const roadBox = ov.querySelector('#pm-road');
+    ov.querySelector('#pm-lines').addEventListener('change', (e) => { showLines = e.target.checked; lsSet(PM_LINES_KEY, showLines ? '1' : null); roadBox.disabled = !showLines; drawLines(); loadRoads(); tick(); });
+    roadBox.addEventListener('change', (e) => { showRoad = e.target.checked; lsSet(PM_ROAD_KEY, showRoad ? '1' : null); drawLines(); loadRoads(); tick(); });
     ov.addEventListener('click', (e) => {
       const pb = e.target.closest && e.target.closest('[data-pm-place]');
       if (!pb) return;
       const dc = document.getElementById('dialog-colleague'); if (dc) dc.style.zIndex = '1600';
       openPlaceProfile(pb.dataset.pmPlace);
     });
-    const tick = () => { status.textContent = done < shown.length ? `Orte werden gesucht … ${done}/${shown.length}` : `${found} von ${places.length} Orten auf der Karte${found < shown.length ? ` · ${shown.length - found} nicht gefunden` : ''}`; };
+    // Nicht gefundene Orte: antippen → Liste mit Adressfeldern, neue Adresse sofort suchen
+    const renderMissing = () => {
+      missingBox.innerHTML = `<div class="pm-miss-head"><b>Nicht gefunden · ${missing.length}</b><span>Adresse eintragen, z. B. „8230 Hartberg“ – wird auch in Einstellungen → Orte & Ziele gespeichert.</span><button type="button" class="pm-miss-x" aria-label="Liste schließen">✕</button></div>
+        <div class="pm-miss-list">${missing.map((p) => `<div class="pm-miss-row"><span class="pm-miss-n">${escHtml(p.name)}<small>${p.to + p.from}×</small></span><input type="text" data-miss="${escHtml(p.key)}" value="${escHtml(placeAddress(p.name))}" placeholder="Adresse oder PLZ Ort" enterkeyhint="search" autocomplete="off"><button type="button" class="btn-secondary" data-miss-go="${escHtml(p.key)}">Suchen</button></div>`).join('')}</div>`;
+      missingBox.querySelector('.pm-miss-x').onclick = () => { missingBox.hidden = true; setTimeout(() => map.invalidateSize(), 50); };
+      const go = (key) => {
+        const p = missing.find((x) => x.key === key);
+        const inp = missingBox.querySelector(`[data-miss="${CSS.escape(key)}"]`);
+        const v = inp.value.trim();
+        if (!p || !v) return;
+        state.placeAddresses = state.placeAddresses || {};
+        state.placeAddresses[key] = v; saveState();
+        const btn = missingBox.querySelector(`[data-miss-go="${CSS.escape(key)}"]`); btn.disabled = true; btn.textContent = '…';
+        geocodeAddress(v, near).then((c) => {
+          if (!ov.isConnected) return;
+          if (c) {
+            coords.set(key, c); missing.splice(missing.indexOf(p), 1);
+            touched = false; redraw(); loadRoads(); tick(); renderMissing();
+            if (!missing.length) { missingBox.hidden = true; setTimeout(() => map.invalidateSize(), 50); }
+          } else { btn.disabled = false; btn.textContent = 'Suchen'; inp.classList.add('is-bad'); toast(`„${v}“ nicht gefunden – etwas allgemeiner versuchen, z. B. nur PLZ und Ort.`, 'error', 4000); }
+        });
+      };
+      missingBox.querySelectorAll('[data-miss-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.missGo)));
+      missingBox.querySelectorAll('[data-miss]').forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(i.dataset.miss); } }));
+    };
+    status.addEventListener('click', () => { if (!missing.length) return; renderMissing(); missingBox.hidden = false; setTimeout(() => map.invalidateSize(), 50); });
+    const tick = () => {
+      const found = coords.size;
+      const base = done < shown.length ? `Orte werden gesucht … ${done}/${shown.length}` : `${found} von ${places.length} Orten auf der Karte`;
+      status.innerHTML = escHtml(base) + (done >= shown.length && missing.length ? ` · <u class="pm-miss-link">${missing.length} nicht gefunden – antippen</u>` : '')
+        + (roadsPending ? ` · Routen ${escHtml(String(roadsPending))} offen` : '');
+      status.classList.toggle('is-link', !!missing.length && done >= shown.length);
+    };
     tick();
     shown.forEach((p) => geocodeAddress(placeAddress(p.name) || p.name, near).then((c) => {
       done++;
-      if (c && ov.isConnected) { found++; markers.push({ p, c }); redraw(); }
+      if (!ov.isConnected) return;
+      if (c) { coords.set(p.key, c); redraw(); } else missing.push(p);
+      if (done === shown.length) loadRoads();
       tick();
     }));
     setTimeout(() => map.invalidateSize(), 250);
@@ -4427,7 +4546,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 159;
+const APP_VERSION = 160;
 const APP_VERSION_DATE = '23.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

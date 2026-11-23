@@ -4512,3 +4512,19 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 .place-star.is-on { color: #ffcc00; }
 .place-name { font-size: 16px; color: var(--text); text-decoration: none; align-self: flex-start; }
 #places-filter { margin: 0 0 8px; }
+.pm-switch { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 600; cursor: pointer; }
+.pm-switch input { width: 16px; height: 16px; margin: 0; accent-color: #ff9f0a; }
+.pm-switch:has(input:disabled) { opacity: .45; }
+.pm-status.is-link { cursor: pointer; }
+.pm-miss-link { color: var(--accent); text-decoration: underline; }
+.pm-missing { max-height: 42vh; overflow-y: auto; padding: 8px 14px 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.pm-miss-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-bottom: 6px; }
+.pm-miss-head span { flex-basis: 100%; order: 3; font-size: 12px; color: var(--text2); }
+.pm-miss-head b { flex: 1; }
+.pm-miss-x { border: none; background: var(--fill); color: var(--text2); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; }
+.pm-miss-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+.pm-miss-n { flex: 0 1 38%; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.pm-miss-n small { display: block; font-weight: 400; color: var(--text3); }
+.pm-miss-row input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--fill); color: var(--text); font: inherit; font-size: 16px; }
+.pm-miss-row input.is-bad { border-color: #ff453a; }
+.pm-miss-row button { flex: none; }
