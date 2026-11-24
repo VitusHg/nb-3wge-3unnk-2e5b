@@ -4576,3 +4576,10 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 .pi-diff li.is-self { background: rgba(255,59,48,.16); font-weight: 600; }
 .pi-diff li small { color: var(--text2); font-weight: 400; margin-right: 4px; }
 .pi-badge { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 8px; background: var(--accent); color: #fff; vertical-align: 2px; }
+.pd-row { gap: 8px; align-items: center; }
+.pd-info { flex: 1 1 60%; min-width: 0; display: flex; flex-direction: column; }
+.pd-info small { color: var(--text2); font-size: 12px; }
+.pd-btns { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.pd-btn { flex: none; font-size: 13px; padding: 5px 6px; color: var(--text2) !important; }
+.pd-btn.is-del, .pd-all-del { color: #ff453a !important; }
+.pi-del-row { display: flex; gap: 10px; flex-wrap: wrap; }

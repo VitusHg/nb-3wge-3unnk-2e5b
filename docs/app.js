@@ -4568,7 +4568,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 164;
+const APP_VERSION = 165;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5099,7 +5099,8 @@ function settingsPagePortal(el, title) {
     <p class="set-group-footer">${isIOSDevice() ? 'iPhone/iPad: In Safari irgendeine Seite als Lesezeichen sichern, dann unter Lesezeichen → Bearbeiten den Namen auf „→ Einsatztagebuch“ und die Adresse auf den kopierten Code ändern.' : 'Handy: Irgendeine Seite als Lesezeichen sichern und die Adresse durch den kopierten Code ersetzen.'}</p>
     <div class="set-group-header">Übernehmen</div>
     <div class="set-group"><div class="set-row"><button type="button" class="btn-secondary" id="pi-paste" style="flex:1">📋 Aus Portal einfügen</button></div></div>
-    <p class="set-group-footer">Übernimmt Fahrzeugnummer, Besatzung und auf Wunsch Zeiten in deinen Dienst und kann den ganzen Tagesdienstplan beim Dienst speichern (wird wie deine Dienste gesichert und synchronisiert).</p>`;
+    <p class="set-group-footer">Übernimmt Fahrzeugnummer, Besatzung und auf Wunsch Zeiten in deinen Dienst und kann den ganzen Tagesdienstplan beim Dienst speichern (wird wie deine Dienste gesichert und synchronisiert).</p>
+    ${portalDaysHtml()}`;
   el.querySelector('#pi-copy').onclick = async (e) => {
     const b = e.currentTarget;
     try { await navigator.clipboard.writeText(code); b.textContent = 'Kopiert ✓'; } catch (_) { const ta = el.querySelector('.pi-code'); ta.focus(); ta.select(); document.execCommand('copy'); b.textContent = 'Kopiert ✓'; }
@@ -5107,6 +5108,31 @@ function settingsPagePortal(el, title) {
   };
   el.querySelector('.pi-drag').addEventListener('click', (e) => { e.preventDefault(); toast('Ziehen statt tippen: in die Lesezeichenleiste deines Browsers.', 'info', 3000); });
   el.querySelector('#pi-paste').onclick = () => pastePortalPlan();
+  const redo = () => { const sc = el.closest('#settings-sub') || el; const y = sc.scrollTop; renderSettingsPage(); requestAnimationFrame(() => { sc.scrollTop = y; }); };
+  el.querySelectorAll('[data-pd-log]').forEach((b) => b.addEventListener('click', () => { deletePortalData(b.dataset.pdLog, { logOnly: true }); toast('Änderungsverlauf gelöscht.', 'success', 1500); redo(); }));
+  el.querySelectorAll('[data-pd-del]').forEach((b) => b.addEventListener('click', () => { if (!confirm('Diesen gespeicherten Tagesdienstplan samt Verlauf löschen?')) return; deletePortalData(b.dataset.pdDel); toast('Gelöscht.', 'success', 1500); redo(); }));
+  const allLog = el.querySelector('#pd-all-log'), allDel = el.querySelector('#pd-all-del');
+  if (allLog) allLog.onclick = () => { if (!confirm('Bei allen Tagen den Änderungsverlauf löschen? Der letzte Stand bleibt.')) return; deletePortalData(null, { logOnly: true }); redo(); };
+  if (allDel) allDel.onclick = () => { if (!confirm('Alle gespeicherten Tagesdienstpläne und Verläufe löschen?')) return; deletePortalData(null); redo(); };
+}
+/** Liste der gespeicherten Portal-Tage für die Einstellungen. */
+function portalDaysHtml() {
+  const list = Object.entries(state.portalPlans || {}).sort((a, b) => (b[1].date || '').localeCompare(a[1].date || '') || b[1].at - a[1].at);
+  if (!list.length) return '<div class="set-group-header">Gespeicherte Tagesdienstpläne</div><div class="set-group"><div class="set-row"><span class="set-row-text set-row-sub">Noch nichts eingefügt.</span></div></div>';
+  const nCh = (v) => (v.log || []).reduce((n, e) => n + e.changes.length, 0);
+  const total = list.reduce((n, [, v]) => n + nCh(v), 0);
+  const size = new Blob([JSON.stringify(state.portalPlans)]).size;
+  return `<div class="set-group-header">Gespeicherte Tagesdienstpläne <span class="popup-col-count">${list.length}</span></div>
+    <div class="set-group">${list.map(([k, v]) => { const d = parseLocalDt(v.date + 'T12:00'); const me = v.rows.find((r) => r.self); return `<div class="set-row pd-row">
+      <div class="pd-info"><b>${escHtml(d ? d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }) : v.date)} · ${escHtml(v.station || '—')}</b>
+        <small>${v.rows.length} Fahrzeuge${me ? ` · du: ${escHtml(tdpLabel(me))}` : ''}${nCh(v) ? ` · ${nCh(v)} Änderung${nCh(v) === 1 ? '' : 'en'}` : ''} · Stand ${escHtml(formatTimeHM(new Date(v.at)))}</small></div>
+      <div class="pd-btns">${nCh(v) ? `<button type="button" class="btn-ghost pd-btn" data-pd-log="${escHtml(k)}">Verlauf löschen</button>` : ''}
+      <button type="button" class="btn-ghost pd-btn is-del" data-pd-del="${escHtml(k)}" aria-label="Tag löschen">Löschen</button></div></div>`; }).join('')}</div>
+    <p class="set-group-footer">Belegt etwa ${size < 1024 ? size + ' Byte' : Math.round(size / 1024) + ' KB'}. Der Änderungsverlauf wird 7 Tage nach dem Dienst automatisch gelöscht, der letzte Stand bleibt. „Löschen“ entfernt auch die Kopie am Dienst und die Portal-Einträge im Dienst-Verlauf dieses Tages.</p>
+    <div class="set-group">
+      ${total ? '<div class="set-row"><button type="button" class="btn-secondary" id="pd-all-log" style="flex:1">Alle Änderungsverläufe löschen</button></div>' : ''}
+      <div class="set-row"><button type="button" class="btn-secondary pd-all-del" id="pd-all-del" style="flex:1">Alle Tagesdienstpläne löschen</button></div>
+    </div>`;
 }
 function settingsPageDienstplan(el, title) {
   const cfg = dpConfig();
@@ -9701,6 +9727,24 @@ function recordPortalPlan(d) {
   return { prev, changes, key, entry };
 }
 
+/** Gespeicherte Portal-Daten löschen: nur den Änderungsverlauf oder alles eines Tages (key = null → alle Tage). */
+function deletePortalData(key, { logOnly = false } = {}) {
+  const pl = state.portalPlans || {};
+  const keys = key ? [key] : Object.keys(pl);
+  keys.forEach((k) => {
+    const v = pl[k]; if (!v) return;
+    if (logOnly) { delete v.log; delete v.lastChanges; delete v.prevAt; }
+    else delete pl[k];
+    // Portal-Einträge im Dienst-Verlauf und die Kopie am Dienst dieses Tages mit entfernen
+    state.services.forEach((svc) => {
+      if ((svc.startAt || '').slice(0, 10) !== v.date) return;
+      if (svc.planLog) { svc.planLog = svc.planLog.filter((x) => !String(x.id).startsWith('portal-')); if (!svc.planLog.length) delete svc.planLog; }
+      if (!logOnly && svc.tdp && svc.tdp.date === v.date && stationKey(svc.tdp.station) === stationKey(v.station)) delete svc.tdp;
+    });
+  });
+  saveState();
+}
+
 function openPortalImport(d) {
   const rec = recordPortalPlan(d);
   const mine = d.rows.find((r) => r.self) || null;
@@ -9815,12 +9859,22 @@ function svcTdpHtml(svc) {
       <span class="pi-crew">${(r.crew || []).map((n) => (sameName(n, r.self) ? `<span class="is-me">${escHtml(n)}</span>` : `<span class="crew-link" role="button" data-colleague="${escHtml(n)}">${escHtml(n)}</span>`)).join(', ')}${(r.open || []).length ? `${(r.crew || []).length ? ', ' : ''}<i>${r.open.map(escHtml).join(', ')}</i>` : ''}</span>
       ${r.note || (r.loc || []).length ? `<small>${escHtml([(r.loc || []).join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`).join('')}</ul>
     ${logHtml}
-    ${svc.tdp ? `<button type="button" class="btn-ghost pi-del" data-tdp-del="${escHtml(svc.id)}">Beim Dienst gespeicherten Tagesdienstplan löschen</button>` : ''}</details>`;
+    <div class="pi-del-row">
+      ${log.length ? `<button type="button" class="btn-ghost pi-del" data-pd-svc-log="${escHtml(portalPlanKey(pp.station, pp.date))}">Änderungsverlauf löschen</button>` : ''}
+      <button type="button" class="btn-ghost pi-del" data-tdp-del="${escHtml(svc.id)}" data-pd-key="${pp ? escHtml(portalPlanKey(pp.station, pp.date)) : ''}">Tagesdienstplan löschen</button>
+    </div></details>`;
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest && e.target.closest('#btn-portal-paste')) { pastePortalPlan(); return; }
+  const lg = e.target.closest && e.target.closest('[data-pd-svc-log]');
+  if (lg) { deletePortalData(lg.dataset.pdSvcLog, { logOnly: true }); toast('Änderungsverlauf gelöscht.', 'success', 1500); renderServiceDetail(); return; }
   const del = e.target.closest && e.target.closest('[data-tdp-del]');
-  if (del) { const sv = state.services.find((x) => x.id === del.dataset.tdpDel); if (sv && confirm('Gespeicherten Tagesdienstplan bei diesem Dienst löschen?')) { delete sv.tdp; saveState(); renderServiceDetail(); } }
+  if (del) {
+    const sv = state.services.find((x) => x.id === del.dataset.tdpDel);
+    if (!sv || !confirm('Gespeicherten Tagesdienstplan dieses Tages samt Änderungen löschen?')) return;
+    if (del.dataset.pdKey) deletePortalData(del.dataset.pdKey);
+    delete sv.tdp; saveState(); renderServiceDetail();
+  }
 });
 
 // ── Tagesdienstplan nachsehen: Dienststelle + Kalender ─────────────────────
