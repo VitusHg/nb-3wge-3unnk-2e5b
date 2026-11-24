@@ -4669,3 +4669,14 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
   .ff-sign .ff-l1 { width: 110pt; } .ff-sign .ff-l2 { flex: 1; margin-left: 0; }
   .ff-decl { font-size: 10pt !important; color: #000 !important; line-height: 1.4; }
 }
+.ke-asset { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; }
+.ke-asset img { max-height: 64px; max-width: 160px; padding: 6px; border-radius: 10px; background: #fff; }
+.ke-asset-btns { display: flex; gap: 8px; align-items: center; }
+.ke-upload { cursor: pointer; display: inline-flex; align-items: center; }
+.ke-foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); }
+.ke-foot textarea { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; font-size: 15px; resize: vertical; }
+@media print {
+  .ff-logo { width: 150pt; height: auto; }
+  .ff-sheet { min-height: 265mm; }
+  .ff-footer { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 7.5pt; color: #666; line-height: 1.4; text-transform: uppercase; letter-spacing: .3pt; }
+}

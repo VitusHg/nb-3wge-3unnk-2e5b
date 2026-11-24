@@ -237,6 +237,7 @@ function defaultState() {
     places: [],
     placeAddresses: {},
     portalPlans: {},
+    formAssets: {},
   };
 }
 
@@ -247,6 +248,10 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
+  // Vorlage für Formulare (Logo, Fußzeile) – liegt in den eigenen Daten (Sync über den eigenen Worker), nicht im Code
+  s.formAssets = isObj(s.formAssets) ? s.formAssets : {};
+  if (s.formAssets.logo && !/^data:image\/(png|gif|jpeg|webp|svg\+xml);base64,/.test(s.formAssets.logo)) delete s.formAssets.logo;
+  s.formAssets.footer = typeof s.formAssets.footer === 'string' ? s.formAssets.footer.slice(0, 600) : '';
   // Tagesdienstpläne aus dem Portal: je Dienststelle + Tag der letzte Stand und die Änderungen.
   // 7 Tage nach dem Dienst (Nachtdienst: ab dem Folgetag gerechnet) fällt der Änderungsverlauf weg –
   // der letzte Stand des Tages bleibt.
@@ -3057,6 +3062,14 @@ function openKostenersatz(y, m) {
         </div>
         <p class="cp-line">🔒 Bleibt nur auf diesem Gerät – wird nicht synchronisiert und nicht in Sicherungen exportiert.</p>
       </details>
+      <details class="ke-prof"><summary>🖼️ Vorlage für Formulare${(state.formAssets || {}).logo ? ' ✓' : ''}</summary>
+        <div class="ke-asset">
+          ${(state.formAssets || {}).logo ? `<img src="${(state.formAssets || {}).logo}" alt="Logo">` : '<span class="cp-line">Kein Logo</span>'}
+          <div class="ke-asset-btns"><label class="btn-secondary ke-upload">Logo hochladen<input type="file" accept="image/png,image/gif,image/jpeg,image/webp,image/svg+xml" id="ke-logo" hidden></label>${(state.formAssets || {}).logo ? '<button type="button" class="btn-ghost" id="ke-logo-del">Entfernen</button>' : ''}</div>
+        </div>
+        <label class="ke-foot">Fußzeile (Bezirksstelle, Adresse, Kontakt)<textarea id="ke-footer" rows="3" placeholder="z. B. BEZIRKSSTELLE HARTBERG, Adresse, Telefon, E-Mail">${escHtml((state.formAssets || {}).footer || '')}</textarea></label>
+        <p class="cp-line">Wird auf „Abrechnung Fernfahrten“ gedruckt. Liegt in deinen Daten und wird über deinen Worker zwischen deinen Geräten synchronisiert – nicht im öffentlichen Code der App.</p>
+      </details>
       ${rows.length ? `<ul class="ke-list">${rows.map((r, i) => { const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt); return `<li class="ke-row${r.on ? '' : ' is-off'}${r.paid ? ' is-paid' : ''}">
           <input type="checkbox" data-ke-on="${i}"${r.on ? ' checked' : ''}${r.type === 'beruflich' ? ' disabled' : ''} aria-label="Auf das Formular">
           <div class="ke-main"><b>${escHtml(a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' }))}</b> ${tm(a)}–${tm(b)}
@@ -3091,6 +3104,18 @@ function openKostenersatz(y, m) {
   ov.querySelectorAll('[data-ke-on]').forEach((c) => c.addEventListener('change', () => { const sv = rows[+c.dataset.keOn].svc; if (c.checked) delete sv.keSkip; else sv.keSkip = true; saveState(); reopen(); }));
   ov.querySelectorAll('[data-ke-type]').forEach((sl) => sl.addEventListener('change', () => { const sv = rows[+sl.dataset.keType].svc; const def = sv.isSeg ? 'ambulanz' : 'dienst'; if (sl.value === def) delete sv.keType; else sv.keType = sl.value; saveState(); reopen(); }));
   ov.querySelector('#ke-mark').addEventListener('change', (e) => lsSet('etb_ke_mark', e.target.checked ? null : '0'));
+  const fa = () => (state.formAssets = state.formAssets || {});
+  ov.querySelector('#ke-logo').addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 300 * 1024) { toast('Bitte ein kleineres Bild (bis 300 KB).', 'error', 3500); return; }
+    const rd = new FileReader();
+    rd.onload = () => { fa().logo = String(rd.result); saveState(); toast('Logo gespeichert.', 'success', 1500); reopen(); };
+    rd.readAsDataURL(file);
+  });
+  const ld = ov.querySelector('#ke-logo-del');
+  if (ld) ld.onclick = () => { delete fa().logo; saveState(); reopen(); };
+  ov.querySelector('#ke-footer').addEventListener('change', (e) => { fa().footer = e.target.value.trim().slice(0, 600); saveState(); });
   ov.querySelectorAll('[data-ff-inc]').forEach((b) => b.addEventListener('click', () => openFernfahrt(b.dataset.ffSvc, b.dataset.ffInc)));
   ov.querySelector('#ke-print').addEventListener('click', () => {
     ov.querySelectorAll('[data-kp]').forEach((inp) => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); });
@@ -3150,7 +3175,7 @@ function printFernfahrt(svc, inc) {
   let area = document.getElementById('print-area');
   if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
   area.innerHTML = `<section class="ke-sheet ff-sheet">
-    <div class="ff-top"><div class="ff-org">Österreichisches Rotes Kreuz<br><small>Landesverband Steiermark · Bezirksstelle Hartberg</small></div><div class="ff-title">ABRECHNUNG<br>FERNFAHRTEN</div></div>
+    <div class="ff-top">${(state.formAssets || {}).logo ? `<img class="ff-logo" src="${state.formAssets.logo}" alt="">` : '<div class="ff-org">Österreichisches Rotes Kreuz<br><small>Landesverband Steiermark · Bezirksstelle Hartberg</small></div>'}<div class="ff-title">ABRECHNUNG<br>FERNFAHRTEN</div></div>
     <div class="ff-grid">
       ${line('Name:', pr.name || (state.profile || {}).displayName || '')}${line('Pers.-Nr.:', pr.persnr)}
       ${line('Adresse:', pr.address, 'ff-wide')}
@@ -3164,6 +3189,7 @@ function printFernfahrt(svc, inc) {
     <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
     <p class="ff-decl">Der/Die Empfänger/in erklärt hiermit, dass er/sie für die steuerliche Veranlagung, sowie die Entrichtung der Sozialversicherungsbeiträge selbst Sorge tragen wird.</p>
     <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
+    ${(state.formAssets || {}).footer ? `<div class="ff-footer">${escHtml(state.formAssets.footer).replace(/\n/g, '<br>')}</div>` : ''}
   </section>`;
   document.body.classList.add('printing', 'printing-ke');
   const done = () => { document.body.classList.remove('printing', 'printing-ke'); window.removeEventListener('afterprint', done); };
@@ -4808,7 +4834,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 171;
+const APP_VERSION = 172;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6455,7 +6481,7 @@ function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
   if (sel.profile) payload.dienststellen = state.dienststellen || [];
-  if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; }
+  if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; if (state.formAssets && (state.formAssets.logo || state.formAssets.footer)) payload.formAssets = state.formAssets; }
   if (sel.services && Object.keys(state.portalPlans || {}).length) payload.portalPlans = state.portalPlans;
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
@@ -6550,6 +6576,7 @@ function doSelectiveImport(data, chosen) {
     if (Array.isArray(data.dienststellen || data.abteilungen)) state.dienststellen = data.dienststellen || data.abteilungen; // ältere Sicherungen: „abteilungen“
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     if (data.placeAddresses && typeof data.placeAddresses === 'object') state.placeAddresses = { ...(state.placeAddresses || {}), ...data.placeAddresses };
+    if (data.formAssets && typeof data.formAssets === 'object') state.formAssets = { ...(state.formAssets || {}), ...data.formAssets };
     if (data.portalPlans && typeof data.portalPlans === 'object') state.portalPlans = { ...(state.portalPlans || {}), ...data.portalPlans };
     msgs.push('Profil');
   }
