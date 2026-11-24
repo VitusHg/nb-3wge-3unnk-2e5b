@@ -4437,23 +4437,8 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 @media (max-width: 380px) { .sx-tools { grid-template-columns: 1fr; } }
 
 /* Monatsübersicht */
-.ms-box { max-width: 760px; }
 .ms-nav { display: flex; align-items: center; justify-content: space-between; margin: 0 0 12px; font-size: 17px; }
 .ms-step { width: 40px; height: 40px; border: none; border-radius: 50%; background: var(--fill); color: var(--accent); font-size: 22px; cursor: pointer; }
-.ms-tiles { grid-template-columns: repeat(5, 1fr); }
-@media (max-width: 520px) { .ms-tiles { grid-template-columns: repeat(3, 1fr); } }
-.ms-table-wrap { overflow-x: auto; margin: 10px 0; border-radius: 12px; background: var(--fill); }
-.ms-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
-.ms-table th, .ms-table td { padding: 8px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.ms-table td:first-child { white-space: normal; }
-.ms-table td small { display: block; font-size: 12px; color: var(--text2); }
-.ms-table td small.ms-hol { color: var(--orange, #ff9f0a); }
-.ms-table th { color: var(--text2); font-weight: 600; font-size: 12px; }
-.ms-table th:nth-child(n+2), .ms-table td:nth-child(n+2) { text-align: right; width: 1%; }
-.ms-table tbody tr { cursor: pointer; }
-.ms-table tfoot td { font-weight: 800; border-bottom: none; }
-.ms-night { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0; font-size: 13px; color: var(--text2); }
-.ms-night select { padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--fill); color: var(--text); font: inherit; }
 .ms-actions { display: flex; gap: 10px; margin-top: 12px; }
 .ms-actions button { flex: 1; }
 #print-area { display: none; }
@@ -4502,9 +4487,6 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 .sx-delta.is-down { color: #ff453a; background: rgba(255,69,58,.14); }
 .sx-kpi .sx-delta { font-size: 10px; vertical-align: 1px; }
 .pm-head { row-gap: 10px; }
-.ms-box .lp-body > * { flex: none; }
-.ms-night select { width: auto; min-width: 64px; flex: none; }
-.ms-box .ms-night { flex-direction: row; justify-content: flex-start; align-items: center; text-align: left; }
 .place-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .place-fields .place-addr { font-size: 13px; color: var(--text2); border: none; background: none; padding: 2px 0; outline: none; width: 100%; font-family: inherit; }
 .place-fields .place-addr::placeholder { color: var(--text3); }

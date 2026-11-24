@@ -2955,41 +2955,6 @@ function openPlaceMap(incs) {
   }).catch((err) => { status.textContent = err.message; });
 }
 
-// ── Monatsübersicht für die Abrechnung ─────────────────────────────────────
-/** Gesetzliche Feiertage in Österreich (YYYY-MM-DD). */
-function atHolidays(y) {
-  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const easter = new Date(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1);
-  const rel = (n) => { const x = new Date(easter); x.setDate(x.getDate() + n); return localDateStr(x); };
-  const fix = (mo, da) => `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
-  return new Map([
-    [fix(1, 1), 'Neujahr'], [fix(1, 6), 'Heilige Drei Könige'], [rel(1), 'Ostermontag'], [fix(5, 1), 'Staatsfeiertag'],
-    [rel(39), 'Christi Himmelfahrt'], [rel(50), 'Pfingstmontag'], [rel(60), 'Fronleichnam'], [fix(8, 15), 'Mariä Himmelfahrt'],
-    [fix(10, 26), 'Nationalfeiertag'], [fix(11, 1), 'Allerheiligen'], [fix(12, 8), 'Mariä Empfängnis'], [fix(12, 25), 'Christtag'], [fix(12, 26), 'Stefanitag'],
-  ]);
-}
-const NIGHT_KEY = 'etb_night_window';
-function nightWindow() { const m = String(lsGet(NIGHT_KEY, '22-6')).match(/^(\d{1,2})-(\d{1,2})$/); return m ? [+m[1] % 24, +m[2] % 24] : [22, 6]; }
-/** Stunden eines Dienstes aufgeteilt: gesamt, Nacht, Wochenende (Sa/So), Feiertag. */
-function serviceHourSplit(svc, [nf, nt] = nightWindow()) {
-  const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt);
-  const out = { total: 0, night: 0, weekend: 0, holiday: 0, holidays: [] };
-  if (!a || !b || b <= a || b - a > 48 * 3600e3) return out;
-  const hol = new Map();
-  for (let t = +a; t < +b; t += 60000) {
-    const d = new Date(t), h = d.getHours(), ds = localDateStr(d), yr = d.getFullYear();
-    if (!hol.has(yr)) hol.set(yr, atHolidays(yr));
-    out.total++;
-    if (nf > nt ? (h >= nf || h < nt) : (h >= nf && h < nt)) out.night++;
-    if (d.getDay() === 0 || d.getDay() === 6) out.weekend++;
-    const hn = hol.get(yr).get(ds);
-    if (hn) { out.holiday++; if (!out.holidays.includes(hn)) out.holidays.push(hn); }
-  }
-  ['total', 'night', 'weekend', 'holiday'].forEach((k) => { out[k] = out[k] / 60; });
-  return out;
-}
-const fmtH = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 // ── Dateien vom eigenen Worker (Formular-Vorlagen, Regeln, Logo, Dokumente) ─
 // Vorlagen von Organisationen liegen NICHT im Code der App, sondern als Dateien auf dem eigenen
 // Worker (Einstellungen → Formulare & Dateien). Für den Offline-Druck werden Vorlagen und Bilder
@@ -3468,84 +3433,6 @@ function printKostenersatz(y, m, mark) {
   });
 }
 
-let monthSheetYM = null;
-function monthSheetData(y, m) {
-  const svcs = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return !x.isSeg && d && d.getFullYear() === y && d.getMonth() === m; })
-    .sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
-  const nw = nightWindow();
-  const rows = svcs.map((svc) => ({ svc, h: serviceHourSplit(svc, nw) }));
-  const sum = rows.reduce((t, { h }) => ({ total: t.total + h.total, night: t.night + h.night, weekend: t.weekend + h.weekend, holiday: t.holiday + h.holiday }), { total: 0, night: 0, weekend: 0, holiday: 0 });
-  const segs = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return x.isSeg && d && d.getFullYear() === y && d.getMonth() === m; });
-  return { rows, sum, nw, incs: svcs.reduce((n, x) => n + (x.incidents || []).length, 0), segs };
-}
-function openMonthSheet(y, m) {
-  const now = new Date();
-  if (y === undefined) { const last = monthSheetYM || [now.getFullYear(), now.getMonth()]; [y, m] = last; }
-  monthSheetYM = [y, m];
-  const { rows, sum, nw, incs, segs } = monthSheetData(y, m);
-  const title = new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
-  const p2 = (n) => String(n).padStart(2, '0');
-  const tm = (d) => `${p2(d.getHours())}:${p2(d.getMinutes())}`;
-  const dd = (d) => d.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-  document.querySelectorAll('.ms-ov').forEach((x) => x.remove());
-  const ov = document.createElement('div');
-  ov.className = 'dialog-overlay lp-ov ms-ov';
-  ov.style.zIndex = '2000';
-  ov.innerHTML = `<div class="dialog-box lp-box ms-box" style="--mc:#0a84ff">
-    <div class="lp-head"><span class="lp-ic">📄</span>
-      <div class="lp-head-t"><h3>Monatsübersicht</h3><span>für die Abrechnung</span></div>
-      <button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
-    <div class="dialog-body lp-body">
-      <div class="ms-nav"><button type="button" class="ms-step" data-d="-1" aria-label="Voriger Monat">‹</button><b>${escHtml(title)}</b><button type="button" class="ms-step" data-d="1" aria-label="Nächster Monat">›</button></div>
-      <div class="cp-tiles ms-tiles">
-        <div><strong>${rows.length}</strong><small>Dienste</small></div>
-        <div><strong>${fmtH(sum.total)}</strong><small>Stunden</small></div>
-        <div><strong>${fmtH(sum.night)}</strong><small>Nacht ${nw[0]}–${nw[1]} Uhr</small></div>
-        <div><strong>${fmtH(sum.weekend)}</strong><small>Sa/So</small></div>
-        <div><strong>${fmtH(sum.holiday)}</strong><small>Feiertag</small></div>
-      </div>
-      ${rows.length ? `<div class="ms-table-wrap"><table class="ms-table">
-        <thead><tr><th>Dienst</th><th>Std.</th><th>Nacht</th><th>Sa/So</th><th>Ftg.</th></tr></thead>
-        <tbody>${rows.map(({ svc, h }) => { const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt); return `<tr data-ms-svc="${escHtml(svc.id)}">
-          <td><b>${escHtml(dd(a))}</b> ${tm(a)}–${b ? tm(b) : '?'}<small class="ms-sub">${escHtml([svc.vehicle, svc.location].filter(Boolean).join(' · ') || '—')}</small>${h.holidays.length ? `<small class="ms-hol">🎉 ${escHtml(h.holidays.join(', '))}</small>` : ''}</td>
-          <td>${fmtH(h.total)}</td><td>${h.night ? fmtH(h.night) : ''}</td><td>${h.weekend ? fmtH(h.weekend) : ''}</td><td>${h.holiday ? fmtH(h.holiday) : ''}</td></tr>`; }).join('')}</tbody>
-        <tfoot><tr><td>Summe</td><td>${fmtH(sum.total)}</td><td>${fmtH(sum.night)}</td><td>${fmtH(sum.weekend)}</td><td>${fmtH(sum.holiday)}</td></tr></tfoot>
-      </table></div>` : '<p class="sx-empty">In diesem Monat keine Dienste im Tagebuch.</p>'}
-      <p class="cp-line">${incs} Einsätze${segs.length ? ` · ${segs.length} SEG-Einsätze (nicht in den Stunden)` : ''} · Monat nach Dienstbeginn</p>
-      <label class="ms-night">Nachtstunden von <select id="ms-nf">${Array.from({ length: 24 }, (_, i) => `<option${i === nw[0] ? ' selected' : ''}>${i}</option>`).join('')}</select> bis <select id="ms-nt">${Array.from({ length: 24 }, (_, i) => `<option${i === nw[1] ? ' selected' : ''}>${i}</option>`).join('')}</select> Uhr</label>
-      <div class="ms-actions">
-        <button type="button" class="btn-secondary" id="ms-csv"${rows.length ? '' : ' disabled'}>CSV (Excel)</button>
-        <button type="button" class="btn-primary" id="ms-print"${rows.length ? '' : ' disabled'}>Drucken / PDF</button>
-      </div>
-    </div></div>`;
-  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
-  ov.querySelector('.dialog-close').onclick = close;
-  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-  ov.querySelectorAll('.ms-step').forEach((b) => b.addEventListener('click', () => { const d = new Date(y, m + +b.dataset.d, 1); ov.remove(); openMonthSheet(d.getFullYear(), d.getMonth()); }));
-  const setNight = () => { lsSet(NIGHT_KEY, `${ov.querySelector('#ms-nf').value}-${ov.querySelector('#ms-nt').value}`); ov.remove(); openMonthSheet(y, m); };
-  ov.querySelector('#ms-nf').addEventListener('change', setNight);
-  ov.querySelector('#ms-nt').addEventListener('change', setNight);
-  ov.querySelectorAll('[data-ms-svc]').forEach((tr) => tr.addEventListener('click', () => { close(); setTimeout(() => { switchTab('dienste'); openServiceDetail(tr.dataset.msSvc); }, 220); }));
-  ov.querySelector('#ms-csv').addEventListener('click', () => {
-    const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const lines = [['Datum', 'Beginn', 'Ende', 'Fahrzeug', 'Dienststelle', 'Stunden', `Nacht ${nw[0]}-${nw[1]}`, 'Sa/So', 'Feiertag', 'Feiertagsname', 'Einsätze'].map(q).join(';')];
-    rows.forEach(({ svc, h }) => { const a = parseLocalDt(svc.startAt), b = parseLocalDt(svc.endAt); lines.push([a.toLocaleDateString('de-AT'), tm(a), b ? tm(b) : '', svc.vehicle || '', svc.location || '', fmtH(h.total), fmtH(h.night), fmtH(h.weekend), fmtH(h.holiday), h.holidays.join(', '), (svc.incidents || []).length].map(q).join(';')); });
-    lines.push(['Summe', '', '', '', '', fmtH(sum.total), fmtH(sum.night), fmtH(sum.weekend), fmtH(sum.holiday), '', incs].map(q).join(';'));
-    saveFile(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `Dienste-${y}-${p2(m + 1)}.csv`, 'Monatsübersicht');
-  });
-  ov.querySelector('#ms-print').addEventListener('click', () => {
-    let area = document.getElementById('print-area');
-    if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
-    const who = (state.profile && state.profile.displayName) || '';
-    area.innerHTML = `<h1>Dienste ${escHtml(title)}</h1>${who ? `<p>${escHtml(who)}</p>` : ''}${ov.querySelector('.ms-table-wrap').innerHTML}
-      <p>Nachtstunden ${nw[0]}–${nw[1]} Uhr · Feiertage: gesetzliche Feiertage Österreich · erstellt am ${escHtml(new Date().toLocaleDateString('de-AT'))}</p>`;
-    document.body.classList.remove('printing-tpl'); document.body.classList.add('printing');
-    const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
-    window.addEventListener('afterprint', done);
-    setTimeout(() => { window.print(); }, 50);
-  });
-  document.body.appendChild(ov);
-}
 
 /** Vollständige Rangliste als Popup – mit Podest-Medaillen, Anteil und Suche. */
 function showListPopup(title, items, meta = {}) {
@@ -3663,7 +3550,6 @@ function renderStats() {
       ${cmpRow('Nachtdienste', cmpCur.nights, cmpPrev.nights, String)}
     </tbody></table>`;
   const statsToolsHtml = `<div class="sx-tools">
-      <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
       <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
       <button type="button" class="sx-tool" id="btn-kostenersatz"><span>💶</span><b>Kostenersatz</b><small>Formular vom eigenen Worker</small></button>
     </div>`;
@@ -4068,8 +3954,6 @@ function renderStats() {
   });
 
   container.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => { statsCmpMode = b.dataset.cmp; renderStats(); }));
-  const msb = document.getElementById('btn-month-sheet');
-  if (msb) msb.addEventListener('click', () => openMonthSheet());
   const keb = document.getElementById('btn-kostenersatz');
   if (keb) keb.addEventListener('click', () => openKostenersatz());
   const pmb = document.getElementById('btn-place-map');
@@ -5054,7 +4938,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 177;
+const APP_VERSION = 178;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
