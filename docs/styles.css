@@ -4571,3 +4571,8 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 .pi-code { font-size: 12px !important; max-height: 90px; }
 .pi-drag-row { gap: 12px; }
 @media (hover: none) { .pi-drag-row { display: none !important; } }
+.pi-diff { list-style: none; margin: 4px 0 12px; padding: 0; }
+.pi-diff li { padding: 7px 10px; margin: 0 0 4px; border-radius: 10px; background: var(--fill); font-size: 14px; line-height: 1.35; }
+.pi-diff li.is-self { background: rgba(255,59,48,.16); font-weight: 600; }
+.pi-diff li small { color: var(--text2); font-weight: 400; margin-right: 4px; }
+.pi-badge { font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 8px; background: var(--accent); color: #fff; vertical-align: 2px; }

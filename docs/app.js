@@ -236,6 +236,7 @@ function defaultState() {
     dienststellen: [],
     places: [],
     placeAddresses: {},
+    portalPlans: {},
   };
 }
 
@@ -246,6 +247,10 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
+  // Tagesdienstpläne aus dem Portal: je Dienststelle + Tag der letzte Stand und die Änderungen; nach 45 Tagen weg
+  s.portalPlans = isObj(s.portalPlans) ? s.portalPlans : {};
+  { const cut = localDateStr(new Date(Date.now() - 45 * 864e5));
+    Object.keys(s.portalPlans).forEach((k) => { const v = s.portalPlans[k]; if (!isObj(v) || !Array.isArray(v.rows) || !/^\d{4}-\d{2}-\d{2}$/.test(v.date || '') || v.date < cut) delete s.portalPlans[k]; else v.log = Array.isArray(v.log) ? v.log.filter(isObj).slice(-60) : []; }); }
   s.placeAddresses = (s.placeAddresses && typeof s.placeAddresses === 'object' && !Array.isArray(s.placeAddresses))
     ? Object.fromEntries(Object.entries(s.placeAddresses).map(([k, v]) => [String(k).trim().toLowerCase().replace(/\s+/g, ' '), toDisplayName(v)]).filter(([k, v]) => k && v)) : {};
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
@@ -4556,7 +4561,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 162;
+const APP_VERSION = 163;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -6170,6 +6175,7 @@ function buildExportPayload(sel) {
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
   if (sel.profile) payload.dienststellen = state.dienststellen || [];
   if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; }
+  if (sel.services && Object.keys(state.portalPlans || {}).length) payload.portalPlans = state.portalPlans;
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
   if (sel.vehicles) {
@@ -6263,6 +6269,7 @@ function doSelectiveImport(data, chosen) {
     if (Array.isArray(data.dienststellen || data.abteilungen)) state.dienststellen = data.dienststellen || data.abteilungen; // ältere Sicherungen: „abteilungen“
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     if (data.placeAddresses && typeof data.placeAddresses === 'object') state.placeAddresses = { ...(state.placeAddresses || {}), ...data.placeAddresses };
+    if (data.portalPlans && typeof data.portalPlans === 'object') state.portalPlans = { ...(state.portalPlans || {}), ...data.portalPlans };
     msgs.push('Profil');
   }
   if (chosen['imp-settings'] && data.settings && typeof data.settings === 'object') {
@@ -9619,9 +9626,88 @@ function serviceForPortal(d, mine) {
   }
   return svcs.find((x) => (x.startAt || '').slice(0, 10) === d.date && d.station && stationKey(x.location) === stationKey(d.station)) || null;
 }
+// ── Änderungen zwischen zwei eingefügten Ständen ──
+const tdpLabel = (r) => `${r.u}${r.nr ? ' ' + r.nr : ''}`.trim() || 'Fahrzeug';
+/** Zeilen alter und neuer Stand einander zuordnen (Nummer, Typ, Zeit, Besatzung). */
+function tdpMatchRows(oldRows, newRows) {
+  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
+  const score = (a, b) => {
+    let sc = 0;
+    if (a.nr && b.nr) sc += a.nr === b.nr ? 6 : -3;
+    if (norm(a.u) === norm(b.u)) sc += 2; else sc -= 2;
+    if (a.s === b.s) sc += 1; if (a.e === b.e) sc += 1;
+    if (a.g === b.g) sc += 0.5;
+    const ca = new Set(a.crew.map(norm)); sc += b.crew.filter((n) => ca.has(norm(n))).length * 1.5;
+    return sc;
+  };
+  const pairs = [];
+  oldRows.forEach((a, i) => newRows.forEach((b, j) => { const sc = score(a, b); if (sc >= 3) pairs.push([sc, i, j]); }));
+  pairs.sort((x, y) => y[0] - x[0]);
+  const usedO = new Set(), usedN = new Set(), match = [];
+  pairs.forEach(([, i, j]) => { if (usedO.has(i) || usedN.has(j)) return; usedO.add(i); usedN.add(j); match.push([oldRows[i], newRows[j]]); });
+  return { match, removed: oldRows.filter((_, i) => !usedO.has(i)), added: newRows.filter((_, j) => !usedN.has(j)) };
+}
+/** Liste der Änderungen als Text; „self“ = betrifft die eigene Zeile. */
+function tdpDiff(oldRows, newRows) {
+  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
+  const { match, removed, added } = tdpMatchRows(oldRows, newRows);
+  const out = [];
+  const crewTxt = (r) => (r.crew.length ? ` (${r.crew.join(', ')})` : '');
+  added.forEach((r) => out.push({ self: !!r.self, t: `Neu: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
+  removed.forEach((r) => out.push({ self: !!r.self, t: `Entfallen: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
+  match.forEach(([a, b]) => {
+    const self = !!(a.self || b.self), L = tdpLabel(b), parts = [];
+    if (a.nr !== b.nr) parts.push(a.nr && b.nr ? `Nummer ${a.nr} → ${b.nr}` : b.nr ? `Nummer ${b.nr}` : `Nummer ${a.nr} entfernt`);
+    if (norm(a.u) !== norm(b.u)) parts.push(`${a.u} → ${b.u}`);
+    if (a.s !== b.s || a.e !== b.e) parts.push(`Zeit ${a.s}–${a.e} → ${b.s}–${b.e}`);
+    const ca = new Set(a.crew.map(norm)), cb = new Set(b.crew.map(norm));
+    const plus = b.crew.filter((n) => !ca.has(norm(n))), minus = a.crew.filter((n) => !cb.has(norm(n)));
+    if (plus.length || minus.length) parts.push([...plus.map((n) => '+ ' + n), ...minus.map((n) => '− ' + n)].join(', '));
+    const oa = new Set(a.open.map(norm)), ob = new Set(b.open.map(norm));
+    const oPlus = b.open.filter((n) => !oa.has(norm(n))), oMinus = a.open.filter((n) => !ob.has(norm(n)));
+    if (oPlus.length) parts.push('offen: ' + oPlus.join(', '));
+    if (oMinus.length && !plus.length) parts.push('besetzt: ' + oMinus.join(', '));
+    else if (oMinus.length) parts.push(`(${oMinus.length} offene ${oMinus.length === 1 ? 'Stelle' : 'Stellen'} besetzt)`);
+    if (norm(a.note) !== norm(b.note)) parts.push(b.note ? `Notiz „${b.note}“` : 'Notiz entfernt');
+    if (norm(a.loc.join(' · ')) !== norm(b.loc.join(' · '))) parts.push(`Ort ${b.loc.join(' · ') || '—'}`);
+    if (parts.length) out.push({ self, t: `${L}: ${parts.join(' · ')}` });
+  });
+  // eigene Einteilung auf ein anderes Fahrzeug gewechselt
+  const meOld = oldRows.find((r) => r.self), meNew = newRows.find((r) => r.self);
+  if (meOld && meNew && !match.some(([a, b]) => a === meOld && b === meNew)) out.unshift({ self: true, t: `Du: ${tdpLabel(meOld)} ${meOld.s}–${meOld.e} → ${tdpLabel(meNew)} ${meNew.s}–${meNew.e}` });
+  else if (meOld && !meNew) out.unshift({ self: true, t: `Du bist nicht mehr eingeteilt (vorher ${tdpLabel(meOld)} ${meOld.s}–${meOld.e})` });
+  else if (!meOld && meNew) out.unshift({ self: true, t: `Du bist neu eingeteilt: ${tdpLabel(meNew)} ${meNew.s}–${meNew.e}` });
+  return out.sort((x, y) => (y.self ? 1 : 0) - (x.self ? 1 : 0));
+}
+const portalPlanKey = (station, date) => `${stationKey(station) || 'n:'}|${date}`;
+/** Eingefügten Stand merken und die Änderungen zum vorigen protokollieren. Gibt {prev, changes} zurück. */
+function recordPortalPlan(d) {
+  state.portalPlans = state.portalPlans || {};
+  const key = portalPlanKey(d.station, d.date);
+  const prev = state.portalPlans[key] || null;
+  if (prev && prev.at === d.at) return { prev: prev.prevAt ? { at: prev.prevAt } : null, changes: prev.lastChanges || [], key, entry: prev };
+  const changes = prev ? tdpDiff(prev.rows, d.rows) : null;
+  const entry = { station: d.station, date: d.date, at: d.at, rows: d.rows, log: (prev && prev.log) || [], prevAt: prev ? prev.at : 0, lastChanges: changes || [] };
+  if (changes && changes.length) entry.log = [...entry.log, { at: d.at, since: prev.at, changes }].slice(-60);
+  state.portalPlans[key] = entry;
+  saveState();
+  return { prev, changes, key, entry };
+}
+
 function openPortalImport(d) {
+  const rec = recordPortalPlan(d);
   const mine = d.rows.find((r) => r.self) || null;
   const svc = serviceForPortal(d, mine);
+  // eigene Änderungen auch beim Dienst vermerken (erscheinen u. a. im Kalender-Export)
+  if (svc && rec.changes && rec.changes.length) {
+    const have = new Set((svc.planLog || []).map((x) => x.id));
+    rec.changes.filter((c) => c.self).forEach((c, i) => { const id = `portal-${d.at}-${i}`; if (have.has(id)) return; (svc.planLog = svc.planLog || []).push({ id, at: d.at, txt: `${new Date(d.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })} ${formatTimeHM(new Date(d.at))} · Portal · ${c.t}` }); });
+    saveState();
+  }
+  const sinceStr = rec.prev ? `${new Date(rec.prev.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })} ${formatTimeHM(new Date(rec.prev.at))}` : '';
+  const changesHtml = !rec.prev ? '<p class="pi-msg">Erster Stand für diesen Tag gespeichert. Beim nächsten Einfügen siehst du hier, was sich geändert hat.</p>'
+    : !rec.changes.length ? `<p class="pi-msg">✓ Keine Änderungen seit ${escHtml(sinceStr)}.</p>`
+    : `<div class="cp-sub">Änderungen seit ${escHtml(sinceStr)} · ${rec.changes.length}</div><ul class="pi-diff">${rec.changes.map((c) => `<li${c.self ? ' class="is-self"' : ''}>${escHtml(c.t)}</li>`).join('')}</ul>`;
   const t = mine ? tdpRowTimes(d.date, mine) : null;
   const fmt = lsGet(PORTAL_VEHFMT_KEY) || 'nr';
   const keep = lsGet(PORTAL_KEEP_KEY) !== '0';
@@ -9650,6 +9736,7 @@ function openPortalImport(d) {
   ov.innerHTML = `<div class="dialog-box lp-box pi-box" style="--mc:#ff3b30">
     <div class="lp-head"><span class="lp-ic">📋</span><div class="lp-head-t"><h3>${escHtml(d.station || 'Tagesdienstplan')}</h3><span>${escHtml(dayStr)} · ${d.rows.length} Fahrzeuge</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
     <div class="dialog-body lp-body">
+      ${changesHtml}
       ${mine ? `<div class="pi-mine">
         <div class="pi-mine-veh">${escHtml(mine.u)} <b>${escHtml(mine.nr || '')}</b></div>
         <div>${escHtml(mine.s)}–${escHtml(mine.e)}${crew.length ? ` · mit ${escHtml(crew.join(', '))}` : ''}</div>
@@ -9701,16 +9788,27 @@ function openPortalImport(d) {
 }
 /** Gespeicherter Tagesdienstplan in den Dienst-Details (zugeklappt). */
 function svcTdpHtml(svc) {
-  const d = svc.tdp;
+  // neuester eingefügter Stand des Tages (falls vorhanden), sonst der beim Dienst gespeicherte
+  const pp = (() => {
+    const pl = state.portalPlans || {};
+    const day = (svc.startAt || '').slice(0, 10);
+    const cands = Object.values(pl).filter((x) => x.date === day && (!svc.location || stationKey(x.station) === stationKey(svc.location) || x.rows.some((r) => r.self)));
+    return cands.sort((a, b) => b.at - a.at)[0] || null;
+  })();
+  const d = pp && (!svc.tdp || pp.at >= svc.tdp.at) && (svc.tdp || pp.rows.some((r) => r.self)) ? pp : svc.tdp;
   if (!d || !Array.isArray(d.rows) || !d.rows.length) return '';
+  const log = pp && Array.isArray(pp.log) ? pp.log : [];
+  const logHtml = log.length ? `<div class="cp-sub">Änderungen · ${log.reduce((n, e) => n + e.changes.length, 0)}</div><ul class="pi-diff">${log.slice().reverse().map((e) => e.changes.map((c) => `<li${c.self ? ' class="is-self"' : ''}><small>${escHtml(new Date(e.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))} ${escHtml(formatTimeHM(new Date(e.at)))}</small> ${escHtml(c.t)}</li>`).join('')).join('')}</ul>` : '';
   const at = new Date(d.at);
-  return `<details class="dv-group pi-saved"><summary>${ICON_CAL}<span>Tagesdienstplan ${escHtml(d.station || '')}</span><small>Stand ${escHtml(at.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))} ${escHtml(formatTimeHM(at))}</small></summary>
+  const nCh = log.reduce((n, e) => n + e.changes.length, 0);
+  return `<details class="dv-group pi-saved"><summary>${ICON_CAL}<span>Tagesdienstplan ${escHtml(d.station || '')}${nCh ? ` <em class="pi-badge">${nCh} Änderung${nCh === 1 ? '' : 'en'}</em>` : ''}</span><small>Stand ${escHtml(at.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))} ${escHtml(formatTimeHM(at))}</small></summary>
     <ul class="pi-list">${d.rows.map((r) => `<li class="pi-row${r.self ? ' is-self' : ''}">
       <span class="pi-unit"><b>${escHtml(r.u)}</b>${r.nr ? ` <span class="crew-link" role="button" data-vehicle="${escHtml(r.nr)}">${escHtml(r.nr)}</span>` : ''}</span>
       <span class="pi-time">${escHtml(r.s)}–${escHtml(r.e)}</span>
       <span class="pi-crew">${(r.crew || []).map((n) => (sameName(n, r.self) ? `<span class="is-me">${escHtml(n)}</span>` : `<span class="crew-link" role="button" data-colleague="${escHtml(n)}">${escHtml(n)}</span>`)).join(', ')}${(r.open || []).length ? `${(r.crew || []).length ? ', ' : ''}<i>${r.open.map(escHtml).join(', ')}</i>` : ''}</span>
       ${r.note || (r.loc || []).length ? `<small>${escHtml([(r.loc || []).join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`).join('')}</ul>
-    <button type="button" class="btn-ghost pi-del" data-tdp-del="${escHtml(svc.id)}">Gespeicherten Tagesdienstplan löschen</button></details>`;
+    ${logHtml}
+    ${svc.tdp ? `<button type="button" class="btn-ghost pi-del" data-tdp-del="${escHtml(svc.id)}">Beim Dienst gespeicherten Tagesdienstplan löschen</button>` : ''}</details>`;
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest && e.target.closest('#btn-portal-paste')) { pastePortalPlan(); return; }
