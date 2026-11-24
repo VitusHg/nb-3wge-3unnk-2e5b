@@ -3302,7 +3302,8 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
           <input type="checkbox" data-ke-on="${i}"${r.on ? ' checked' : ''}${r.type === 'beruflich' ? ' disabled' : ''} aria-label="Auf das Formular">
           <div class="ke-main"><b>${escHtml(a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' }))}</b> ${tm(a)}–${tm(b)}
             <small>${escHtml(keText(r.svc))}</small>
-            <select data-ke-type="${i}">${Object.entries(KE_TYPES).map(([k, l]) => `<option value="${k}"${k === r.type ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+            <select data-ke-type="${i}">${Object.entries(KE_TYPES).map(([k, l]) => `<option value="${k}"${k === r.type ? ' selected' : ''}>${l}</option>`).join('')}</select>
+            ${keTripsHtml(r.svc)}</div>
           <div class="ke-side">${r.nr ? `<span class="ke-nr">${r.nr}.</span>` : ''}<span>${fmtHrs(r.hours)} h${r.prep ? `<small> inkl. ${fmtHrs(r.prep)} h V/N</small>` : ''}</span>${R && r.on && r.amount ? `<span class="ke-eur">${fmtEur(r.amount)}</span>` : R && r.on && r.type === 'dienst' && !r.paid ? `<small>1.–${+R.freieDiensteProMonat || 0}. Dienst</small>` : ''}</div>
         </li>`; }).join('')}</ul>` : '<p class="sx-empty">In diesem Monat keine Dienste im Tagebuch.</p>'}
       <div class="cp-tiles ke-tiles">
@@ -3313,13 +3314,6 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
       </div>
       ${R && yearMax && yearE > yearMax ? `<p class="pi-msg">⚠︎ Über der Jahresgrenze von ${fmtEur(yearMax)}.</p>` : ''}
       ${R && R.hinweis ? `<p class="cp-line">${escHtml(R.hinweis)}</p>` : ''}
-      ${(() => {
-        const trips = rows.flatMap((r) => (r.svc.incidents || []).filter((i) => i.ff || (i.from && i.to)).map((i) => ({ svc: r.svc, inc: i })));
-        if (!trips.length) return '';
-        return `<div class="cp-sub">Fernfahrten · eigenes Formular</div><ul class="ke-list">${trips.map(({ svc, inc }) => { const v = ffDefaults(svc, inc); return `<li class="ke-row${inc.ff ? ' is-paid' : ''}">
-          <div class="ke-main"><b>${escHtml(parseLocalDt(v.date + 'T12:00').toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))}</b> ${escHtml(v.route || '—')}<small>${escHtml(inc.alarmCode || 'Einsatz')}${inc.ff && inc.ff.nr ? ' · Nr. ' + escHtml(inc.ff.nr) : ''}</small></div>
-          <div class="ke-side">${inc.ff && inc.ff.km ? `<span>${inc.ff.km} km</span>${ffDiaet(inc.ff.km) ? `<span class="ke-eur">${fmtEur(ffDiaet(inc.ff.km))}</span>` : ''}` : ''}<button type="button" class="btn-ghost ke-ff" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">${inc.ff ? 'Formular' : 'Als Fernfahrt'}</button></div></li>`; }).join('')}</ul>`;
-      })()}
       <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – gelb wie mit Leuchtstift</span></label>
       <div class="ms-actions"><button type="button" class="btn-primary" id="ke-print"${sel.length ? '' : ' disabled'}>Formular drucken / PDF</button></div>
     </div></div>`;
@@ -3333,12 +3327,24 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
   ov.querySelectorAll('[data-ke-type]').forEach((sl) => sl.addEventListener('change', () => { const sv = rows[+sl.dataset.keType].svc; const def = sv.isSeg ? 'ambulanz' : 'dienst'; if (sl.value === def) delete sv.keType; else sv.keType = sl.value; saveState(); reopen(); }));
   ov.querySelector('#ke-mark').addEventListener('change', (e) => lsSet('etb_ke_mark', e.target.checked ? null : '0'));
   ov.querySelectorAll('[data-ff-inc]').forEach((b) => b.addEventListener('click', () => openFernfahrt(b.dataset.ffSvc, b.dataset.ffInc)));
+  ov.querySelectorAll('[data-ke-trips]').forEach((d) => d.addEventListener('toggle', () => { try { sessionStorage.setItem('etb_ke_trips_' + d.dataset.keTrips, d.open ? '1' : '0'); } catch (_) {} }));
   ov.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-goto-files]')) { close(); openSettingsSection('dateien'); } });
   ov.querySelector('#ke-print').addEventListener('click', () => {
     ov.querySelectorAll('[data-kp]').forEach((inp) => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); });
     printKostenersatz(y, m, ov.querySelector('#ke-mark').checked);
   });
   document.body.appendChild(ov);
+}
+/** Fahrten eines Dienstes (Einsätze mit Start und Ziel) zum Ausklappen – Auswahl öffnet das Fernfahrt-Formular. */
+function keTripsHtml(svc) {
+  const trips = (svc.incidents || []).filter((i) => i.ff || (i.from && i.to));
+  if (!trips.length) return '';
+  const done = trips.filter((i) => i.ff).length;
+  const open = sessionStorage.getItem('etb_ke_trips_' + svc.id) === '1';
+  return `<details class="ke-trips" data-ke-trips="${escHtml(svc.id)}"${open ? ' open' : ''}><summary>🛣️ ${trips.length} ${trips.length === 1 ? 'Fahrt' : 'Fahrten'}${done ? ` · ${done} als Fernfahrt` : ''}</summary>
+    <ul>${trips.map((inc) => { const v = ffDefaults(svc, inc); return `<li${inc.ff ? ' class="is-ff"' : ''}>
+      <span class="ke-trip-t"><b>${escHtml(v.route || '—')}</b><small>${escHtml(inc.alarmCode || 'Einsatz')}${inc.ff && inc.ff.nr ? ' · Nr. ' + escHtml(inc.ff.nr) : ''}${inc.ff && inc.ff.km ? ` · ${inc.ff.km} km` : ''}${inc.ff && inc.ff.km && ffDiaet(inc.ff.km) ? ` · ${fmtEur(ffDiaet(inc.ff.km))}` : ''}</small></span>
+      <button type="button" class="btn-secondary ke-ff" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">${inc.ff ? 'Formular' : 'Als Fernfahrt'}</button></li>`; }).join('')}</ul></details>`;
 }
 function keTplStatusHtml() {
   const has = (f) => !!wfCached(f);
@@ -5048,7 +5054,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 176;
+const APP_VERSION = 177;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',

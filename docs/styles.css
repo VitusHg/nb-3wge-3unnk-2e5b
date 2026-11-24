@@ -4626,3 +4626,22 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 #print-area table.xl { border-collapse: collapse; table-layout: fixed; margin: 0; }
 #print-area table.xl td { padding: 0 3px; overflow: visible; line-height: 1.2; color: #000; }
 #print-area table.xl td.xl-val { font-family: Arial, Helvetica, sans-serif !important; font-weight: 400; }
+
+/* Kostenersatz: Fahrten je Dienst, größerer Dialog am Computer */
+.ke-trips { margin-top: 4px; }
+.ke-trips summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); padding: 2px 0; }
+.ke-trips ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.ke-trips li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin: 0 0 4px; border-radius: 10px; background: var(--fill); }
+.ke-trips li.is-ff { box-shadow: inset 3px 0 0 #30d158; }
+.ke-trip-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ke-trip-t b { font-weight: 600; font-size: 13px; }
+.ke-trip-t small { color: var(--text2); font-size: 12px; }
+.ke-trips .ke-ff { flex: none; padding: 5px 10px; font-size: 13px; min-height: 0; }
+@media (min-width: 900px) {
+  .ke-ov .ke-box { max-width: min(1080px, 94vw); width: min(1080px, 94vw); max-height: 90vh; }
+  .ke-ov .ke-fields { grid-template-columns: repeat(3, 1fr); }
+  .ke-ov .ke-fields label:nth-child(2) { grid-column: span 2; }
+  .ke-ov .ke-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  .ke-ov .ke-row { border-top: 1px solid var(--border); }
+  .ke-ov .ke-tiles strong { font-size: 20px; }
+}
