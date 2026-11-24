@@ -310,6 +310,7 @@ function normalizeState(s) {
       inc.einsatzart = inc.einsatzart != null && inc.einsatzart !== '' ? String(inc.einsatzart) : '';
       inc.statKz = inc.statKz != null && inc.statKz !== '' ? String(inc.statKz) : '';
       inc.extraVehicles = Array.isArray(inc.extraVehicles) ? inc.extraVehicles.map(txt).filter(Boolean) : [];
+      if (inc.ff !== undefined) { if (isObj(inc.ff)) inc.ff = { nr: txt(inc.ff.nr), km: Number(inc.ff.km) > 0 ? Math.round(Number(inc.ff.km)) : null, route: txt(inc.ff.route), date: /^\d{4}-\d{2}-\d{2}$/.test(inc.ff.date || '') ? inc.ff.date : '' }; else delete inc.ff; }
       const t = isObj(inc.times) ? inc.times : {};
       inc.times = {};
       Object.entries(INC_TIME_LEGACY).forEach(([o, n]) => { if (t[o] && !t[n]) t[n] = t[o]; });
@@ -1462,7 +1463,7 @@ function renderIncidentView() {
       row('NACA', naca),
     ])
     + (Object.keys(inc.times || {}).length ? group('Zeiten', [incTimesViewHtml(inc.times)]) : '')
-    + (inc.from || inc.to ? group('Transport', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${inc.from ? `<span class="crew-link" role="button" data-place="${escHtml(inc.from)}">${escHtml(inc.from)}</span>` : '—'}</span><span><i class="route-dot is-to"></i>${inc.to ? `<span class="crew-link" role="button" data-place="${escHtml(inc.to)}">${escHtml(inc.to)}</span>` : '—'}</span></div>`]) : '')
+    + (inc.from || inc.to ? group('Transport', [`<div class="iv-route"><span><i class="route-dot is-from"></i>${inc.from ? `<span class="crew-link" role="button" data-place="${escHtml(inc.from)}">${escHtml(inc.from)}</span>` : '—'}</span><span><i class="route-dot is-to"></i>${inc.to ? `<span class="crew-link" role="button" data-place="${escHtml(inc.to)}">${escHtml(inc.to)}</span>` : '—'}</span></div>`, `<button type="button" class="iv-jump" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">🛣️ ${inc.ff ? `Fernfahrt · ${inc.ff.km ? inc.ff.km + ' km' : 'Formular'}` : 'Fernfahrt abrechnen'}<span aria-hidden="true">›</span></button>`]) : '')
     + ((inc.links || []).length ? group('Berichte & Links', [`<div class="inc-links is-view">${inc.links.map((l) => linkChipHtml(l, false)).join('')}</div>`]) : '')
     + (inc.note ? group('Notiz', [`<div class="iv-note">${linkifyHtml(inc.note)}</div>`]) : '')
     + (svc.isSeg
@@ -3051,6 +3052,7 @@ function openKostenersatz(y, m) {
           <label>Geb.Dat.<input data-kp="dob" value="${escHtml(pr.dob || '')}" placeholder="TT.MM.JJJJ"></label>
           <label>IBAN<input data-kp="iban" value="${escHtml(pr.iban || '')}" autocomplete="off" spellcheck="false"></label>
           <label>BIC<input data-kp="bic" value="${escHtml(pr.bic || '')}" autocomplete="off" spellcheck="false"></label>
+          <label>Pers.-Nr. (Fernfahrten)<input data-kp="persnr" value="${escHtml(pr.persnr || '')}" inputmode="numeric"></label>
           <label>Ort (Unterschrift)<input data-kp="ort" value="${escHtml(pr.ort || 'Hartberg')}"></label>
         </div>
         <p class="cp-line">🔒 Bleibt nur auf diesem Gerät – wird nicht synchronisiert und nicht in Sicherungen exportiert.</p>
@@ -3070,6 +3072,13 @@ function openKostenersatz(y, m) {
       </div>
       ${yearE > KE_YEAR_MAX ? `<p class="pi-msg">⚠︎ Über der Jahresgrenze von ${fmtEur(KE_YEAR_MAX)} laut Vereinserlass.</p>` : ''}
       <p class="cp-line">Ab dem 5. freiwilligen Dienst im Monat ${fmtEur(KE_RATE)}/h, max. ${fmtEur(KE_MAX_SVC)} pro Dienst · Vertretung berufl. Einsatzfahrer ab dem 1. Dienst · Ambulanz + Vor-/Nachbereitung und ${fmtEur(KE_TRAVEL)} Fahrtkosten pro Tag. Beträge nur zur Orientierung – abgerechnet wird von der Bezirksstelle.</p>
+      ${(() => {
+        const trips = rows.flatMap((r) => (r.svc.incidents || []).filter((i) => i.ff || (i.from && i.to)).map((i) => ({ svc: r.svc, inc: i })));
+        if (!trips.length) return '';
+        return `<div class="cp-sub">Fernfahrten · eigenes Formular</div><ul class="ke-list">${trips.map(({ svc, inc }) => { const v = ffDefaults(svc, inc); return `<li class="ke-row${inc.ff ? ' is-paid' : ''}">
+          <div class="ke-main"><b>${escHtml(parseLocalDt(v.date + 'T12:00').toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))}</b> ${escHtml(v.route || '—')}<small>${escHtml(inc.alarmCode || 'Einsatz')}${inc.ff && inc.ff.nr ? ' · Nr. ' + escHtml(inc.ff.nr) : ''}</small></div>
+          <div class="ke-side">${inc.ff && inc.ff.km ? `<span>${inc.ff.km} km</span>${ffDiaet(inc.ff.km) ? `<span class="ke-eur">${fmtEur(ffDiaet(inc.ff.km))}</span>` : ''}` : ''}<button type="button" class="btn-ghost ke-ff" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">${inc.ff ? 'Formular' : 'Als Fernfahrt'}</button></div></li>`; }).join('')}</ul>`;
+      })()}
       <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – ✓ in der Spalte „Dienste DS“, mit Erklärung unter der Tabelle</span></label>
       <div class="ms-actions"><button type="button" class="btn-primary" id="ke-print"${sel.length ? '' : ' disabled'}>Formular drucken / PDF</button></div>
     </div></div>`;
@@ -3082,12 +3091,86 @@ function openKostenersatz(y, m) {
   ov.querySelectorAll('[data-ke-on]').forEach((c) => c.addEventListener('change', () => { const sv = rows[+c.dataset.keOn].svc; if (c.checked) delete sv.keSkip; else sv.keSkip = true; saveState(); reopen(); }));
   ov.querySelectorAll('[data-ke-type]').forEach((sl) => sl.addEventListener('change', () => { const sv = rows[+sl.dataset.keType].svc; const def = sv.isSeg ? 'ambulanz' : 'dienst'; if (sl.value === def) delete sv.keType; else sv.keType = sl.value; saveState(); reopen(); }));
   ov.querySelector('#ke-mark').addEventListener('change', (e) => lsSet('etb_ke_mark', e.target.checked ? null : '0'));
+  ov.querySelectorAll('[data-ff-inc]').forEach((b) => b.addEventListener('click', () => openFernfahrt(b.dataset.ffSvc, b.dataset.ffInc)));
   ov.querySelector('#ke-print').addEventListener('click', () => {
     ov.querySelectorAll('[data-kp]').forEach((inp) => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); });
     printKostenersatz(y, m, ov.querySelector('#ke-mark').checked);
   });
   document.body.appendChild(ov);
 }
+// ── Fernfahrten (eigenes Formular „Abrechnung Fernfahrten“) ──
+const FF_DIAETEN = [[200, 300, 11.92], [301, 500, 26.75], [501, 1000, 53.53], [1001, 1500, 80.33]];
+function ffDiaet(km) { const t = FF_DIAETEN.find(([a, b]) => km >= a && km <= b); return t ? t[2] : km > 1500 ? FF_DIAETEN[FF_DIAETEN.length - 1][2] : 0; }
+function ffFind(svcId, incId) { const svc = state.services.find((x) => x.id === svcId); const inc = svc && (svc.incidents || []).find((i) => i.id === incId); return svc && inc ? { svc, inc } : null; }
+function ffDefaults(svc, inc) {
+  const ff = inc.ff || {};
+  return { date: ff.date || (svc.startAt || '').slice(0, 10), route: ff.route || [inc.from, inc.to].filter(Boolean).join(' – '), nr: ff.nr || '', km: ff.km || '' };
+}
+function openFernfahrt(svcId, incId) {
+  const f = ffFind(svcId, incId); if (!f) return;
+  const v = ffDefaults(f.svc, f.inc);
+  const pr = keProfile();
+  document.querySelectorAll('.ff-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov ff-ov'; ov.style.zIndex = '2100';
+  ov.innerHTML = `<div class="dialog-box lp-box ke-box" style="--mc:#ff3b30">
+    <div class="lp-head"><span class="lp-ic">🛣️</span><div class="lp-head-t"><h3>Fernfahrt abrechnen</h3><span>${escHtml(f.inc.alarmCode || 'Einsatz')}</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="dialog-body lp-body">
+      <div class="ke-fields">
+        <label>Datum<input type="date" id="ff-date" value="${escHtml(v.date)}"></label>
+        <label>Transportnummer<input id="ff-nr" value="${escHtml(v.nr)}" inputmode="numeric"></label>
+        <label style="grid-column:1/-1">Reiseweg (von – nach)<input id="ff-route" value="${escHtml(v.route)}"></label>
+        <label>Kilometer (lt. EV)<input id="ff-km" type="number" min="0" step="1" value="${escHtml(String(v.km))}" inputmode="numeric"></label>
+        <label>Pers.-Nr. (Stammdaten)<input data-kp="persnr" value="${escHtml(pr.persnr || '')}" inputmode="numeric"></label>
+      </div>
+      <p class="cp-line" id="ff-diaet"></p>
+      <p class="cp-line">Bitte das Einsatzprotokoll in Kopie dazuhängen. Name, Adresse, IBAN und BIC kommen aus den Stammdaten im Kostenersatz.</p>
+      <div class="ms-actions"><button type="button" class="btn-secondary" id="ff-save">Speichern</button><button type="button" class="btn-primary" id="ff-print">Formular drucken / PDF</button></div>
+    </div></div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').onclick = close;
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  const kmEl = ov.querySelector('#ff-km'), info = ov.querySelector('#ff-diaet');
+  const upd = () => { const km = +kmEl.value || 0; info.textContent = km ? (ffDiaet(km) ? `Diät laut Infoblatt: ${fmtEur(ffDiaet(km))} (${km} km)` : `Unter 200 km – keine Fernfahrt-Diät.`) : 'Diät nach Kilometern: ab 200 km € 11,92 · ab 301 km € 26,75 · ab 501 km € 53,53 · ab 1001 km € 80,33'; };
+  kmEl.addEventListener('input', upd); upd();
+  const save = () => {
+    f.inc.ff = { date: ov.querySelector('#ff-date').value, route: ov.querySelector('#ff-route').value.trim(), nr: ov.querySelector('#ff-nr').value.trim(), km: +kmEl.value > 0 ? Math.round(+kmEl.value) : null };
+    const pk = ov.querySelector('[data-kp="persnr"]'); const p = keProfile(); p.persnr = pk.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p));
+    saveState();
+  };
+  ov.querySelector('#ff-save').onclick = () => { save(); toast('Fernfahrt gespeichert.', 'success', 1500); close(); if (document.querySelector('.ke-ov')) openKostenersatz(); };
+  ov.querySelector('#ff-print').onclick = () => { save(); printFernfahrt(f.svc, f.inc); };
+  document.body.appendChild(ov);
+}
+function printFernfahrt(svc, inc) {
+  const v = ffDefaults(svc, inc);
+  const pr = keProfile();
+  const d = parseLocalDt(v.date + 'T12:00');
+  const line = (label, val, cls = '') => `<div class="kf ${cls}"><span class="kf-l">${label}</span><span class="kf-v">${escHtml(val || '')}</span></div>`;
+  let area = document.getElementById('print-area');
+  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
+  area.innerHTML = `<section class="ke-sheet ff-sheet">
+    <div class="ff-top"><div class="ff-org">Österreichisches Rotes Kreuz<br><small>Landesverband Steiermark · Bezirksstelle Hartberg</small></div><div class="ff-title">ABRECHNUNG<br>FERNFAHRTEN</div></div>
+    <div class="ff-grid">
+      ${line('Name:', pr.name || (state.profile || {}).displayName || '')}${line('Pers.-Nr.:', pr.persnr)}
+      ${line('Adresse:', pr.address, 'ff-wide')}
+      ${line('IBAN:', pr.iban)}${line('BIC:', pr.bic)}
+    </div>
+    <div class="ff-sub">Transportdaten</div>
+    <table class="ke-table ff-table"><colgroup><col style="width:16%"><col><col style="width:30%"></colgroup>
+      <thead><tr><th>Datum</th><th>Reiseweg (von - nach)</th><th>Transportnummer</th></tr></thead>
+      <tbody><tr><td>${d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</td><td>${escHtml(v.route)}</td><td>${escHtml(v.nr)}</td></tr></tbody></table>
+    <div class="ff-km-row"><b class="ff-hint">Bitte Einsatzprotokoll in Kopie dazuhängen</b><div class="ff-km"><b>Kilometer (Berechnung EV)</b><div class="ff-km-box">${v.km ? escHtml(String(v.km)) : ''}</div></div></div>
+    <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
+    <p class="ff-decl">Der/Die Empfänger/in erklärt hiermit, dass er/sie für die steuerliche Veranlagung, sowie die Entrichtung der Sozialversicherungsbeiträge selbst Sorge tragen wird.</p>
+    <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
+  </section>`;
+  document.body.classList.add('printing', 'printing-ke');
+  const done = () => { document.body.classList.remove('printing', 'printing-ke'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => { window.print(); setTimeout(done, 1500); }, 60);
+}
+
 /** Einsatzort/Tätigkeit für eine Zeile: Fahrzeug · Dienststelle bzw. bei Ambulanz/SEG der Anlass. */
 function keText(svc) {
   if (svc.isSeg) {
@@ -4725,7 +4808,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 170;
+const APP_VERSION = 171;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -10151,6 +10234,8 @@ function svcTdpHtml(svc) {
     </div></details>`;
 }
 document.addEventListener('click', (e) => {
+  const ffb = e.target.closest && e.target.closest('.iv-jump[data-ff-inc]');
+  if (ffb) { openFernfahrt(ffb.dataset.ffSvc, ffb.dataset.ffInc); return; }
   if (e.target.closest && e.target.closest('#btn-portal-paste')) { pastePortalPlan(); return; }
   const lg = e.target.closest && e.target.closest('[data-pd-svc-log]');
   if (lg) { deletePortalData(lg.dataset.pdSvcLog, { logOnly: true }); toast('Änderungsverlauf gelöscht.', 'success', 1500); renderServiceDetail(); return; }

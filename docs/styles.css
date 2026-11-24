@@ -4649,3 +4649,23 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
   .ke-ok { margin-top: 24pt; }
   .ke-page { position: absolute; right: 0; bottom: -6pt; font-size: 8pt; }
 }
+.ke-ff { font-size: 13px; padding: 4px 6px; }
+@media print {
+  .ff-top { display: flex; justify-content: space-between; align-items: flex-start; margin: 6pt 0 34pt; }
+  .ff-org { font-size: 11pt; font-weight: 700; line-height: 1.3; }
+  .ff-org small { font-weight: 400; font-size: 9pt; }
+  .ff-title { font-size: 15pt; font-weight: 700; line-height: 1.15; margin-right: 30pt; }
+  .ff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14pt 24pt; margin-bottom: 26pt; }
+  .ff-grid .ff-wide { grid-column: 1 / -1; }
+  .ff-grid .kf-l { width: 58pt; }
+  .ff-sub { font-weight: 700; margin: 0 0 8pt; }
+  body.printing-ke #print-area .ff-table td { height: 46pt !important; vertical-align: top !important; font-size: 10pt !important; }
+  body.printing-ke #print-area .ff-table th { text-align: left !important; font-weight: 700 !important; }
+  .ff-km-row { display: flex; justify-content: space-between; align-items: flex-start; margin: 34pt 0 30pt; }
+  .ff-hint { font-size: 8.5pt; margin-top: 8pt; }
+  .ff-km { width: 32%; }
+  .ff-km-box { border: .8pt solid #000; height: 34pt; margin-top: 6pt; display: flex; align-items: center; justify-content: center; font-size: 13pt; }
+  .ff-sign { display: flex; align-items: flex-end; gap: 6pt; margin: 22pt 0 16pt; }
+  .ff-sign .ff-l1 { width: 110pt; } .ff-sign .ff-l2 { flex: 1; margin-left: 0; }
+  .ff-decl { font-size: 10pt !important; color: #000 !important; line-height: 1.4; }
+}
