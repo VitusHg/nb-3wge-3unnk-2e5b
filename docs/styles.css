@@ -4590,3 +4590,62 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 .pi-group .pi-mine { margin-bottom: 8px; }
 .pi-group.is-new .pi-mine { background: var(--fill); }
 .pi-mine-time { font-size: 17px; font-weight: 600; color: var(--text2); margin-left: 6px; }
+
+/* Kostenersatz – Dialog */
+.ke-box { max-width: 680px; }
+.ke-box .lp-body > * { flex: none; }
+.ke-prof { margin: 0 0 12px; padding: 4px 12px 8px; border-radius: 14px; background: var(--fill); }
+.ke-prof summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.ke-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.ke-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text2); }
+.ke-fields label:nth-child(2) { grid-column: 1 / -1; }
+.ke-fields input { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; font-size: 16px; }
+.ke-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.ke-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px; border-top: 1px solid var(--border); }
+.ke-row > input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.ke-row.is-off { opacity: .5; }
+.ke-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
+.ke-main small { color: var(--text2); }
+.ke-main select { align-self: flex-start; max-width: 100%; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--fill); color: var(--text); font: inherit; font-size: 13px; }
+.ke-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ke-side small { color: var(--text3); font-size: 11px; }
+.ke-nr { font-weight: 800; font-size: 15px; }
+.ke-row.is-paid .ke-nr { color: #30d158; }
+.ke-eur { font-weight: 700; color: #30d158; }
+.ke-tiles { grid-template-columns: repeat(4, 1fr); }
+.ke-tiles strong { font-size: 17px; }
+@media (max-width: 520px) { .ke-tiles { grid-template-columns: 1fr 1fr; } .ke-fields { grid-template-columns: 1fr; } }
+
+/* Kostenersatz – Druckformular (A4, wie das Papierformular) */
+.ke-sheet { font-family: Arial, Helvetica, sans-serif; color: #000; }
+@media print {
+  body.printing-ke #print-area { padding: 0 !important; font: 10pt Arial, Helvetica, sans-serif !important; }
+  @page { size: A4; margin: 12mm 14mm; }
+  .ke-sheet { page-break-after: always; break-after: page; position: relative; }
+  .ke-sheet:last-child { page-break-after: auto; break-after: auto; }
+  .ke-top { display: flex; justify-content: space-between; font-size: 10pt; }
+  .ke-top span { text-decoration: underline; }
+  .ke-title { margin: 14pt 0 16pt !important; text-align: center; font-size: 15pt !important; font-weight: 700; letter-spacing: 3pt; }
+  .ke-head { display: grid; grid-template-columns: 22% 48% 30%; gap: 0 10pt; margin-bottom: 14pt; align-items: start; }
+  .ke-head-mid, .ke-head-right { display: flex; flex-direction: column; gap: 8pt; }
+  .kf { display: flex; align-items: flex-end; gap: 6pt; font-weight: 700; }
+  .kf-l { flex: none; white-space: nowrap; }
+  .kf-v { flex: 1; min-height: 12pt; border-bottom: .8pt solid #000; font-weight: 400; padding: 0 2pt 1pt; white-space: nowrap; overflow: hidden; }
+  .ke-head-mid .kf-l { width: 46pt; }
+  .ke-head-right .kf-l { width: 44pt; }
+  .kf-iban { margin-top: 10pt; }
+  body.printing-ke #print-area table.ke-table { width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed; }
+  body.printing-ke #print-area .ke-table th, body.printing-ke #print-area .ke-table td { border: .8pt solid #000; padding: 2pt 4pt; height: 17pt; font-size: 9.5pt; text-align: left; vertical-align: middle; overflow: hidden; }
+  body.printing-ke #print-area .ke-table th { font-weight: 400; text-align: center; height: 13pt; }
+  body.printing-ke #print-area .ke-table td.c { text-align: center; }
+  body.printing-ke #print-area .ke-table td.r { text-align: right; }
+  body.printing-ke #print-area .ke-table tfoot td { font-weight: 700; border-top: .8pt solid #000; height: 20pt; }
+  body.printing-ke #print-area .ke-table td.ke-sum { text-align: center; font-size: 11pt; }
+  .ke-legend { margin: 4pt 0 0 !important; font-size: 8.5pt !important; color: #000 !important; }
+  .ke-note { margin: 14pt 0 0 !important; font-size: 8pt !important; line-height: 1.45; color: #000 !important; }
+  .ke-sign { margin-top: 28pt; display: flex; align-items: flex-end; gap: 4pt; }
+  .ke-ort { display: inline-block; min-width: 70pt; border-bottom: .8pt solid #000; text-align: center; }
+  .ke-line { display: inline-block; width: 210pt; border-bottom: .8pt solid #000; margin-left: 6pt; height: 12pt; }
+  .ke-ok { margin-top: 24pt; }
+  .ke-page { position: absolute; right: 0; bottom: -6pt; font-size: 8pt; }
+}

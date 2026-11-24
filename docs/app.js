@@ -292,6 +292,8 @@ function normalizeState(s) {
     if (svc.dpUid !== undefined) svc.dpUid = str(svc.dpUid);
     if (svc.dpAck !== undefined) svc.dpAck = str(svc.dpAck);
     if (svc.vehicleType !== undefined) { svc.vehicleType = txt(svc.vehicleType); if (!svc.vehicleType) delete svc.vehicleType; }
+    if (svc.keType !== undefined && !['dienst', 'vertretung', 'ambulanz', 'beruflich'].includes(svc.keType)) delete svc.keType;
+    if (svc.keSkip !== undefined) { if (svc.keSkip) svc.keSkip = true; else delete svc.keSkip; }
     if (svc.tdp !== undefined && !(isObj(svc.tdp) && Array.isArray(svc.tdp.rows) && /^\d{4}-\d{2}-\d{2}$/.test(svc.tdp.date || ''))) delete svc.tdp;
     if (svc.planLog !== undefined) svc.planLog = (Array.isArray(svc.planLog) ? svc.planLog : []).filter((e) => e && e.id && e.txt).map((e) => ({ id: str(e.id), at: Number(e.at) || 0, txt: txt(e.txt) })).sort((a, b) => a.at - b.at);
     // Titel, die früher als eigene Person gespeichert wurden („BSc“), wieder anhängen
@@ -2986,6 +2988,157 @@ function serviceHourSplit(svc, [nf, nt] = nightWindow()) {
   return out;
 }
 const fmtH = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+// ── Kostenersatz lt. Vereinserlass (Bezirksstelle Hartberg) ────────────────
+// Stammdaten (Name, Adresse, SV-Nr., Geburtsdatum, IBAN, BIC) bleiben NUR auf diesem Gerät –
+// sie werden weder synchronisiert noch in Sicherungen exportiert.
+const KE_PROFILE_KEY = 'etb_ke_profile';
+const KE_RATE = 2.2, KE_MAX_SVC = 26.4, KE_TRAVEL = 3.2, KE_YEAR_MAX = 1584;
+const KE_TYPES = { dienst: 'Freiwilliger Dienst', vertretung: 'Vertretung berufl. Einsatzfahrer', ambulanz: 'Ambulanzdienst', beruflich: 'Beruflich/Zivildienst (kein Ersatz)' };
+function keProfile() { try { return JSON.parse(lsGet(KE_PROFILE_KEY, '{}')) || {}; } catch (_) { return {}; } }
+function keType(svc) { return svc.keType || (svc.isSeg ? 'ambulanz' : 'dienst'); }
+/** Vor- und Nachbereitung für Ambulanzen laut Infoblatt (gesamt, in Stunden). */
+function keAmbPrep(h) { return h <= 2 ? 2 : h <= 4 ? 3 : 4; }
+/** Zeilen eines Monats mit laufender Nummer, Stunden und Betrag (nur Info – die Abrechnung macht die Bezirksstelle). */
+function keMonthRows(y, m) {
+  const list = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return d && d.getFullYear() === y && d.getMonth() === m; })
+    .sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  let n = 0;
+  const dayAmb = new Map();
+  return list.map((svc) => {
+    const type = keType(svc), on = !svc.keSkip && type !== 'beruflich'; // berufliche Dienste gehören nicht auf das Formular
+    const h = Math.max(0, +serviceDurationHours(svc));
+    let nr = null, hours = h, paid = false, amount = 0, prep = 0;
+    if (on && type === 'dienst') { n++; nr = n; paid = n >= 5; amount = paid ? Math.min(h * KE_RATE, KE_MAX_SVC) : 0; }
+    else if (on && type === 'vertretung') { paid = true; amount = Math.min(h * KE_RATE, KE_MAX_SVC); }
+    else if (on && type === 'ambulanz') {
+      prep = keAmbPrep(h); hours = h + prep; paid = true;
+      const day = (svc.startAt || '').slice(0, 10), used = dayAmb.get(day) || 0;
+      amount = Math.max(0, Math.min(hours * KE_RATE, KE_MAX_SVC - used)); dayAmb.set(day, used + amount);
+      if (!used) amount += KE_TRAVEL; // Fahrtkostenpauschale einmal pro Tag
+    }
+    return { svc, type, on, h, hours, prep, nr, paid, amount };
+  });
+}
+function keYearTotal(y, uptoM) { let t = 0; for (let m = 0; m <= uptoM; m++) keMonthRows(y, m).forEach((r) => { if (r.on) t += r.amount; }); return t; }
+const fmtEur = (v) => v.toLocaleString('de-AT', { style: 'currency', currency: 'EUR' });
+const fmtHrs = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { maximumFractionDigits: 2 });
+let keYM = null;
+function openKostenersatz(y, m) {
+  const now = new Date();
+  if (y === undefined) [y, m] = keYM || [now.getFullYear(), now.getMonth()];
+  keYM = [y, m];
+  const rows = keMonthRows(y, m);
+  const pr = keProfile();
+  const title = new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tm = (d) => (d ? `${p2(d.getHours())}:${p2(d.getMinutes())}` : '');
+  const sel = rows.filter((r) => r.on);
+  const sumH = sel.reduce((n, r) => n + r.hours, 0), sumE = sel.reduce((n, r) => n + r.amount, 0);
+  const yearE = keYearTotal(y, m);
+  const missing = ['name', 'address', 'sv', 'dob', 'iban'].filter((k) => !String(pr[k] || (k === 'name' ? (state.profile || {}).displayName : '') || '').trim());
+  document.querySelectorAll('.ke-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov ke-ov'; ov.style.zIndex = '2000';
+  ov.innerHTML = `<div class="dialog-box lp-box ke-box" style="--mc:#ff3b30">
+    <div class="lp-head"><span class="lp-ic">💶</span><div class="lp-head-t"><h3>Kostenersatz</h3><span>lt. Vereinserlass · Bezirksstelle Hartberg</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="dialog-body lp-body">
+      <div class="ms-nav"><button type="button" class="ms-step" data-d="-1" aria-label="Voriger Monat">‹</button><b>${escHtml(title)}</b><button type="button" class="ms-step" data-d="1" aria-label="Nächster Monat">›</button></div>
+      <details class="ke-prof"${missing.length ? ' open' : ''}><summary>👤 Stammdaten${missing.length ? ` <em class="pi-badge">${missing.length} fehlen</em>` : ' ✓'}</summary>
+        <div class="ke-fields">
+          <label>Name<input data-kp="name" value="${escHtml(pr.name || (state.profile || {}).displayName || '')}" autocomplete="name"></label>
+          <label>Adresse<input data-kp="address" value="${escHtml(pr.address || '')}" autocomplete="street-address"></label>
+          <label>SV-Nr.<input data-kp="sv" value="${escHtml(pr.sv || '')}" inputmode="numeric"></label>
+          <label>Geb.Dat.<input data-kp="dob" value="${escHtml(pr.dob || '')}" placeholder="TT.MM.JJJJ"></label>
+          <label>IBAN<input data-kp="iban" value="${escHtml(pr.iban || '')}" autocomplete="off" spellcheck="false"></label>
+          <label>BIC<input data-kp="bic" value="${escHtml(pr.bic || '')}" autocomplete="off" spellcheck="false"></label>
+          <label>Ort (Unterschrift)<input data-kp="ort" value="${escHtml(pr.ort || 'Hartberg')}"></label>
+        </div>
+        <p class="cp-line">🔒 Bleibt nur auf diesem Gerät – wird nicht synchronisiert und nicht in Sicherungen exportiert.</p>
+      </details>
+      ${rows.length ? `<ul class="ke-list">${rows.map((r, i) => { const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt); return `<li class="ke-row${r.on ? '' : ' is-off'}${r.paid ? ' is-paid' : ''}">
+          <input type="checkbox" data-ke-on="${i}"${r.on ? ' checked' : ''}${r.type === 'beruflich' ? ' disabled' : ''} aria-label="Auf das Formular">
+          <div class="ke-main"><b>${escHtml(a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' }))}</b> ${tm(a)}–${tm(b)}
+            <small>${escHtml(keText(r.svc))}</small>
+            <select data-ke-type="${i}">${Object.entries(KE_TYPES).map(([k, l]) => `<option value="${k}"${k === r.type ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+          <div class="ke-side">${r.nr ? `<span class="ke-nr">${r.nr}.</span>` : ''}<span>${fmtHrs(r.hours)} h${r.prep ? `<small> inkl. ${fmtHrs(r.prep)} h V/N</small>` : ''}</span>${r.on && r.amount ? `<span class="ke-eur">${fmtEur(r.amount)}</span>` : r.on && r.type === 'dienst' ? '<small>1.–4. Dienst</small>' : ''}</div>
+        </li>`; }).join('')}</ul>` : '<p class="sx-empty">In diesem Monat keine Dienste im Tagebuch.</p>'}
+      <div class="cp-tiles ke-tiles">
+        <div><strong>${sel.length}</strong><small>auf dem Formular</small></div>
+        <div><strong>${fmtHrs(sumH)}</strong><small>Stunden</small></div>
+        <div><strong>${fmtEur(sumE)}</strong><small>Ersatz (Info)</small></div>
+        <div><strong>${fmtEur(yearE)}</strong><small>Jahr bis ${escHtml(new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'short' }))} · max ${fmtEur(KE_YEAR_MAX)}</small></div>
+      </div>
+      ${yearE > KE_YEAR_MAX ? `<p class="pi-msg">⚠︎ Über der Jahresgrenze von ${fmtEur(KE_YEAR_MAX)} laut Vereinserlass.</p>` : ''}
+      <p class="cp-line">Ab dem 5. freiwilligen Dienst im Monat ${fmtEur(KE_RATE)}/h, max. ${fmtEur(KE_MAX_SVC)} pro Dienst · Vertretung berufl. Einsatzfahrer ab dem 1. Dienst · Ambulanz + Vor-/Nachbereitung und ${fmtEur(KE_TRAVEL)} Fahrtkosten pro Tag. Beträge nur zur Orientierung – abgerechnet wird von der Bezirksstelle.</p>
+      <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – ✓ in der Spalte „Dienste DS“, mit Erklärung unter der Tabelle</span></label>
+      <div class="ms-actions"><button type="button" class="btn-primary" id="ke-print"${sel.length ? '' : ' disabled'}>Formular drucken / PDF</button></div>
+    </div></div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  const reopen = () => { const sc = ov.querySelector('.lp-body').scrollTop; ov.remove(); openKostenersatz(y, m); const nb = document.querySelector('.ke-ov .lp-body'); if (nb) nb.scrollTop = sc; };
+  ov.querySelector('.dialog-close').onclick = close;
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelectorAll('.ms-step').forEach((b) => b.addEventListener('click', () => { const d = new Date(y, m + +b.dataset.d, 1); ov.remove(); openKostenersatz(d.getFullYear(), d.getMonth()); }));
+  ov.querySelectorAll('[data-kp]').forEach((inp) => inp.addEventListener('change', () => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); }));
+  ov.querySelectorAll('[data-ke-on]').forEach((c) => c.addEventListener('change', () => { const sv = rows[+c.dataset.keOn].svc; if (c.checked) delete sv.keSkip; else sv.keSkip = true; saveState(); reopen(); }));
+  ov.querySelectorAll('[data-ke-type]').forEach((sl) => sl.addEventListener('change', () => { const sv = rows[+sl.dataset.keType].svc; const def = sv.isSeg ? 'ambulanz' : 'dienst'; if (sl.value === def) delete sv.keType; else sv.keType = sl.value; saveState(); reopen(); }));
+  ov.querySelector('#ke-mark').addEventListener('change', (e) => lsSet('etb_ke_mark', e.target.checked ? null : '0'));
+  ov.querySelector('#ke-print').addEventListener('click', () => {
+    ov.querySelectorAll('[data-kp]').forEach((inp) => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); });
+    printKostenersatz(y, m, ov.querySelector('#ke-mark').checked);
+  });
+  document.body.appendChild(ov);
+}
+/** Einsatzort/Tätigkeit für eine Zeile: Fahrzeug · Dienststelle bzw. bei Ambulanz/SEG der Anlass. */
+function keText(svc) {
+  if (svc.isSeg) {
+    const what = ((svc.incidents || [])[0] || {}).alarmCode || '';
+    const parts = [/ambulanz/i.test(what) ? '' : 'Ambulanz', what && svc.location && what.toLowerCase().includes(svc.location.toLowerCase()) ? '' : svc.location, what];
+    return parts.filter(Boolean).join(' · ') || 'Ambulanz';
+  }
+  return [svc.vehicle, svc.location].filter(Boolean).join(' · ') || 'Dienst';
+}
+/** Formular als A4 drucken (mehrere Seiten, wenn mehr als 20 Zeilen). */
+function printKostenersatz(y, m, mark) {
+  const rows = keMonthRows(y, m).filter((r) => r.on);
+  const pr = keProfile();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tm = (d) => (d ? `${p2(d.getHours())}:${p2(d.getMinutes())}` : '');
+  const PER = 20;
+  const pages = [];
+  for (let i = 0; i < Math.max(rows.length, 1); i += PER) pages.push(rows.slice(i, i + PER));
+  const sumH = rows.reduce((n, r) => n + r.hours, 0);
+  const field = (label, val, cls = '') => `<div class="kf ${cls}"><span class="kf-l">${label}</span><span class="kf-v">${escHtml(val || '')}</span></div>`;
+  const sheet = (list, pi) => `<section class="ke-sheet">
+    <div class="ke-top"><span>Österr. Rotes Kreuz</span><span>Landesverband Steiermark</span><span>Bezirksstelle Hartberg</span></div>
+    <h1 class="ke-title">KOSTENERSATZ lt. VEREINSERLASS</h1>
+    <div class="ke-head">
+      ${field('Monat/ Jahr:', `${p2(m + 1)}/${y}`, 'kf-month')}
+      <div class="ke-head-mid">${field('Name:', pr.name || (state.profile || {}).displayName || '')}${field('Adresse:', pr.address)}${field('IBAN:', pr.iban, 'kf-iban')}</div>
+      <div class="ke-head-right">${field('SV-Nr.:', pr.sv)}${field('Geb.Dat.:', pr.dob)}${field('BIC:', pr.bic, 'kf-iban')}</div>
+    </div>
+    <table class="ke-table">
+      <colgroup><col style="width:13%"><col style="width:10%"><col style="width:10%"><col><col style="width:13%"><col style="width:12%"></colgroup>
+      <thead><tr><th rowspan="2">Datum</th><th colspan="2">Zeitpunkt</th><th rowspan="2">Einsatzort/ Tätigkeit</th><th rowspan="2">Dienste DS</th><th rowspan="2">Stunden</th></tr><tr><th>Antritt</th><th>Ende</th></tr></thead>
+      <tbody>${Array.from({ length: PER }, (_, k) => { const r = list[k]; if (!r) return '<tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>'; const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt);
+        const ds = r.type === 'dienst' ? `${r.nr}.` : r.type === 'vertretung' ? 'Vertr.' : r.type === 'ambulanz' ? 'Amb.' : '';
+        return `<tr><td>${a ? a.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</td><td>${tm(a)}</td><td>${tm(b)}</td><td>${escHtml(keText(r.svc))}${r.prep ? ` (inkl. ${fmtHrs(r.prep)} h Vor-/Nachber.)` : ''}</td><td class="c">${ds}${mark && r.paid ? ' ✓' : ''}</td><td class="r">${fmtHrs(r.hours)}</td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td colspan="4" class="ke-sum">${pi === pages.length - 1 ? 'Summe' : 'Übertrag'}</td><td class="c">${pi === pages.length - 1 ? rows.length : ''}</td><td class="r">${pi === pages.length - 1 ? fmtHrs(sumH) : ''}</td></tr></tfoot>
+    </table>
+    ${mark && pi === pages.length - 1 && rows.some((r) => r.paid) ? '<p class="ke-legend">✓ = zahlungsberechtigt (ab dem 5. freiwilligen Dienst im Monat, Vertretung berufl. Einsatzfahrer bzw. Ambulanzdienst)</p>' : ''}
+    <p class="ke-note"><u>Ehrenamtliche Mitarbeiter</u> werden auf die Bestimmungen des Vereinserlass aufmerksam gemacht und nehmen mit ihrer Unterschrift zur Kenntnis, dass <u>Tages- und Nächtigungsgelder</u>, welche die steuerfreien Höchstgrenzen lt. § 26 EStG überschreiten, Einkünfte darstellen und als solche im Rahmen der gesetzlichen Bestimmungen gegebenenfalls selbst zu versteuern sind. Es kann bei Überschreitung der Höchstgrenzen lt. Vereinserlass auch zu eine Abgabenpflicht in der Sozialversicherung kommen. Ev. daraus resultierende Abgaben sind vom Mitarbeiter selbst zu tragen.</p>
+    <div class="ke-sign"><span class="ke-ort">${escHtml(pr.ort || 'Hartberg')}</span>, am <span class="ke-line"></span></div>
+    <div class="ke-ok">Sachlich richtig:</div>
+    ${pages.length > 1 ? `<div class="ke-page">Seite ${pi + 1}/${pages.length}</div>` : ''}
+  </section>`;
+  let area = document.getElementById('print-area');
+  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
+  area.innerHTML = pages.map(sheet).join('');
+  document.body.classList.add('printing', 'printing-ke');
+  const done = () => { document.body.classList.remove('printing', 'printing-ke'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => { window.print(); setTimeout(done, 1500); }, 60);
+}
+
 let monthSheetYM = null;
 function monthSheetData(y, m) {
   const svcs = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return !x.isSeg && d && d.getFullYear() === y && d.getMonth() === m; })
@@ -3183,6 +3336,7 @@ function renderStats() {
   const statsToolsHtml = `<div class="sx-tools">
       <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
       <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
+      <button type="button" class="sx-tool" id="btn-kostenersatz"><span>💶</span><b>Kostenersatz</b><small>Formular lt. Vereinserlass</small></button>
     </div>`;
   const totalInc = allInc.length;
   const nonSegSvcs = filteredSvcs.filter((s) => !s.isSeg);
@@ -3587,6 +3741,8 @@ function renderStats() {
   container.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => { statsCmpMode = b.dataset.cmp; renderStats(); }));
   const msb = document.getElementById('btn-month-sheet');
   if (msb) msb.addEventListener('click', () => openMonthSheet());
+  const keb = document.getElementById('btn-kostenersatz');
+  if (keb) keb.addEventListener('click', () => openKostenersatz());
   const pmb = document.getElementById('btn-place-map');
   if (pmb) pmb.addEventListener('click', () => openPlaceMap(statsPlaceIncidents));
   document.getElementById('btn-open-stats-filter').addEventListener('click', () => {
@@ -4569,8 +4725,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 169;
-const APP_VERSION_DATE = '24.11.2026';
+const APP_VERSION = 170;
+const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
