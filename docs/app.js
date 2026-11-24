@@ -279,6 +279,8 @@ function normalizeState(s) {
     svc.isSeg = !!svc.isSeg;
     if (svc.dpUid !== undefined) svc.dpUid = str(svc.dpUid);
     if (svc.dpAck !== undefined) svc.dpAck = str(svc.dpAck);
+    if (svc.vehicleType !== undefined) { svc.vehicleType = txt(svc.vehicleType); if (!svc.vehicleType) delete svc.vehicleType; }
+    if (svc.tdp !== undefined && !(isObj(svc.tdp) && Array.isArray(svc.tdp.rows) && /^\d{4}-\d{2}-\d{2}$/.test(svc.tdp.date || ''))) delete svc.tdp;
     if (svc.planLog !== undefined) svc.planLog = (Array.isArray(svc.planLog) ? svc.planLog : []).filter((e) => e && e.id && e.txt).map((e) => ({ id: str(e.id), at: Number(e.at) || 0, txt: txt(e.txt) })).sort((a, b) => a.at - b.at);
     // Titel, die früher als eigene Person gespeichert wurden („BSc“), wieder anhängen
     svc.colleagues = Array.isArray(svc.colleagues) ? mergeCrewTitles(svc.colleagues.map(txt).filter(Boolean)) : [];
@@ -1277,6 +1279,7 @@ function renderServiceDetailContent() {
       ${svc.note ? row('Notiz', linkifyHtml(svc.note).replace(/\n/g, '<br>'), 'is-multi') : ''}
     </div>
     ${links ? `<div class="dv-group">${links}</div>` : ''}
+    ${svcTdpHtml(svc)}
     <div class="incidents-header">
       <span class="incidents-title">Einsätze (${(svc.incidents || []).length})</span>
       ${addIncBtn}
@@ -4553,8 +4556,8 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 161;
-const APP_VERSION_DATE = '23.11.2026';
+const APP_VERSION = 162;
+const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
   darstellung: 'Darstellung',
@@ -4564,6 +4567,7 @@ const SETTINGS_PAGES = {
   fahrzeuge: 'Fahrzeuge & Icons',
   stichwoerter: 'Stichwörter & PZC',
   dienststellen: 'Dienststellen',
+  portal: 'Portal-Import',
   benachrichtigungen: 'Benachrichtigungen',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
@@ -4650,6 +4654,7 @@ function renderSettings() {
     <div class="set-group-header">Dienstplan</div>
     <div class="set-group">
       ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Dienststellen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
+      ${setRow({ icon: 'calendar', color: 'orange', title: 'Portal-Import', sub: 'Tagesdienstplan per Lesezeichen übernehmen', push: 'portal' })}
       ${setRow({ icon: 'bell', color: 'red', title: 'Benachrichtigungen', sub: 'Neuer Einsatz?, Dienstplan-Änderungen', value: quickPushEnabled() ? 'An' : 'Aus', push: 'benachrichtigungen' })}
     </div>
 
@@ -4793,6 +4798,7 @@ function renderSettingsPage() {
     speicher: settingsPageSpeicher,
     konto: settingsPageKonto,
     dienstplan: settingsPageDienstplan,
+    portal: settingsPagePortal,
     daten: settingsPageDaten,
     ueber: settingsPageUeber,
     fahrzeuge: (e, t) => settingsHostPage(e, t, 'veh-root', renderVehiclesPopupContent),
@@ -5065,6 +5071,31 @@ function settingsPageBenachrichtigungen(el, title) {
   renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
 }
 
+function settingsPagePortal(el, title) {
+  const code = portalBookmarkletCode();
+  el.innerHTML = `${title}
+    <div class="set-group-header">So funktioniert’s</div>
+    <div class="set-group"><div class="set-row"><span class="set-row-text set-row-sub pi-steps">
+      1. Lesezeichen unten einmal einrichten.<br>2. Im Dienstplan-Portal anmelden und einen <b>Tagesdienstplan</b> öffnen.<br>3. Lesezeichen „→ Einsatztagebuch“ antippen → „Kopieren“.<br>4. Hier in der App: Dienstplan → 📋 <b>Aus Portal einfügen</b>.</span></div></div>
+    <p class="set-group-footer">Das Lesezeichen läuft nur in deinem eigenen, angemeldeten Browser und liest die gerade offene Seite. Dein Passwort bleibt bei dir – es geht weder an die App noch an den Worker.</p>
+    <div class="set-group-header">Lesezeichen einrichten</div>
+    <div class="set-group">
+      <div class="set-row"><textarea readonly class="pi-code" rows="3">${escHtml(code)}</textarea></div>
+      <div class="set-row"><button type="button" class="btn-primary" id="pi-copy" style="flex:1">Lesezeichen-Code kopieren</button></div>
+      <div class="set-row pi-drag-row"><a class="pi-drag" href="${escHtml(code)}" title="Am Computer in die Lesezeichenleiste ziehen">→ Einsatztagebuch</a><span class="set-row-text set-row-sub">Am Computer: diesen Knopf in die Lesezeichenleiste ziehen.</span></div>
+    </div>
+    <p class="set-group-footer">${isIOSDevice() ? 'iPhone/iPad: In Safari irgendeine Seite als Lesezeichen sichern, dann unter Lesezeichen → Bearbeiten den Namen auf „→ Einsatztagebuch“ und die Adresse auf den kopierten Code ändern.' : 'Handy: Irgendeine Seite als Lesezeichen sichern und die Adresse durch den kopierten Code ersetzen.'}</p>
+    <div class="set-group-header">Übernehmen</div>
+    <div class="set-group"><div class="set-row"><button type="button" class="btn-secondary" id="pi-paste" style="flex:1">📋 Aus Portal einfügen</button></div></div>
+    <p class="set-group-footer">Übernimmt Fahrzeugnummer, Besatzung und auf Wunsch Zeiten in deinen Dienst und kann den ganzen Tagesdienstplan beim Dienst speichern (wird wie deine Dienste gesichert und synchronisiert).</p>`;
+  el.querySelector('#pi-copy').onclick = async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(code); b.textContent = 'Kopiert ✓'; } catch (_) { const ta = el.querySelector('.pi-code'); ta.focus(); ta.select(); document.execCommand('copy'); b.textContent = 'Kopiert ✓'; }
+    setTimeout(() => { b.textContent = 'Lesezeichen-Code kopieren'; }, 1800);
+  };
+  el.querySelector('.pi-drag').addEventListener('click', (e) => { e.preventDefault(); toast('Ziehen statt tippen: in die Lesezeichenleiste deines Browsers.', 'info', 3000); });
+  el.querySelector('#pi-paste').onclick = () => pastePortalPlan();
+}
 function settingsPageDienstplan(el, title) {
   const cfg = dpConfig();
   const legacy = lsGet(LEGACY_ICS_KEY);
@@ -6028,6 +6059,8 @@ function toCompatExport() {
       crew: svc.colleagues || [],
       dpUid: svc.dpUid || '',
       dpAck: svc.dpAck || '',
+      ...(svc.vehicleType ? { vehicleType: svc.vehicleType } : {}),
+      ...(svc.tdp ? { tdp: svc.tdp } : {}),
       missions: (svc.incidents || []).map((inc) => ({
         missionId: inc.id,
         title: inc.alarmCode || '',
@@ -6066,6 +6099,8 @@ function fromCompatibleImport(data) {
     colleagues: Array.isArray(shift.crew) ? shift.crew : [],
     ...(shift.dpUid ? { dpUid: String(shift.dpUid) } : {}),
     ...(shift.dpAck ? { dpAck: String(shift.dpAck) } : {}),
+    ...(shift.vehicleType ? { vehicleType: String(shift.vehicleType) } : {}),
+    ...(shift.tdp && typeof shift.tdp === 'object' ? { tdp: shift.tdp } : {}),
     incidents: Array.isArray(shift.missions) ? shift.missions.map((m) => ({
       id: m.missionId || uid(),
       alarmCode: m.title || '',
@@ -9373,7 +9408,9 @@ function planDiff(svc, plan) {
   const out = [];
   const range = (a, b) => { const x = parseLocalDt(a), y = parseLocalDt(b); return x ? `${x.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${formatTimeHM(x)}${y ? '–' + formatTimeHM(y) : ''}` : '—'; };
   if (svc.startAt !== v.startAt || (svc.endAt || '') !== v.endAt) out.push({ key: 'time', label: 'Zeit', from: range(svc.startAt, svc.endAt), to: range(v.startAt, v.endAt) });
-  if ((svc.vehicle || '').trim() !== v.vehicle.trim()) out.push({ key: 'vehicle', label: 'Fahrzeug', from: svc.vehicle, to: v.vehicle });
+  // „1823“ bzw. „RTW 1823“ aus dem Portal gilt als gleich wie „RTW“ im Kalender
+  const sameVeh = sameName(svc.vehicle, v.vehicle) || (svc.vehicleType && sameName(svc.vehicleType, v.vehicle)) || (v.vehicle && new RegExp(`^${v.vehicle.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s`, 'i').test((svc.vehicle || '').trim()));
+  if (!sameVeh) out.push({ key: 'vehicle', label: 'Fahrzeug', from: svc.vehicle, to: v.vehicle });
   if ((svc.location || '').trim() !== v.location.trim()) out.push({ key: 'location', label: 'Dienststelle', from: svc.location, to: v.location });
   const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
   const a = new Set((svc.colleagues || []).map(norm)), b = new Set(v.colleagues.map(norm));
@@ -9454,6 +9491,231 @@ document.addEventListener('click', (e) => {
   if (ap) { e.stopPropagation(); applyPlanChange(ap.dataset.pcApply); return; }
   const ig = e.target.closest && e.target.closest('[data-pc-ignore]');
   if (ig) { e.stopPropagation(); ignorePlanChange(ig.dataset.pcIgnore); }
+});
+
+// ── Tagesdienstplan aus dem Portal übernehmen ───────────────────────────────
+// Ein Lesezeichen liest im angemeldeten Browser die Seite „Tagesdienstplan“ aus und legt das
+// Ergebnis in die Zwischenablage; die App liest es von dort. Zugangsdaten verlassen das Gerät nie.
+/* Läuft im Portal (nicht in der App) – daher eigenständig, ohne Hilfsfunktionen der App. */
+function etbPortalGrab() {
+  var main = document.querySelector('#contentmain');
+  var h2 = main && main.querySelector('h2');
+  if (!main || !h2 || !main.querySelector('table')) { alert('Einsatztagebuch: Bitte zuerst einen Tagesdienstplan öffnen.'); return; }
+  var clean = function (x) { return String(x || '').replace(/\s+/g, ' ').trim(); };
+  var pad = function (n) { return ('0' + n).slice(-2); };
+  var title = clean(h2.textContent);
+  var m = title.match(/^\S+\s+(.+?)\s+\S+\s+[^\s,]+,\s*(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  var out = { etb: 'tdp', v: 1, title: title, station: m ? m[1] : '', date: m ? m[4] + '-' + pad(m[3]) + '-' + pad(m[2]) : '', at: Date.now(), rows: [] };
+  var group = '';
+  Array.prototype.forEach.call(main.children, function (el) {
+    if (el.tagName === 'H3') { group = clean(el.textContent); return; }
+    if (el.tagName !== 'TABLE') return;
+    Array.prototype.forEach.call(el.querySelectorAll('tr'), function (tr) {
+      if (/(^|\s)_requirement(\s|$)/.test(tr.className)) {
+        var unitTd = tr.querySelector('td._unit'), strong = unitTd && unitTd.querySelector('strong');
+        var nr = clean(strong && strong.textContent);
+        var unit = clean(unitTd && unitTd.textContent); if (nr) unit = clean(unit.slice(0, unit.lastIndexOf(nr)));
+        var time = clean((tr.querySelector('td._time') || {}).textContent).match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+        var tds = tr.querySelectorAll('td'), crewTd = null;
+        for (var i = 0; i < tds.length; i++) if (!tds[i].className) { crewTd = tds[i]; break; }
+        var crew = [], open = [], self = false;
+        if (crewTd) Array.prototype.forEach.call(crewTd.querySelectorAll('span'), function (sp) {
+          var n = clean(sp.textContent); if (!n) return;
+          if (/(^|\s)_self(\s|$)/.test(sp.className)) { crew.push(n); self = n; }
+          else if (/(^|\s)_photo(\s|$)/.test(sp.className)) crew.push(n);
+          else open.push(n);
+        });
+        var locTd = tr.querySelector('td._location');
+        var loc = locTd ? locTd.innerHTML.split(/<br\s*\/?>/i).map(function (x) { var d = document.createElement('div'); d.innerHTML = x; return clean(d.textContent); }).filter(Boolean) : [];
+        out.rows.push({ g: group, u: unit, nr: nr, s: time ? time[1] : '', e: time ? time[2] : '', crew: crew, open: open, self: self || undefined, loc: loc, note: '' });
+      } else {
+        var note = tr.querySelector('td._note');
+        if (note && out.rows.length && clean(note.textContent)) out.rows[out.rows.length - 1].note = clean(note.textContent);
+      }
+    });
+  });
+  var text = 'ETB-TDP ' + JSON.stringify(out);
+  var mine = out.rows.filter(function (r) { return r.self; })[0];
+  var box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;font:15px -apple-system,system-ui,sans-serif';
+  box.innerHTML = '<div style="background:#fff;color:#111;border-radius:16px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)"><b style="font-size:17px">Für das Einsatztagebuch</b><p style="margin:8px 0 14px;color:#444;font-size:14px;line-height:1.4"></p><div style="display:flex;gap:8px"><button type="button" data-c style="flex:1;padding:12px;border:0;border-radius:12px;background:#ff3b30;color:#fff;font-weight:700;font-size:15px">Kopieren</button><button type="button" data-x style="padding:12px 16px;border:0;border-radius:12px;background:#eee;font-size:15px">Schließen</button></div></div>';
+  box.querySelector('p').textContent = (out.station || 'Tagesdienstplan') + (out.date ? ' · ' + out.date.split('-').reverse().join('.') : '') + ' · ' + out.rows.length + ' Fahrzeuge' + (mine ? ' · du: ' + clean(mine.u + ' ' + mine.nr) + ' ' + mine.s + '–' + mine.e : ' · du bist hier nicht eingeteilt') + '. Danach im Einsatztagebuch beim Dienstplan auf „Aus Portal einfügen“ tippen.';
+  document.body.appendChild(box);
+  box.querySelector('[data-x]').onclick = function () { box.remove(); };
+  box.querySelector('[data-c]').onclick = function () {
+    var b = this, ok = function () { b.textContent = 'Kopiert ✓'; setTimeout(function () { box.remove(); }, 900); };
+    var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = 'Kopieren fehlgeschlagen'; } ta.remove(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+  };
+}
+function portalBookmarkletCode() { return 'javascript:' + encodeURIComponent('(' + etbPortalGrab.toString().replace(/\n\s+/g, '\n') + ')()'); }
+
+/** Text aus der Zwischenablage prüfen → Tagesdienstplan-Objekt oder null. */
+function parsePortalText(text) {
+  const m = String(text || '').trim().match(/^ETB-TDP\s+(\{[\s\S]*\})\s*$/);
+  if (!m) return null;
+  try {
+    const d = JSON.parse(m[1]);
+    if (!d || d.etb !== 'tdp' || !/^\d{4}-\d{2}-\d{2}$/.test(d.date || '') || !Array.isArray(d.rows)) return null;
+    const t = (x) => toDisplayName(x).slice(0, 200);
+    const hm = (x) => (/^\d{1,2}:\d{2}$/.test(x || '') ? x.padStart(5, '0') : '');
+    return { station: t(d.station), date: d.date, title: t(d.title), at: Number(d.at) || Date.now(),
+      rows: d.rows.slice(0, 120).map((r) => ({ g: t(r.g), u: t(r.u), nr: t(r.nr), s: hm(r.s), e: hm(r.e), crew: (r.crew || []).map(t).filter(Boolean).slice(0, 20),
+        open: (r.open || []).map(t).filter(Boolean).slice(0, 20), self: r.self ? t(r.self) : '', loc: (r.loc || []).map(t).filter(Boolean).slice(0, 5), note: t(r.note) })) };
+  } catch (_) { return null; }
+}
+/** Beginn/Ende einer Zeile als lokale Zeitangaben (Ende vor Beginn → nächster Tag). */
+function tdpRowTimes(date, r) {
+  if (!r.s || !r.e) return null;
+  const a = parseLocalDt(`${date}T${r.s}`), b = parseLocalDt(`${date}T${r.e}`);
+  if (!a || !b) return null;
+  if (b <= a) b.setDate(b.getDate() + 1);
+  return { a, b, startAt: localDtStr(a), endAt: localDtStr(b) };
+}
+const PORTAL_VEHFMT_KEY = 'etb_portal_vehfmt', PORTAL_KEEP_KEY = 'etb_portal_keep';
+function tdpVehicleName(r, fmt = lsGet(PORTAL_VEHFMT_KEY) || 'nr') {
+  if (!r.nr) return r.u;
+  return fmt === 'full' ? `${r.u} ${r.nr}`.trim() : r.nr;
+}
+/** Zwischenablage lesen (iOS fragt beim ersten Mal nach) – sonst Einfügefeld anbieten. */
+async function pastePortalPlan() {
+  let text = '';
+  try { if (navigator.clipboard && navigator.clipboard.readText) text = await navigator.clipboard.readText(); } catch (_) {}
+  const d = parsePortalText(text);
+  if (d) { openPortalImport(d); return; }
+  showPortalPasteBox(text ? 'In der Zwischenablage ist kein Tagesdienstplan.' : '');
+}
+function showPortalPasteBox(msg) {
+  document.querySelectorAll('.pi-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov pi-ov'; ov.style.zIndex = '2000';
+  ov.innerHTML = `<div class="dialog-box lp-box pi-box" style="--mc:#ff3b30">
+    <div class="lp-head"><span class="lp-ic">📋</span><div class="lp-head-t"><h3>Aus Portal einfügen</h3><span>Tagesdienstplan übernehmen</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="dialog-body lp-body">
+      ${msg ? `<p class="pi-msg">${escHtml(msg)}</p>` : ''}
+      <p class="cp-line">1. Im Portal den Tagesdienstplan öffnen · 2. Lesezeichen „→ Einsatztagebuch“ antippen · 3. „Kopieren“ · 4. hier einfügen:</p>
+      <textarea id="pi-text" rows="4" placeholder="Hier einfügen (lange tippen → Einsetzen)"></textarea>
+      <div class="ms-actions"><button type="button" class="btn-secondary" id="pi-help">Lesezeichen einrichten</button><button type="button" class="btn-primary" id="pi-go">Übernehmen</button></div>
+    </div></div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').onclick = close;
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelector('#pi-help').onclick = () => { close(); openSettingsSection('portal'); };
+  ov.querySelector('#pi-go').onclick = () => {
+    const d = parsePortalText(ov.querySelector('#pi-text').value);
+    if (!d) { toast('Das ist kein Tagesdienstplan aus dem Lesezeichen.', 'error', 3500); return; }
+    close(); setTimeout(() => openPortalImport(d), 220);
+  };
+  document.body.appendChild(ov);
+}
+/** Tagebuch-Dienst zu einem Portal-Tag: überschneidet die eigene Zeile, sonst gleicher Tag + Dienststelle. */
+function serviceForPortal(d, mine) {
+  const svcs = state.services.filter((x) => !x.isSeg);
+  const t = mine && tdpRowTimes(d.date, mine);
+  if (t) {
+    let best = null, bestOv = 0;
+    svcs.forEach((x) => { const a = parseLocalDt(x.startAt), b = parseLocalDt(x.endAt); if (!a || !b) return; const ov = Math.min(+b, +t.b) - Math.max(+a, +t.a); if (ov > bestOv) { best = x; bestOv = ov; } });
+    if (best && bestOv >= 30 * 60000) return best;
+  }
+  return svcs.find((x) => (x.startAt || '').slice(0, 10) === d.date && d.station && stationKey(x.location) === stationKey(d.station)) || null;
+}
+function openPortalImport(d) {
+  const mine = d.rows.find((r) => r.self) || null;
+  const svc = serviceForPortal(d, mine);
+  const t = mine ? tdpRowTimes(d.date, mine) : null;
+  const fmt = lsGet(PORTAL_VEHFMT_KEY) || 'nr';
+  const keep = lsGet(PORTAL_KEEP_KEY) !== '0';
+  const crew = mine ? mine.crew.filter((n) => !sameName(n, mine.self)) : [];
+  const dayStr = parseLocalDt(d.date + 'T12:00').toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tm = (x) => { const z = parseLocalDt(x); return z ? `${p2(z.getHours())}:${p2(z.getMinutes())}` : ''; };
+  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
+  const changes = [];
+  if (svc && mine) {
+    const veh = tdpVehicleName(mine, fmt);
+    if (mine.nr && !sameName(svc.vehicle, veh)) changes.push(['vehicle', 'Fahrzeug', `${svc.vehicle || '—'} → ${veh}`, true]);
+    const have = new Set((svc.colleagues || []).map(norm));
+    const add = crew.filter((n) => !have.has(norm(n))), del = (svc.colleagues || []).filter((n) => !crew.some((c) => norm(c) === norm(n)));
+    if (add.length || del.length) changes.push(['crew', 'Besatzung', [...add.map((n) => '+ ' + n), ...del.map((n) => '− ' + n)].join(', '), true]);
+    if (t && (svc.startAt !== t.startAt || svc.endAt !== t.endAt)) changes.push(['time', 'Zeit', `${tm(svc.startAt)}–${tm(svc.endAt)} → ${mine.s}–${mine.e}`, false]);
+  }
+  const rowHtml = (r) => `<li class="pi-row${r.self ? ' is-self' : ''}">
+      <span class="pi-unit"><b>${escHtml(r.u)}</b>${r.nr ? ` <span>${escHtml(r.nr)}</span>` : ''}</span>
+      <span class="pi-time">${escHtml(r.s)}–${escHtml(r.e)}</span>
+      <span class="pi-crew">${r.crew.map((n) => `<span${sameName(n, r.self) ? ' class="is-me"' : ''}>${escHtml(n)}</span>`).join(', ')}${r.open.length ? `${r.crew.length ? ', ' : ''}<i>${r.open.map(escHtml).join(', ')}</i>` : ''}</span>
+      ${r.note || r.loc.length ? `<small>${escHtml([r.loc.join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`;
+  document.querySelectorAll('.pi-ov').forEach((x) => x.remove());
+  const ov = document.createElement('div');
+  ov.className = 'dialog-overlay lp-ov pi-ov'; ov.style.zIndex = '2000';
+  ov.innerHTML = `<div class="dialog-box lp-box pi-box" style="--mc:#ff3b30">
+    <div class="lp-head"><span class="lp-ic">📋</span><div class="lp-head-t"><h3>${escHtml(d.station || 'Tagesdienstplan')}</h3><span>${escHtml(dayStr)} · ${d.rows.length} Fahrzeuge</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="dialog-body lp-body">
+      ${mine ? `<div class="pi-mine">
+        <div class="pi-mine-veh">${escHtml(mine.u)} <b>${escHtml(mine.nr || '')}</b></div>
+        <div>${escHtml(mine.s)}–${escHtml(mine.e)}${crew.length ? ` · mit ${escHtml(crew.join(', '))}` : ''}</div>
+        ${mine.note || mine.loc.length ? `<small>${escHtml([mine.loc.join(' · '), mine.note].filter(Boolean).join(' · '))}</small>` : ''}
+      </div>` : '<p class="pi-msg">Du bist an diesem Tag in diesem Tagesdienstplan nicht eingeteilt.</p>'}
+      ${svc ? `<div class="cp-sub">Dein Dienst im Tagebuch · ${escHtml(svc.vehicle || 'Dienst')} ${escHtml(tm(svc.startAt))}–${escHtml(tm(svc.endAt))}</div>
+        ${changes.length ? `<div class="pi-changes">${changes.map(([k, l, txt, on]) => `<label class="pi-chg"><input type="checkbox" data-chg="${k}"${on ? ' checked' : ''}><span><b>${l}</b> ${escHtml(txt)}</span></label>`).join('')}</div>` : mine ? '<p class="cp-line">✓ Stimmt mit deinem Dienst überein.</p>' : ''}`
+        : mine ? '<p class="cp-line">Im Tagebuch gibt es dazu noch keinen Dienst.</p>' : ''}
+      ${mine && mine.nr ? `<div class="pi-fmt"><span>Fahrzeug eintragen als</span><div class="pm-seg"><button type="button" data-fmt="nr"${fmt === 'nr' ? ' class="is-on"' : ''}>${escHtml(mine.nr)}</button><button type="button" data-fmt="full"${fmt === 'full' ? ' class="is-on"' : ''}>${escHtml(mine.u + ' ' + mine.nr)}</button></div></div>` : ''}
+      ${svc || mine ? `<label class="pi-chg"><input type="checkbox" id="pi-keep"${keep ? ' checked' : ''}><span><b>Ganzen Tagesdienstplan beim Dienst speichern</b> – alle Fahrzeuge mit Besatzung, Stand ${escHtml(formatTimeHM(new Date(d.at)))}</span></label>` : ''}
+      <details class="pi-all"><summary>Tagesdienstplan anzeigen</summary><ul class="pi-list">${d.rows.map(rowHtml).join('')}</ul></details>
+      <div class="ms-actions">
+        <button type="button" class="btn-secondary" id="pi-cancel">Abbrechen</button>
+        ${svc ? '<button type="button" class="btn-primary" id="pi-apply">Übernehmen</button>' : mine && t ? '<button type="button" class="btn-primary" id="pi-create">Dienst anlegen</button>' : ''}
+      </div>
+    </div></div>`;
+  const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
+  ov.querySelector('.dialog-close').onclick = close;
+  ov.querySelector('#pi-cancel').onclick = close;
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelectorAll('[data-fmt]').forEach((b) => b.addEventListener('click', () => { lsSet(PORTAL_VEHFMT_KEY, b.dataset.fmt === 'full' ? 'full' : null); ov.remove(); openPortalImport(d); }));
+  const snapshot = () => ({ station: d.station, date: d.date, at: d.at, rows: d.rows });
+  const keepOn = () => { const k = ov.querySelector('#pi-keep'); const on = !!(k && k.checked); lsSet(PORTAL_KEEP_KEY, on ? null : '0'); return on; };
+  const apply = ov.querySelector('#pi-apply');
+  if (apply) apply.onclick = () => {
+    const on = (k) => { const c = ov.querySelector(`[data-chg="${k}"]`); return !!(c && c.checked); };
+    if (mine) {
+      if (on('vehicle')) svc.vehicle = tdpVehicleName(mine);
+      if (mine.u) svc.vehicleType = mine.u;
+      if (on('crew')) svc.colleagues = crew.slice();
+      if (on('time') && t) { svc.startAt = t.startAt; svc.endAt = t.endAt; }
+      if (!svc.location && d.station) svc.location = d.station;
+    }
+    if (keepOn()) svc.tdp = snapshot(); 
+    saveState(); close();
+    toast('Aus dem Portal übernommen.', 'success');
+    refreshAfterPlanChange();
+  };
+  const create = ov.querySelector('#pi-create');
+  if (create) create.onclick = () => {
+    const nsv = { id: uid(), startAt: t.startAt, endAt: t.endAt, vehicle: tdpVehicleName(mine), vehicleType: mine.u, location: d.station, colleagues: crew.slice(), note: '', incidents: [], isSeg: false };
+    if (keepOn()) nsv.tdp = snapshot();
+    state.services.push(nsv); saveState(); close();
+    toast('Dienst angelegt.', 'success');
+    selectedServiceId = nsv.id;
+    setTimeout(() => { switchTab('dienste'); openServiceDetail(nsv.id); }, 220);
+  };
+  document.body.appendChild(ov);
+}
+/** Gespeicherter Tagesdienstplan in den Dienst-Details (zugeklappt). */
+function svcTdpHtml(svc) {
+  const d = svc.tdp;
+  if (!d || !Array.isArray(d.rows) || !d.rows.length) return '';
+  const at = new Date(d.at);
+  return `<details class="dv-group pi-saved"><summary>${ICON_CAL}<span>Tagesdienstplan ${escHtml(d.station || '')}</span><small>Stand ${escHtml(at.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))} ${escHtml(formatTimeHM(at))}</small></summary>
+    <ul class="pi-list">${d.rows.map((r) => `<li class="pi-row${r.self ? ' is-self' : ''}">
+      <span class="pi-unit"><b>${escHtml(r.u)}</b>${r.nr ? ` <span class="crew-link" role="button" data-vehicle="${escHtml(r.nr)}">${escHtml(r.nr)}</span>` : ''}</span>
+      <span class="pi-time">${escHtml(r.s)}–${escHtml(r.e)}</span>
+      <span class="pi-crew">${(r.crew || []).map((n) => (sameName(n, r.self) ? `<span class="is-me">${escHtml(n)}</span>` : `<span class="crew-link" role="button" data-colleague="${escHtml(n)}">${escHtml(n)}</span>`)).join(', ')}${(r.open || []).length ? `${(r.crew || []).length ? ', ' : ''}<i>${r.open.map(escHtml).join(', ')}</i>` : ''}</span>
+      ${r.note || (r.loc || []).length ? `<small>${escHtml([(r.loc || []).join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`).join('')}</ul>
+    <button type="button" class="btn-ghost pi-del" data-tdp-del="${escHtml(svc.id)}">Gespeicherten Tagesdienstplan löschen</button></details>`;
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('#btn-portal-paste')) { pastePortalPlan(); return; }
+  const del = e.target.closest && e.target.closest('[data-tdp-del]');
+  if (del) { const sv = state.services.find((x) => x.id === del.dataset.tdpDel); if (sv && confirm('Gespeicherten Tagesdienstplan bei diesem Dienst löschen?')) { delete sv.tdp; saveState(); renderServiceDetail(); } }
 });
 
 // ── Tagesdienstplan nachsehen: Dienststelle + Kalender ─────────────────────
