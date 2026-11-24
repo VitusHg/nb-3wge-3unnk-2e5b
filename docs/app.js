@@ -3075,6 +3075,149 @@ async function printFromTemplate(tplName, ctx) {
   return true;
 }
 
+// ── Excel-Vorlagen (.xlsx) direkt als Formular drucken ──────────────────────
+// Liest Layout (Spalten, Zeilen, verbundene Zellen, Schriften, Rahmen, eingebettete Bilder) aus der
+// hochgeladenen Excel-Datei und setzt Werte in die in der Regeln-Datei angegebenen Zellen.
+async function unzipEntries(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('Keine gültige Excel-Datei.');
+  const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const out = {};
+  for (let k = 0; k < n; k++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + elen + clen;
+    const lh = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+    const raw = u8.subarray(lh, lh + csize);
+    out[name] = async () => {
+      if (method === 0) return raw;
+      if (method !== 8 || typeof DecompressionStream === 'undefined') throw new Error('Excel-Datei kann auf diesem Gerät nicht gelesen werden (Browser zu alt).');
+      return new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    };
+  }
+  return out;
+}
+const colIndex = (letters) => letters.split('').reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
+const cellRef = (ref) => { const m = /^([A-Z]+)(\d+)$/.exec(ref); return m ? { c: colIndex(m[1]), r: +m[2] } : null; };
+/** Excel-Blatt → HTML (für den Druck); values: { 'B9': 'Text', … } überschreiben bzw. füllen Zellen. */
+async function xlsxToHtml(buf, values = {}) {
+  const z = await unzipEntries(buf);
+  const txt = async (name) => (z[name] ? new TextDecoder().decode(await z[name]()) : '');
+  const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
+  const kids = (el, tag) => (el ? [...el.getElementsByTagName(tag)] : []);
+  const strings = kids(xml(await txt('xl/sharedStrings.xml')), 'si').map((si) => kids(si, 't').map((t) => t.textContent).join(''));
+  const st = xml(await txt('xl/styles.xml'));
+  const fonts = kids(kids(st, 'fonts')[0], 'font').map((f) => ({
+    b: !!f.getElementsByTagName('b').length, i: !!f.getElementsByTagName('i').length, u: !!f.getElementsByTagName('u').length,
+    sz: +((f.getElementsByTagName('sz')[0] || {}).getAttribute ? f.getElementsByTagName('sz')[0].getAttribute('val') : 11) || 11,
+    name: (f.getElementsByTagName('name')[0] && f.getElementsByTagName('name')[0].getAttribute('val')) || 'Calibri',
+    color: (() => { const c = f.getElementsByTagName('color')[0]; const rgb = c && c.getAttribute('rgb'); return rgb && rgb.length === 8 ? '#' + rgb.slice(2) : ''; })(),
+  }));
+  const borders = kids(kids(st, 'borders')[0], 'border').map((b) => Object.fromEntries(['left', 'right', 'top', 'bottom'].map((side) => {
+    const e = b.getElementsByTagName(side)[0], s = e && e.getAttribute('style');
+    return [side, !s ? '' : ({ thin: '1px solid', hair: '1px solid', medium: '2px solid', thick: '3px solid', double: '3px double', dashed: '1px dashed', dotted: '1px dotted', mediumDashed: '2px dashed' }[s] || '1px solid') + ' #000'];
+  })));
+  const xfs = kids(kids(st, 'cellXfs')[0], 'xf').map((x) => { const al = x.getElementsByTagName('alignment')[0]; return { font: fonts[+x.getAttribute('fontId') || 0] || fonts[0] || {}, border: borders[+x.getAttribute('borderId') || 0] || {}, h: al && al.getAttribute('horizontal'), v: al && al.getAttribute('vertical'), wrap: al && al.getAttribute('wrapText') === '1' }; });
+  // erstes Blatt
+  const wb = xml(await txt('xl/workbook.xml')), rels = xml(await txt('xl/_rels/workbook.xml.rels'));
+  const firstSheet = kids(wb, 'sheet')[0];
+  const rid = firstSheet && (firstSheet.getAttribute('r:id') || firstSheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'));
+  const target = (kids(rels, 'Relationship').find((r) => r.getAttribute('Id') === rid) || { getAttribute: () => 'worksheets/sheet1.xml' }).getAttribute('Target').replace(/^\/?xl\//, '');
+  const sheetPath = 'xl/' + target;
+  const sh = xml(await txt(sheetPath));
+  const fmt = kids(sh, 'sheetFormatPr')[0];
+  const defW = +(fmt && (fmt.getAttribute('defaultColWidth') || 0)) || (fmt && fmt.getAttribute('baseColWidth') ? +fmt.getAttribute('baseColWidth') + 0.71 : 8.43);
+  const defH = +(fmt && fmt.getAttribute('defaultRowHeight')) || 15;
+  const colW = {}; kids(sh, 'col').forEach((c) => { for (let i = +c.getAttribute('min'); i <= +c.getAttribute('max'); i++) colW[i] = +c.getAttribute('width'); });
+  const cells = {}; const rowH = {}; let maxR = 1, maxC = 1;
+  kids(sh, 'row').forEach((row) => {
+    const r = +row.getAttribute('r'); if (row.getAttribute('ht')) rowH[r] = +row.getAttribute('ht'); maxR = Math.max(maxR, r);
+    kids(row, 'c').forEach((c) => {
+      const ref = cellRef(c.getAttribute('r')); if (!ref) return;
+      const v = c.getElementsByTagName('v')[0], is = c.getElementsByTagName('is')[0], t = c.getAttribute('t');
+      const text = t === 's' && v ? strings[+v.textContent] || '' : t === 'inlineStr' && is ? is.textContent : v ? v.textContent : '';
+      cells[ref.r + ':' + ref.c] = { text, xf: xfs[+c.getAttribute('s') || 0] || xfs[0] || { font: {}, border: {} } };
+      maxC = Math.max(maxC, ref.c);
+    });
+  });
+  const merges = kids(sh, 'mergeCell').map((m) => { const [a, b] = m.getAttribute('ref').split(':').map(cellRef); return a && b ? { r1: a.r, c1: a.c, r2: b.r, c2: b.c } : null; }).filter(Boolean);
+  // Bilder (Zeichnung zum Blatt)
+  const shRels = xml(await txt(sheetPath.replace(/worksheets\/(sheet\d+\.xml)$/, 'worksheets/_rels/$1.rels')));
+  const drawRel = kids(shRels, 'Relationship').find((r) => /drawing/.test(r.getAttribute('Type') || ''));
+  const imgs = [];
+  if (drawRel) {
+    const dPath = 'xl/' + drawRel.getAttribute('Target').replace(/^\.\.\//, '').replace(/^\/?xl\//, '');
+    const dr = xml(await txt(dPath));
+    const dRels = xml(await txt(dPath.replace(/drawings\/(drawing\d+\.xml)$/, 'drawings/_rels/$1.rels')));
+    for (const anc of [...kids(dr, 'xdr:twoCellAnchor'), ...kids(dr, 'xdr:oneCellAnchor')]) {
+      const from = anc.getElementsByTagName('xdr:from')[0], blip = anc.getElementsByTagName('a:blip')[0], ext = [...anc.getElementsByTagName('a:ext'), ...anc.getElementsByTagName('xdr:ext')].find((e) => e.getAttribute('cx'));
+      if (!from || !blip) continue;
+      const emb = blip.getAttribute('r:embed') || blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed');
+      const rel = kids(dRels, 'Relationship').find((r) => r.getAttribute('Id') === emb); if (!rel) continue;
+      const mPath = 'xl/' + rel.getAttribute('Target').replace(/^\.\.\//, '');
+      if (!z[mPath]) continue;
+      const bytes = await z[mPath]();
+      const ext2 = mPath.split('.').pop().toLowerCase();
+      const url = URL.createObjectURL(new Blob([bytes], { type: ext2 === 'jpg' || ext2 === 'jpeg' ? 'image/jpeg' : 'image/' + ext2 }));
+      const g = (tag) => +((from.getElementsByTagName(tag)[0] || {}).textContent || 0);
+      imgs.push({ url, col: g('xdr:col') + 1, colOff: g('xdr:colOff'), row: g('xdr:row') + 1, rowOff: g('xdr:rowOff'), cx: ext ? +ext.getAttribute('cx') : 0, cy: ext ? +ext.getAttribute('cy') : 0 });
+    }
+  }
+  // Werte einsetzen
+  Object.entries(values).forEach(([ref, val]) => { const p = cellRef(ref); if (!p) return; const k = p.r + ':' + p.c; cells[k] = { ...(cells[k] || { xf: xfs[0] || { font: {}, border: {} } }), text: String(val ?? ''), filled: true }; maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); });
+  // Maße: Spaltenbreite in Zeichen → px (wie Excel), Zeilenhöhe pt → px
+  const wPx = (c) => Math.round((colW[c] || defW) * 7 + 5), hPx = (r) => Math.round((rowH[r] || defH) * 4 / 3);
+  const covered = new Set(); const spanAt = {};
+  merges.forEach((m) => { spanAt[m.r1 + ':' + m.c1] = m; for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++) if (r !== m.r1 || c !== m.c1) covered.add(r + ':' + c); });
+  const colX = [0]; for (let c = 1; c <= maxC; c++) colX[c] = colX[c - 1] + wPx(c);
+  const rowY = [0]; for (let r = 1; r <= maxR; r++) rowY[r] = rowY[r - 1] + hPx(r);
+  let html = `<div class="xl-sheet" style="position:relative;width:${colX[maxC]}px"><table class="xl" style="width:${colX[maxC]}px"><colgroup>${Array.from({ length: maxC }, (_, i) => `<col style="width:${wPx(i + 1)}px">`).join('')}</colgroup>`;
+  for (let r = 1; r <= maxR; r++) {
+    html += `<tr style="height:${hPx(r)}px">`;
+    for (let c = 1; c <= maxC; c++) {
+      const k = r + ':' + c; if (covered.has(k)) continue;
+      const cell = cells[k], m = spanAt[k];
+      if (!cell && !m) { html += '<td></td>'; continue; }
+      const xf = (cell && cell.xf) || { font: {}, border: {} }, f = xf.font || {}, b = xf.border || {};
+      // Rahmen: bei verbundenen Zellen rechts/unten von der letzten Zelle des Bereichs
+      const endB = m ? (((cells[m.r2 + ':' + m.c2] || {}).xf || {}).border || {}) : b;
+      const style = [
+        f.sz ? `font-size:${f.sz}pt` : '', f.b ? 'font-weight:700' : '', f.i ? 'font-style:italic' : '', f.u ? 'text-decoration:underline' : '', f.color ? `color:${f.color}` : '',
+        f.name ? `font-family:'${f.name.replace(/'/g, '')}',Arial,sans-serif` : '',
+        b.left ? `border-left:${b.left}` : '', (m ? endB.right || b.right : b.right) ? `border-right:${m ? endB.right || b.right : b.right}` : '',
+        b.top ? `border-top:${b.top}` : '', (m ? endB.bottom || b.bottom : b.bottom) ? `border-bottom:${m ? endB.bottom || b.bottom : b.bottom}` : '',
+        xf.h ? `text-align:${xf.h === 'centerContinuous' ? 'center' : xf.h}` : '', `vertical-align:${xf.v === 'center' ? 'middle' : xf.v || 'bottom'}`,
+        xf.wrap || (cell && cell.filled && m) ? 'white-space:normal' : 'white-space:nowrap',
+      ].filter(Boolean).join(';');
+      html += `<td${m ? ` colspan="${m.c2 - m.c1 + 1}" rowspan="${m.r2 - m.r1 + 1}"` : ''}${cell && cell.filled ? ' class="xl-val"' : ''} style="${style}">${escHtml((cell && cell.text) || '').replace(/\n/g, '<br>')}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  imgs.forEach((im) => { html += `<img class="xl-img" src="${im.url}" alt="" style="position:absolute;left:${colX[im.col - 1] + im.colOff / 9525}px;top:${rowY[im.row - 1] + im.rowOff / 9525}px;width:${im.cx / 9525}px;height:${im.cy / 9525}px">`; });
+  return html + '</div>';
+}
+const dataUrlToBuf = async (u) => (await fetch(u)).arrayBuffer();
+/** Excel-Vorlage drucken: Datei vom Worker (bzw. Gerätespeicher), Zellwerte laut Zuordnung. */
+async function printFromXlsx(fileName, cellValues) {
+  let f;
+  try { f = await wfGet(fileName); } catch (err) { toast(`„${fileName}“ fehlt – Einstellungen → Formulare & Dateien. (${err.message})`, 'error', 6000); return false; }
+  let html;
+  try { html = await xlsxToHtml(await dataUrlToBuf(f.data), cellValues); } catch (err) { toast('Excel-Vorlage konnte nicht gelesen werden: ' + err.message, 'error', 6000); return false; }
+  let area = document.getElementById('print-area');
+  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
+  area.innerHTML = html;
+  document.body.classList.add('printing', 'printing-tpl');
+  const done = () => { document.body.classList.remove('printing', 'printing-tpl'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  await Promise.all([...area.querySelectorAll('img')].map((im) => (im.complete ? null : new Promise((ok) => { im.onload = im.onerror = ok; }))));
+  window.print();
+  return true;
+}
+
 // ── Kostenersatz (Regeln und Formular kommen vom Worker) ───────────────────
 // Stammdaten (Name, Adresse, SV-Nr., Geburtsdatum, IBAN, BIC, Pers.-Nr.) bleiben NUR auf diesem Gerät –
 // sie werden weder synchronisiert noch in Sicherungen exportiert.
@@ -3118,7 +3261,7 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
   keYM = [y, m];
   const R = keRules();
   // Regeln und Vorlagen im Hintergrund vom Worker auffrischen
-  if (!refreshed && dpConfigured()) Promise.all([KE_RULES, KE_TPL, FF_TPL].map((f) => wfGet(f).catch(() => null))).then((r) => {
+  if (!refreshed && dpConfigured()) wfGet(KE_RULES).catch(() => null).then(() => { const X = (keRules() || {}).fernfahrten; return Promise.all([KE_TPL, X && X.datei ? wfSafeName(X.datei) : FF_TPL].map((f) => wfGet(f).catch(() => null))); }).then((r) => {
     const R2 = keRules();
     if (JSON.stringify(R2) !== JSON.stringify(R) && document.querySelector('.ke-ov')) openKostenersatz(y, m, { refreshed: true });
     else { const st = document.querySelector('.ke-tpl-status'); if (st) st.innerHTML = keTplStatusHtml(); }
@@ -3197,7 +3340,9 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
 }
 function keTplStatusHtml() {
   const has = (f) => !!wfCached(f);
-  const items = [[KE_TPL, 'Formular'], [KE_RULES, 'Regeln'], [FF_TPL, 'Fernfahrten']];
+  const X = (keRules() || {}).fernfahrten;
+  const ffFile = X && X.datei ? wfSafeName(X.datei) : FF_TPL;
+  const items = [[KE_TPL, 'Formular'], [KE_RULES, 'Regeln'], [ffFile, 'Fernfahrten']];
   if (items.every(([f]) => has(f))) return '';
   return `<p class="pi-msg">📄 Vorlagen vom Worker: ${items.map(([f, l]) => `${has(f) ? '✓' : '✗'} ${l}`).join(' · ')} – <button type="button" class="btn-link" data-goto-files>Formulare &amp; Dateien</button></p>`;
 }
@@ -3253,10 +3398,18 @@ function printFernfahrt(svc, inc) {
   const v = ffDefaults(svc, inc);
   const pr = keProfile();
   const d = parseLocalDt(v.date + 'T12:00');
-  return printFromTemplate(FF_TPL, {
+  const vals = {
     name: pr.name || (state.profile || {}).displayName || '', persnr: pr.persnr || '', adresse: pr.address || '', iban: pr.iban || '', bic: pr.bic || '',
     datum: d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', reiseweg: v.route, transportnummer: v.nr, km: v.km ? String(v.km) : '',
-  });
+  };
+  // Excel-Vorlage laut Regeln („fernfahrten“: { datei, zellen: { "B9": "name", … }, texte: { "A40": "…" } }), sonst HTML-Vorlage
+  const X = (keRules() || {}).fernfahrten;
+  if (X && X.datei && X.zellen) {
+    const cellVals = { ...(X.texte || {}) };
+    Object.entries(X.zellen).forEach(([ref, key]) => { cellVals[ref] = vals[key] != null ? vals[key] : ''; });
+    return printFromXlsx(wfSafeName(X.datei), cellVals);
+  }
+  return printFromTemplate(FF_TPL, vals);
 }
 /** Einsatzort/Tätigkeit für eine Zeile: Fahrzeug · Dienststelle bzw. bei Ambulanz/SEG der Anlass. */
 function keText(svc) {
@@ -4885,7 +5038,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 173;
+const APP_VERSION = 174;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5404,7 +5557,7 @@ function settingsPageBenachrichtigungen(el, title) {
 }
 
 // — Formulare & Dateien (auf dem eigenen Worker) ——————————————————————
-const WF_KNOWN = { 'kostenersatz.html': 'Formular Kostenersatz', 'kostenersatz.json': 'Regeln Kostenersatz (Sätze, Grenzen, Diäten)', 'fernfahrten.html': 'Formular Abrechnung Fernfahrten', 'logo.png': 'Logo für Formulare' };
+const WF_KNOWN = { 'kostenersatz.html': 'Formular Kostenersatz', 'kostenersatz.json': 'Regeln (Sätze, Grenzen, Diäten, Excel-Zuordnung)' };
 let _wfListCache = null;
 function settingsPageDateien(el, title) {
   const fmtSize = (b) => (b < 1024 ? b + ' B' : b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1).replace('.', ',') + ' MB');
@@ -5433,7 +5586,11 @@ function settingsPageDateien(el, title) {
       for (const file of list) {
         let name = wfSafeName(file.name);
         if (/^(kostenersatz|fernfahrten)\.htm$/i.test(name)) name += 'l';
-        try { await wfUpload(file, name); toast(`„${name}“ hochgeladen.`, 'success', 1500); if (WF_KNOWN[name]) await wfGet(name).catch(() => {}); } catch (e) { toast(`„${file.name}“: ${e.message}`, 'error', 5000); }
+        try {
+          await wfUpload(file, name); toast(`„${name}“ hochgeladen.`, 'success', 1500);
+          const X = (keRules() || {}).fernfahrten;
+          if (WF_KNOWN[name] || (X && X.datei && wfSafeName(X.datei) === name)) await wfGet(name).catch(() => {});
+        } catch (e) { toast(`„${file.name}“: ${e.message}`, 'error', 5000); }
       }
       load();
     });
@@ -5452,7 +5609,8 @@ function settingsPageDateien(el, title) {
     }));
     el.querySelector('#wf-refresh').onclick = async () => {
       let n = 0;
-      for (const f of Object.keys(WF_KNOWN)) { try { await wfGet(f); n++; } catch (_) {} }
+      const X = (keRules() || {}).fernfahrten;
+      for (const f of [...Object.keys(WF_KNOWN), ...(X && X.datei ? [wfSafeName(X.datei)] : [])]) { try { await wfGet(f); n++; } catch (_) {} }
       toast(`${n} Vorlage${n === 1 ? '' : 'n'} aktualisiert.`, n ? 'success' : 'error', 2000);
       render(_wfListCache || [], '');
     };
