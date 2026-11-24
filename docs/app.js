@@ -4569,7 +4569,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 168;
+const APP_VERSION = 169;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -9775,8 +9775,8 @@ function tdpDiff(oldRows, newRows) {
   const { match, removed, added } = tdpMatchRows(oldRows, newRows);
   const out = [];
   const crewTxt = (r) => (r.crew.length ? ` (${r.crew.join(', ')})` : '');
-  added.forEach((r) => out.push({ self: !!r.self, t: `Neu: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
-  removed.forEach((r) => out.push({ self: !!r.self, t: `Entfallen: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
+  added.forEach((r) => out.push({ self: !!r.self, s: r.s, e: r.e, t: `Neu: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
+  removed.forEach((r) => out.push({ self: !!r.self, s: r.s, e: r.e, t: `Entfallen: ${tdpLabel(r)} ${r.s}–${r.e}${crewTxt(r)}` }));
   match.forEach(([a, b]) => {
     const self = !!(a.self || b.self), L = tdpLabel(b), parts = [];
     if (a.nr !== b.nr) parts.push(a.nr && b.nr ? `Nummer ${a.nr} → ${b.nr}` : b.nr ? `Nummer ${b.nr}` : `Nummer ${a.nr} entfernt`);
@@ -9792,13 +9792,20 @@ function tdpDiff(oldRows, newRows) {
     else if (oMinus.length) parts.push(`(${oMinus.length} offene ${oMinus.length === 1 ? 'Stelle' : 'Stellen'} besetzt)`);
     if (norm(a.note) !== norm(b.note)) parts.push(b.note ? `Notiz „${b.note}“` : 'Notiz entfernt');
     if (norm(a.loc.join(' · ')) !== norm(b.loc.join(' · '))) parts.push(`Ort ${b.loc.join(' · ') || '—'}`);
-    if (parts.length) out.push({ self, t: `${L}: ${parts.join(' · ')}` });
+    if (parts.length) out.push({ self, s: b.s, e: b.e, t: `${L} ${b.s}–${b.e}: ${parts.join(' · ')}` });
   });
-  // eigene Einteilung auf ein anderes Fahrzeug gewechselt
-  const meOld = oldRows.find((r) => r.self), meNew = newRows.find((r) => r.self);
-  if (meOld && meNew && !match.some(([a, b]) => a === meOld && b === meNew)) out.unshift({ self: true, t: `Du: ${tdpLabel(meOld)} ${meOld.s}–${meOld.e} → ${tdpLabel(meNew)} ${meNew.s}–${meNew.e}` });
-  else if (meOld && !meNew) out.unshift({ self: true, t: `Du bist nicht mehr eingeteilt (vorher ${tdpLabel(meOld)} ${meOld.s}–${meOld.e})` });
-  else if (!meOld && meNew) out.unshift({ self: true, t: `Du bist neu eingeteilt: ${tdpLabel(meNew)} ${meNew.s}–${meNew.e}` });
+  // eigene Einteilung (kann mehrere Zeilen am Tag haben, z. B. Tag + Übergang + Nacht)
+  const meOld = oldRows.filter((r) => r.self), meNew = newRows.filter((r) => r.self);
+  const sameMe = (a, b) => match.some(([x, y]) => x === a && y === b);
+  if (meOld.length === 1 && meNew.length === 1 && !sameMe(meOld[0], meNew[0])) out.unshift({ self: true, s: meNew[0].s, e: meNew[0].e, t: `Du: ${tdpLabel(meOld[0])} ${meOld[0].s}–${meOld[0].e} → ${tdpLabel(meNew[0])} ${meNew[0].s}–${meNew[0].e}` });
+  else {
+    // in einer bestehenden Zeile ein- bzw. ausgetragen
+    match.forEach(([a, b]) => {
+      if (a.self && !b.self) out.unshift({ self: true, s: a.s, e: a.e, t: `Du bist nicht mehr auf ${tdpLabel(b)} ${b.s}–${b.e}` });
+      if (!a.self && b.self) out.unshift({ self: true, s: b.s, e: b.e, t: `Du bist neu auf ${tdpLabel(b)} ${b.s}–${b.e}` });
+    });
+    if (meOld.length && !meNew.length) out.unshift({ self: true, t: 'Du bist an diesem Tag nicht mehr eingeteilt' });
+  }
   return out.sort((x, y) => (y.self ? 1 : 0) - (x.self ? 1 : 0));
 }
 const portalPlanKey = (station, date) => `${stationKey(station) || 'n:'}|${date}`;
@@ -9836,61 +9843,92 @@ function deletePortalData(key, { logOnly = false } = {}) {
 
 function openPortalImport(d) {
   const rec = recordPortalPlan(d);
-  const mine = d.rows.find((r) => r.self) || null;
-  const svc = serviceForPortal(d, mine);
-  // eigene Änderungen auch beim Dienst vermerken (erscheinen u. a. im Kalender-Export)
-  if (svc && rec.changes && rec.changes.length) {
-    const have = new Set((svc.planLog || []).map((x) => x.id));
-    rec.changes.filter((c) => c.self).forEach((c, i) => { const id = `portal-${d.at}-${i}`; if (have.has(id)) return; (svc.planLog = svc.planLog || []).push({ id, at: d.at, txt: `${new Date(d.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })} ${formatTimeHM(new Date(d.at))} · Portal · ${c.t}` }); });
+  const fmt = lsGet(PORTAL_VEHFMT_KEY) || 'nr';
+  const keep = lsGet(PORTAL_KEEP_KEY) !== '0';
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tm = (x) => { const z = parseLocalDt(x); return z ? `${p2(z.getHours())}:${p2(z.getMinutes())}` : ''; };
+  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
+  // Alle eigenen Zeilen des Tages (z. B. Tag, Übergang, Nacht) dem jeweils überlappenden Tagebuch-Dienst zuordnen
+  const svcs = state.services.filter((x) => !x.isSeg);
+  const mineRows = d.rows.filter((r) => r.self).map((r) => ({ r, t: tdpRowTimes(d.date, r) }));
+  const groups = []; const unmatched = [];
+  mineRows.forEach((m) => {
+    let best = null, bestOv = 0;
+    if (m.t) svcs.forEach((x) => { const a = parseLocalDt(x.startAt), b = parseLocalDt(x.endAt); if (!a || !b) return; const ov = Math.min(+b, +m.t.b) - Math.max(+a, +m.t.a); if (ov > bestOv) { best = x; bestOv = ov; } });
+    if (best && bestOv >= 30 * 60000) { let g = groups.find((x) => x.svc === best); if (!g) groups.push(g = { svc: best, rows: [] }); g.rows.push(m); }
+    else unmatched.push(m);
+  });
+  // ohne eigene Zeile: Dienst gleicher Tag + Dienststelle (nur zum Speichern des Tagesdienstplans)
+  const fallbackSvc = !mineRows.length ? serviceForPortal(d, null) : null;
+  // Werte je Gruppe: Beginn des ersten, Ende des letzten Teils, alle Mitfahrenden
+  groups.forEach((g) => {
+    g.rows.sort((a, b) => (a.t ? +a.t.a : 0) - (b.t ? +b.t.a : 0));
+    const first = g.rows[0], last = g.rows.reduce((m, x) => (x.t && (!m.t || x.t.b > m.t.b) ? x : m), first);
+    g.t = first.t && last.t ? { startAt: first.t.startAt, endAt: last.t.endAt, s: first.r.s, e: last.r.e } : null;
+    g.crew = []; g.rows.forEach(({ r }) => r.crew.forEach((n) => { if (!sameName(n, r.self) && !g.crew.some((c) => sameName(c, n))) g.crew.push(n); }));
+    g.veh = g.rows.find(({ r }) => r.nr) || first;
+    const svc = g.svc, ch = [];
+    const veh = tdpVehicleName(g.veh.r, fmt);
+    if (g.veh.r.nr && !sameName(svc.vehicle, veh)) ch.push(['vehicle', 'Fahrzeug', `${svc.vehicle || '—'} → ${veh}`, true]);
+    const have = new Set((svc.colleagues || []).map(norm));
+    const add = g.crew.filter((n) => !have.has(norm(n))), del = (svc.colleagues || []).filter((n) => !g.crew.some((c) => norm(c) === norm(n)));
+    if (add.length || del.length) ch.push(['crew', 'Besatzung', [...add.map((n) => '+ ' + n), ...del.map((n) => '− ' + n)].join(', '), true]);
+    if (g.t && (svc.startAt !== g.t.startAt || svc.endAt !== g.t.endAt)) ch.push(['time', 'Zeit', `${tm(svc.startAt)}–${tm(svc.endAt)} → ${g.t.s}–${g.t.e}`, false]);
+    g.changes = ch;
+  });
+  // eigene Änderungen beim passenden Dienst vermerken (erscheinen u. a. im Kalender-Export)
+  if (rec.changes && rec.changes.length) {
+    const stamp = `${new Date(d.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })} ${formatTimeHM(new Date(d.at))} · Portal · `;
+    rec.changes.forEach((c, i) => {
+      if (!c.self) return;
+      const at = c.s ? parseLocalDt(`${d.date}T${c.s}`) : null;
+      const targets = groups.map((g) => g.svc).filter((sv) => { if (!at) return true; const a = parseLocalDt(sv.startAt), b = parseLocalDt(sv.endAt); return a && b && at >= a && at < b; });
+      targets.forEach((sv) => { const id = `portal-${d.at}-${i}`; if ((sv.planLog || []).some((x) => x.id === id)) return; (sv.planLog = sv.planLog || []).push({ id, at: d.at, txt: stamp + c.t }); });
+    });
     saveState();
   }
   const sinceStr = rec.prev ? `${new Date(rec.prev.at).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' })} ${formatTimeHM(new Date(rec.prev.at))}` : '';
   const changesHtml = !rec.prev ? '<p class="pi-msg">Erster Stand für diesen Tag gespeichert. Beim nächsten Einfügen siehst du hier, was sich geändert hat.</p>'
     : !rec.changes.length ? `<p class="pi-msg">✓ Keine Änderungen seit ${escHtml(sinceStr)}.</p>`
     : `<div class="cp-sub">Änderungen seit ${escHtml(sinceStr)} · ${rec.changes.length}</div><ul class="pi-diff">${rec.changes.map((c) => `<li${c.self ? ' class="is-self"' : ''}>${escHtml(c.t)}</li>`).join('')}</ul>`;
-  const t = mine ? tdpRowTimes(d.date, mine) : null;
-  const fmt = lsGet(PORTAL_VEHFMT_KEY) || 'nr';
-  const keep = lsGet(PORTAL_KEEP_KEY) !== '0';
-  const crew = mine ? mine.crew.filter((n) => !sameName(n, mine.self)) : [];
   const dayStr = parseLocalDt(d.date + 'T12:00').toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
-  const p2 = (n) => String(n).padStart(2, '0');
-  const tm = (x) => { const z = parseLocalDt(x); return z ? `${p2(z.getHours())}:${p2(z.getMinutes())}` : ''; };
-  const norm = (x) => String(x).toLowerCase().replace(/\s+/g, ' ').trim();
-  const changes = [];
-  if (svc && mine) {
-    const veh = tdpVehicleName(mine, fmt);
-    if (mine.nr && !sameName(svc.vehicle, veh)) changes.push(['vehicle', 'Fahrzeug', `${svc.vehicle || '—'} → ${veh}`, true]);
-    const have = new Set((svc.colleagues || []).map(norm));
-    const add = crew.filter((n) => !have.has(norm(n))), del = (svc.colleagues || []).filter((n) => !crew.some((c) => norm(c) === norm(n)));
-    if (add.length || del.length) changes.push(['crew', 'Besatzung', [...add.map((n) => '+ ' + n), ...del.map((n) => '− ' + n)].join(', '), true]);
-    if (t && (svc.startAt !== t.startAt || svc.endAt !== t.endAt)) changes.push(['time', 'Zeit', `${tm(svc.startAt)}–${tm(svc.endAt)} → ${mine.s}–${mine.e}`, false]);
-  }
+  const anyNr = mineRows.find(({ r }) => r.nr);
+  const mineCard = ({ r }) => { const c = r.crew.filter((n) => !sameName(n, r.self)); return `<div class="pi-mine">
+      <div class="pi-mine-veh">${escHtml(r.u)} <b>${escHtml(r.nr || '')}</b> <span class="pi-mine-time">${escHtml(r.s)}–${escHtml(r.e)}</span></div>
+      ${c.length ? `<div>mit ${escHtml(c.join(', '))}</div>` : ''}
+      ${r.note || r.loc.length ? `<small>${escHtml([r.loc.join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</div>`; };
+  const groupHtml = (g, gi) => `<section class="pi-group">
+      <div class="cp-sub">${g.rows.length > 1 ? `${g.rows.length} Teile → ` : ''}Dein Dienst im Tagebuch · ${escHtml(g.svc.vehicle || 'Dienst')} ${escHtml(tm(g.svc.startAt))}–${escHtml(tm(g.svc.endAt))}</div>
+      ${g.rows.map(mineCard).join('')}
+      ${g.changes.length ? `<div class="pi-changes">${g.changes.map(([k, l, txt, on]) => `<label class="pi-chg"><input type="checkbox" data-chg="${gi}-${k}"${on ? ' checked' : ''}><span><b>${l}</b> ${escHtml(txt)}</span></label>`).join('')}</div>` : '<p class="cp-line">✓ Stimmt mit deinem Dienst überein.</p>'}
+    </section>`;
+  const newHtml = (m, ni) => `<section class="pi-group is-new">
+      <div class="cp-sub">Noch nicht im Tagebuch</div>
+      ${mineCard(m)}
+      ${m.t ? `<label class="pi-chg"><input type="checkbox" data-new="${ni}"${(m.t.b - m.t.a) > 2 * 3600e3 ? ' checked' : ''}><span><b>Als Dienst anlegen</b> ${escHtml(m.r.s)}–${escHtml(m.r.e)}</span></label>` : ''}
+    </section>`;
   const rowHtml = (r) => `<li class="pi-row${r.self ? ' is-self' : ''}">
       <span class="pi-unit"><b>${escHtml(r.u)}</b>${r.nr ? ` <span>${escHtml(r.nr)}</span>` : ''}</span>
       <span class="pi-time">${escHtml(r.s)}–${escHtml(r.e)}</span>
       <span class="pi-crew">${r.crew.map((n) => `<span${sameName(n, r.self) ? ' class="is-me"' : ''}>${escHtml(n)}</span>`).join(', ')}${r.open.length ? `${r.crew.length ? ', ' : ''}<i>${r.open.map(escHtml).join(', ')}</i>` : ''}</span>
       ${r.note || r.loc.length ? `<small>${escHtml([r.loc.join(' · '), r.note].filter(Boolean).join(' · '))}</small>` : ''}</li>`;
+  const hasAction = groups.length || unmatched.some((m) => m.t) || fallbackSvc;
   document.querySelectorAll('.pi-ov').forEach((x) => x.remove());
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay lp-ov pi-ov'; ov.style.zIndex = '2000';
   ov.innerHTML = `<div class="dialog-box lp-box pi-box" style="--mc:#ff3b30">
-    <div class="lp-head"><span class="lp-ic">📋</span><div class="lp-head-t"><h3>${escHtml(d.station || 'Tagesdienstplan')}</h3><span>${escHtml(dayStr)} · ${d.rows.length} Fahrzeuge</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="lp-head"><span class="lp-ic">📋</span><div class="lp-head-t"><h3>${escHtml(d.station || 'Tagesdienstplan')}</h3><span>${escHtml(dayStr)} · ${d.rows.length} Fahrzeuge${mineRows.length > 1 ? ` · du ${mineRows.length}× eingeteilt` : ''}</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
     <div class="dialog-body lp-body">
       ${changesHtml}
-      ${mine ? `<div class="pi-mine">
-        <div class="pi-mine-veh">${escHtml(mine.u)} <b>${escHtml(mine.nr || '')}</b></div>
-        <div>${escHtml(mine.s)}–${escHtml(mine.e)}${crew.length ? ` · mit ${escHtml(crew.join(', '))}` : ''}</div>
-        ${mine.note || mine.loc.length ? `<small>${escHtml([mine.loc.join(' · '), mine.note].filter(Boolean).join(' · '))}</small>` : ''}
-      </div>` : '<p class="pi-msg">Du bist an diesem Tag in diesem Tagesdienstplan nicht eingeteilt.</p>'}
-      ${svc ? `<div class="cp-sub">Dein Dienst im Tagebuch · ${escHtml(svc.vehicle || 'Dienst')} ${escHtml(tm(svc.startAt))}–${escHtml(tm(svc.endAt))}</div>
-        ${changes.length ? `<div class="pi-changes">${changes.map(([k, l, txt, on]) => `<label class="pi-chg"><input type="checkbox" data-chg="${k}"${on ? ' checked' : ''}><span><b>${l}</b> ${escHtml(txt)}</span></label>`).join('')}</div>` : mine ? '<p class="cp-line">✓ Stimmt mit deinem Dienst überein.</p>' : ''}`
-        : mine ? '<p class="cp-line">Im Tagebuch gibt es dazu noch keinen Dienst.</p>' : ''}
-      ${mine && mine.nr ? `<div class="pi-fmt"><span>Fahrzeug eintragen als</span><div class="pm-seg"><button type="button" data-fmt="nr"${fmt === 'nr' ? ' class="is-on"' : ''}>${escHtml(mine.nr)}</button><button type="button" data-fmt="full"${fmt === 'full' ? ' class="is-on"' : ''}>${escHtml(mine.u + ' ' + mine.nr)}</button></div></div>` : ''}
-      ${svc || mine ? `<label class="pi-chg"><input type="checkbox" id="pi-keep"${keep ? ' checked' : ''}><span><b>Ganzen Tagesdienstplan beim Dienst speichern</b> – alle Fahrzeuge mit Besatzung, Stand ${escHtml(formatTimeHM(new Date(d.at)))}</span></label>` : ''}
+      ${!mineRows.length ? '<p class="pi-msg">Du bist an diesem Tag in diesem Tagesdienstplan nicht eingeteilt.</p>' : ''}
+      ${groups.map(groupHtml).join('')}
+      ${unmatched.map(newHtml).join('')}
+      ${anyNr ? `<div class="pi-fmt"><span>Fahrzeug eintragen als</span><div class="pm-seg"><button type="button" data-fmt="nr"${fmt === 'nr' ? ' class="is-on"' : ''}>${escHtml(anyNr.r.nr)}</button><button type="button" data-fmt="full"${fmt === 'full' ? ' class="is-on"' : ''}>${escHtml(anyNr.r.u + ' ' + anyNr.r.nr)}</button></div></div>` : ''}
+      ${hasAction ? `<label class="pi-chg"><input type="checkbox" id="pi-keep"${keep ? ' checked' : ''}><span><b>Ganzen Tagesdienstplan beim Dienst speichern</b> – alle Fahrzeuge mit Besatzung, Stand ${escHtml(formatTimeHM(new Date(d.at)))}</span></label>` : ''}
       <details class="pi-all"><summary>Tagesdienstplan anzeigen</summary><ul class="pi-list">${d.rows.map(rowHtml).join('')}</ul></details>
       <div class="ms-actions">
-        <button type="button" class="btn-secondary" id="pi-cancel">Abbrechen</button>
-        ${svc ? '<button type="button" class="btn-primary" id="pi-apply">Übernehmen</button>' : mine && t ? '<button type="button" class="btn-primary" id="pi-create">Dienst anlegen</button>' : ''}
+        <button type="button" class="btn-secondary" id="pi-cancel">${hasAction ? 'Abbrechen' : 'Schließen'}</button>
+        ${hasAction ? '<button type="button" class="btn-primary" id="pi-apply">Übernehmen</button>' : ''}
       </div>
     </div></div>`;
   const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
@@ -9903,26 +9941,29 @@ function openPortalImport(d) {
   const apply = ov.querySelector('#pi-apply');
   if (apply) apply.onclick = () => {
     const on = (k) => { const c = ov.querySelector(`[data-chg="${k}"]`); return !!(c && c.checked); };
-    if (mine) {
-      if (on('vehicle')) svc.vehicle = tdpVehicleName(mine);
-      if (mine.u) svc.vehicleType = mine.u;
-      if (on('crew')) svc.colleagues = crew.slice();
-      if (on('time') && t) { svc.startAt = t.startAt; svc.endAt = t.endAt; }
+    const kept = keepOn();
+    groups.forEach((g, gi) => {
+      const svc = g.svc;
+      if (on(`${gi}-vehicle`)) svc.vehicle = tdpVehicleName(g.veh.r);
+      if (g.veh.r.u) svc.vehicleType = g.veh.r.u;
+      if (on(`${gi}-crew`)) svc.colleagues = g.crew.slice();
+      if (on(`${gi}-time`) && g.t) { svc.startAt = g.t.startAt; svc.endAt = g.t.endAt; }
       if (!svc.location && d.station) svc.location = d.station;
-    }
-    if (keepOn()) svc.tdp = snapshot(); 
+      if (kept) svc.tdp = snapshot();
+    });
+    let created = 0, lastNew = null;
+    unmatched.forEach((m, ni) => {
+      const c = ov.querySelector(`[data-new="${ni}"]`);
+      if (!c || !c.checked || !m.t) return;
+      const nsv = { id: uid(), startAt: m.t.startAt, endAt: m.t.endAt, vehicle: tdpVehicleName(m.r), vehicleType: m.r.u, location: d.station, colleagues: m.r.crew.filter((n) => !sameName(n, m.r.self)), note: '', incidents: [], isSeg: false };
+      if (kept) nsv.tdp = snapshot();
+      state.services.push(nsv); created++; lastNew = nsv;
+    });
+    if (fallbackSvc && kept) fallbackSvc.tdp = snapshot();
     saveState(); close();
-    toast('Aus dem Portal übernommen.', 'success');
+    toast(created ? `Übernommen · ${created} ${created === 1 ? 'Dienst' : 'Dienste'} angelegt.` : 'Aus dem Portal übernommen.', 'success');
     refreshAfterPlanChange();
-  };
-  const create = ov.querySelector('#pi-create');
-  if (create) create.onclick = () => {
-    const nsv = { id: uid(), startAt: t.startAt, endAt: t.endAt, vehicle: tdpVehicleName(mine), vehicleType: mine.u, location: d.station, colleagues: crew.slice(), note: '', incidents: [], isSeg: false };
-    if (keepOn()) nsv.tdp = snapshot();
-    state.services.push(nsv); saveState(); close();
-    toast('Dienst angelegt.', 'success');
-    selectedServiceId = nsv.id;
-    setTimeout(() => { switchTab('dienste'); openServiceDetail(nsv.id); }, 220);
+    if (created === 1 && !groups.length) { selectedServiceId = lastNew.id; setTimeout(() => { switchTab('dienste'); openServiceDetail(lastNew.id); }, 220); }
   };
   document.body.appendChild(ov);
 }
