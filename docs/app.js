@@ -4569,7 +4569,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 167;
+const APP_VERSION = 168;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5090,7 +5090,7 @@ function settingsPagePortal(el, title) {
     <div class="set-group-header">So funktioniert’s</div>
     <div class="set-group"><div class="set-row"><span class="set-row-text set-row-sub pi-steps">
       1. Lesezeichen unten einmal einrichten.<br>2. Im Dienstplan-Portal anmelden und einen <b>Tagesdienstplan</b> öffnen.<br>3. Lesezeichen „→ Einsatztagebuch“ antippen → „Kopieren“.<br>4. Hier in der App: Dienstplan → 📋 <b>Aus Portal einfügen</b>.</span></div></div>
-    <p class="set-group-footer">Das Lesezeichen läuft nur in deinem eigenen, angemeldeten Browser und liest die gerade offene Seite. Dein Passwort bleibt bei dir – es geht weder an die App noch an den Worker.${portalAppUrl() ? ' Weil das Einsatztagebuch hier im Browser läuft, öffnet das Lesezeichen danach gleich diesen Tab mit dem Import – Code bzw. Userscript bitte von hier kopieren.' : ''}</p>
+    <p class="set-group-footer">Das Lesezeichen läuft nur in deinem eigenen, angemeldeten Browser und liest die gerade offene Seite. Dein Passwort bleibt bei dir – es geht weder an die App noch an den Worker. Im Fenster gibt es „Kopieren“ (danach hier „Einfügen“ – am Handy mit der installierten App) und „Kopieren &amp; öffnen“ (öffnet das Einsatztagebuch im Browser gleich mit dem Import – praktisch am Computer).</p>
     <div class="set-group-header">Lesezeichen einrichten</div>
     <div class="set-group">
       <div class="set-row"><textarea readonly class="pi-code" rows="3">${escHtml(code)}</textarea></div>
@@ -9587,19 +9587,22 @@ function etbPortalGrab(appUrl) {
   var mine = out.rows.filter(function (r) { return r.self; })[0];
   var box = document.createElement('div');
   box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;font:15px -apple-system,system-ui,sans-serif';
-  box.innerHTML = '<div style="background:#fff;color:#111;border-radius:16px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)"><b style="font-size:17px">Für das Einsatztagebuch</b><p style="margin:8px 0 14px;color:#444;font-size:14px;line-height:1.4"></p><div style="display:flex;gap:8px"><button type="button" data-c style="flex:1;padding:12px;border:0;border-radius:12px;background:#ff3b30;color:#fff;font-weight:700;font-size:15px">' + (appUrl ? 'Kopieren &amp; übernehmen' : 'Kopieren') + '</button><button type="button" data-x style="padding:12px 16px;border:0;border-radius:12px;background:#eee;font-size:15px">Schließen</button></div></div>';
-  box.querySelector('p').textContent = (out.station || 'Tagesdienstplan') + (out.date ? ' · ' + out.date.split('-').reverse().join('.') : '') + ' · ' + out.rows.length + ' Fahrzeuge' + (mine ? ' · du: ' + clean(mine.u + ' ' + mine.nr) + ' ' + mine.s + '–' + mine.e : ' · du bist hier nicht eingeteilt') + (appUrl ? '. Das Einsatztagebuch öffnet sich danach gleich mit dem Import.' : '. Nach „Kopieren“ zurück ins Einsatztagebuch wechseln und „Einfügen“ tippen.');
+  box.innerHTML = '<div style="background:#fff;color:#111;border-radius:16px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)"><b style="font-size:17px">Für das Einsatztagebuch</b><p style="margin:8px 0 14px;color:#444;font-size:14px;line-height:1.4"></p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" data-c style="flex:1;padding:12px;border:0;border-radius:12px;background:' + (appUrl ? '#eee;color:#111' : '#ff3b30;color:#fff') + ';font-weight:700;font-size:15px">Kopieren</button>' + (appUrl ? '<button type="button" data-o style="flex:1;padding:12px;border:0;border-radius:12px;background:#ff3b30;color:#fff;font-weight:700;font-size:15px;white-space:nowrap">Kopieren &amp; öffnen</button>' : '') + '<button type="button" data-x style="padding:12px 16px;border:0;border-radius:12px;background:#eee;font-size:15px">Schließen</button></div></div>';
+  box.querySelector('p').textContent = (out.station || 'Tagesdienstplan') + (out.date ? ' · ' + out.date.split('-').reverse().join('.') : '') + ' · ' + out.rows.length + ' Fahrzeuge' + (mine ? ' · du: ' + clean(mine.u + ' ' + mine.nr) + ' ' + mine.s + '–' + mine.e : ' · du bist hier nicht eingeteilt') + '. „Kopieren“: dann zurück ins Einsatztagebuch (z. B. die App am Handy) und „Einfügen“ tippen.' + (appUrl ? ' „Kopieren & öffnen“: öffnet das Einsatztagebuch hier im Browser gleich mit dem Import.' : '');
   document.body.appendChild(box);
   box.querySelector('[data-x]').onclick = function () { box.remove(); };
-  box.querySelector('[data-c]').onclick = function () {
-    var b = this, opened = false;
+  var copyAndMaybeOpen = function (b, withOpen) {
+    var opened = false;
     // App im normalen Browser: Daten direkt an den Einsatztagebuch-Tab übergeben (gleicher Tab wird wiederverwendet)
-    var openApp = function () { if (appUrl && !opened) { opened = true; window.open(appUrl + '#portal=' + encodeURIComponent(text), 'etb-app'); } };
+    var openApp = function () { if (withOpen && appUrl && !opened) { opened = true; window.open(appUrl + '#portal=' + encodeURIComponent(text), 'etb-app'); } };
     var ok = function () { b.textContent = 'Kopiert ✓'; openApp(); setTimeout(function () { box.remove(); }, 900); };
-    var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = appUrl ? 'Übernommen' : 'Kopieren fehlgeschlagen'; openApp(); } ta.remove(); };
-    if (appUrl) openApp(); // sofort öffnen, solange der Klick noch als Nutzeraktion zählt (Popup-Sperre)
+    var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = opened ? 'Übernommen' : 'Kopieren fehlgeschlagen'; } ta.remove(); };
+    openApp(); // sofort öffnen, solange der Klick noch als Nutzeraktion zählt (Popup-Sperre)
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
   };
+  box.querySelector('[data-c]').onclick = function () { copyAndMaybeOpen(this, false); };
+  var ob = box.querySelector('[data-o]');
+  if (ob) ob.onclick = function () { copyAndMaybeOpen(this, true); };
 }
 const ICON_CLIPDOWN = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2.5"/><path d="M9 4.5V3.8A1.3 1.3 0 0 1 10.3 2.5h3.4A1.3 1.3 0 0 1 15 3.8v.7"/><path d="M12 9v7M8.8 12.8 12 16l3.2-3.2"/></svg>';
 /** Userscript für Safari („Userscripts“-App) bzw. Tampermonkey: Knopf auf jedem Tagesdienstplan,
@@ -9673,7 +9676,7 @@ function portalOpenAttrs(url) {
 }
 function isStandaloneApp() { return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches; }
 /** Adresse der App, wenn sie im normalen Browser läuft (dann übergibt das Lesezeichen die Daten direkt). */
-function portalAppUrl() { return isStandaloneApp() ? '' : location.origin + location.pathname; }
+function portalAppUrl() { return location.origin + location.pathname; }
 function portalBookmarkletCode() { return 'javascript:' + encodeURIComponent('(' + etbPortalGrab.toString().replace(/\n\s+/g, '\n') + ')(' + JSON.stringify(portalAppUrl()) + ')'); }
 
 /** Text aus der Zwischenablage prüfen → Tagesdienstplan-Objekt oder null. */
