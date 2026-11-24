@@ -5040,7 +5040,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 174;
+const APP_VERSION = 175;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
