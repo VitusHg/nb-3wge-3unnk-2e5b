@@ -1273,6 +1273,7 @@ function renderServiceDetailContent() {
   const crew = (svc.colleagues || []).filter(Boolean);
   const links = [
     dpUrl ? `<a ${dpLinkAttrs(dpUrl)} class="dv-row dv-link">${ICON_CAL}<span class="dv-link-text">Dienstplan</span><span class="dv-link-ext" aria-hidden="true">↗</span></a>` : '',
+    dpUrl ? `<a ${dpLinkAttrs(dpUrl + '#etb')} class="dv-row dv-link" data-portal-open="1">${ICON_CLIPDOWN}<span class="dv-link-text">Tagesdienstplan übernehmen</span><span class="dv-link-ext" aria-hidden="true">↗</span></a>` : '',
     svcHistKey ? `<button type="button" class="dv-row dv-link" data-hist="${escHtml(svcHistKey)}" data-hist-svc="${escHtml(svc.id)}">${HIST_ICON}<span class="dv-link-text">Dienstplan-Verlauf</span><span class="dv-value">${svcHistCount}</span><span class="hm-chev" aria-hidden="true">›</span></button>` : '',
   ].filter(Boolean).join('');
   contentEl.innerHTML = `
@@ -4568,7 +4569,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 165;
+const APP_VERSION = 166;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -5097,6 +5098,12 @@ function settingsPagePortal(el, title) {
       <div class="set-row pi-drag-row"><a class="pi-drag" href="${escHtml(code)}" title="Am Computer in die Lesezeichenleiste ziehen">→ Einsatztagebuch</a><span class="set-row-text set-row-sub">Am Computer: diesen Knopf in die Lesezeichenleiste ziehen.</span></div>
     </div>
     <p class="set-group-footer">${isIOSDevice() ? 'iPhone/iPad: In Safari irgendeine Seite als Lesezeichen sichern, dann unter Lesezeichen → Bearbeiten den Namen auf „→ Einsatztagebuch“ und die Adresse auf den kopierten Code ändern.' : 'Handy: Irgendeine Seite als Lesezeichen sichern und die Adresse durch den kopierten Code ersetzen.'}</p>
+    <div class="set-group-header">Automatisch mit Userscript (empfohlen)</div>
+    <div class="set-group">
+      <div class="set-row"><span class="set-row-text set-row-sub pi-steps">Mit einem Userscript erscheint auf jedem Tagesdienstplan ein Knopf „→ Einsatztagebuch“, und der Knopf <b>„Tagesdienstplan übernehmen“</b> in deinen Dienst-Details startet das Auslesen gleich von selbst – ganz ohne Lesezeichen.</span></div>
+      <div class="set-row"><button type="button" class="btn-primary" id="pi-us-dl" style="flex:1">Userscript speichern</button><button type="button" class="btn-secondary" id="pi-us-copy">Kopieren</button></div>
+    </div>
+    <p class="set-group-footer">${isIOSDevice() ? 'iPhone/iPad: App „Userscripts“ (kostenlos, App Store) installieren, in Einstellungen → Safari → Erweiterungen aktivieren und für dienstplan.st.roteskreuz.at erlauben. Dann die gespeicherte Datei in den Userscripts-Ordner legen (oder in der Erweiterung „+“ → neues Skript → Code einfügen).' : 'Computer: Erweiterung Tampermonkey oder Violentmonkey installieren, dann „Userscript speichern“ und die Datei öffnen bzw. den Code als neues Skript einfügen.'} Das Skript liest nur die offene Seite und läuft nur auf dienstplan.st.roteskreuz.at.</p>
     <div class="set-group-header">Übernehmen</div>
     <div class="set-group"><div class="set-row"><button type="button" class="btn-secondary" id="pi-paste" style="flex:1">📋 Aus Portal einfügen</button></div></div>
     <p class="set-group-footer">Übernimmt Fahrzeugnummer, Besatzung und auf Wunsch Zeiten in deinen Dienst und kann den ganzen Tagesdienstplan beim Dienst speichern (wird wie deine Dienste gesichert und synchronisiert).</p>
@@ -5108,6 +5115,8 @@ function settingsPagePortal(el, title) {
   };
   el.querySelector('.pi-drag').addEventListener('click', (e) => { e.preventDefault(); toast('Ziehen statt tippen: in die Lesezeichenleiste deines Browsers.', 'info', 3000); });
   el.querySelector('#pi-paste').onclick = () => pastePortalPlan();
+  el.querySelector('#pi-us-dl').onclick = () => saveFile(new Blob([portalUserscript()], { type: 'text/javascript' }), 'einsatztagebuch-tagesdienstplan.user.js', 'Userscript');
+  el.querySelector('#pi-us-copy').onclick = async (e) => { const b = e.currentTarget; try { await navigator.clipboard.writeText(portalUserscript()); b.textContent = 'Kopiert ✓'; } catch (_) { b.textContent = 'Fehlgeschlagen'; } setTimeout(() => { b.textContent = 'Kopieren'; }, 1800); };
   const redo = () => { const sc = el.closest('#settings-sub') || el; const y = sc.scrollTop; renderSettingsPage(); requestAnimationFrame(() => { sc.scrollTop = y; }); };
   el.querySelectorAll('[data-pd-log]').forEach((b) => b.addEventListener('click', () => { deletePortalData(b.dataset.pdLog, { logOnly: true }); toast('Änderungsverlauf gelöscht.', 'success', 1500); redo(); }));
   el.querySelectorAll('[data-pd-del]').forEach((b) => b.addEventListener('click', () => { if (!confirm('Diesen gespeicherten Tagesdienstplan samt Verlauf löschen?')) return; deletePortalData(b.dataset.pdDel); toast('Gelöscht.', 'success', 1500); redo(); }));
@@ -9579,7 +9588,7 @@ function etbPortalGrab() {
   var box = document.createElement('div');
   box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;font:15px -apple-system,system-ui,sans-serif';
   box.innerHTML = '<div style="background:#fff;color:#111;border-radius:16px;padding:18px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)"><b style="font-size:17px">Für das Einsatztagebuch</b><p style="margin:8px 0 14px;color:#444;font-size:14px;line-height:1.4"></p><div style="display:flex;gap:8px"><button type="button" data-c style="flex:1;padding:12px;border:0;border-radius:12px;background:#ff3b30;color:#fff;font-weight:700;font-size:15px">Kopieren</button><button type="button" data-x style="padding:12px 16px;border:0;border-radius:12px;background:#eee;font-size:15px">Schließen</button></div></div>';
-  box.querySelector('p').textContent = (out.station || 'Tagesdienstplan') + (out.date ? ' · ' + out.date.split('-').reverse().join('.') : '') + ' · ' + out.rows.length + ' Fahrzeuge' + (mine ? ' · du: ' + clean(mine.u + ' ' + mine.nr) + ' ' + mine.s + '–' + mine.e : ' · du bist hier nicht eingeteilt') + '. Danach im Einsatztagebuch beim Dienstplan auf „Aus Portal einfügen“ tippen.';
+  box.querySelector('p').textContent = (out.station || 'Tagesdienstplan') + (out.date ? ' · ' + out.date.split('-').reverse().join('.') : '') + ' · ' + out.rows.length + ' Fahrzeuge' + (mine ? ' · du: ' + clean(mine.u + ' ' + mine.nr) + ' ' + mine.s + '–' + mine.e : ' · du bist hier nicht eingeteilt') + '. Nach „Kopieren“ zurück ins Einsatztagebuch wechseln und „Einfügen“ tippen.';
   document.body.appendChild(box);
   box.querySelector('[data-x]').onclick = function () { box.remove(); };
   box.querySelector('[data-c]').onclick = function () {
@@ -9587,6 +9596,51 @@ function etbPortalGrab() {
     var fallback = function () { var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { b.textContent = 'Kopieren fehlgeschlagen'; } ta.remove(); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
   };
+}
+const ICON_CLIPDOWN = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2.5"/><path d="M9 4.5V3.8A1.3 1.3 0 0 1 10.3 2.5h3.4A1.3 1.3 0 0 1 15 3.8v.7"/><path d="M12 9v7M8.8 12.8 12 16l3.2-3.2"/></svg>';
+/** Userscript für Safari („Userscripts“-App) bzw. Tampermonkey: Knopf auf jedem Tagesdienstplan,
+ *  startet von selbst, wenn die Seite aus der App (…#etb) geöffnet wurde. */
+function portalUserscript() {
+  const grab = etbPortalGrab.toString().replace(/\n\s+/g, '\n');
+  return `// ==UserScript==
+// @name         Einsatztagebuch – Tagesdienstplan übernehmen
+// @namespace    einsatztagebuch
+// @version      ${APP_VERSION}
+// @description  Liest den offenen Tagesdienstplan für das Einsatztagebuch aus (nur lokal, nur auf Knopfdruck bzw. bei Öffnen aus der App).
+// @match        https://dienstplan.st.roteskreuz.at/Home/Dienstplan/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+(function () {
+var grab = ${grab};
+var b = document.createElement('button');
+b.type = 'button'; b.textContent = '→ Einsatztagebuch';
+b.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483646;padding:10px 14px;border:0;border-radius:22px;background:#ff3b30;color:#fff;font:600 14px -apple-system,system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.3)';
+b.onclick = grab;
+document.body.appendChild(b);
+if (/(^|[#&])etb\\b/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search); setTimeout(grab, 300); }
+})();
+`;
+}
+// Aus der App heraus geöffnet → beim Zurückkommen anbieten, den kopierten Stand einzufügen
+const PORTAL_PENDING_KEY = 'etb_portal_pending';
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-portal-open]')) lsSet(PORTAL_PENDING_KEY, String(Date.now())); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const t = +lsGet(PORTAL_PENDING_KEY, '0');
+  if (!t || Date.now() - t > 20 * 60000) return;
+  lsSet(PORTAL_PENDING_KEY, null);
+  setTimeout(showPortalReturnBar, 400);
+});
+function showPortalReturnBar() {
+  document.querySelectorAll('.pr-bar').forEach((x) => x.remove());
+  const bar = document.createElement('div');
+  bar.className = 'pr-bar';
+  bar.innerHTML = `<span>📋 Tagesdienstplan kopiert?</span><button type="button" class="btn-primary">Einfügen</button><button type="button" class="pr-x" aria-label="Schließen">✕</button>`;
+  bar.querySelector('.btn-primary').onclick = () => { bar.remove(); pastePortalPlan(); };
+  bar.querySelector('.pr-x').onclick = () => bar.remove();
+  document.body.appendChild(bar);
+  setTimeout(() => bar.remove(), 30000);
 }
 function portalBookmarkletCode() { return 'javascript:' + encodeURIComponent('(' + etbPortalGrab.toString().replace(/\n\s+/g, '\n') + ')()'); }
 
