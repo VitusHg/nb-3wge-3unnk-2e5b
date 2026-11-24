@@ -3407,7 +3407,9 @@ function printFernfahrt(svc, inc) {
   if (X && X.datei && X.zellen) {
     const cellVals = { ...(X.texte || {}) };
     Object.entries(X.zellen).forEach(([ref, key]) => { cellVals[ref] = vals[key] != null ? vals[key] : ''; });
-    return printFromXlsx(wfSafeName(X.datei), cellVals);
+    const xName = wfSafeName(X.datei);
+    // Excel-Datei fehlt, aber HTML-Vorlage vorhanden → diese nehmen
+    return wfGet(xName).then(() => printFromXlsx(xName, cellVals), () => wfGet(FF_TPL).then(() => printFromTemplate(FF_TPL, vals), () => printFromXlsx(xName, cellVals)));
   }
   return printFromTemplate(FF_TPL, vals);
 }
