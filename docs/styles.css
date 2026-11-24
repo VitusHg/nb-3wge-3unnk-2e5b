@@ -4460,14 +4460,16 @@ label.set-row-switch { flex-direction: row; gap: 12px; font-size: 16px; color: v
 @media print {
   body.printing > *:not(#print-area) { display: none !important; }
   body.printing #print-area { display: block !important; color: #000; background: #fff; font: 11pt/1.35 -apple-system, system-ui, sans-serif; padding: 0; }
+  body.printing-tpl #print-area { font: inherit; }
+  @page { size: A4; margin: 12mm 14mm; }
   body.printing { background: #fff !important; }
-  #print-area h1 { font-size: 18pt; margin: 0 0 4pt; }
-  #print-area table { width: 100%; border-collapse: collapse; margin: 10pt 0; }
-  #print-area th, #print-area td { border-bottom: .5pt solid #999; padding: 4pt 5pt; text-align: left; }
-  #print-area th:nth-child(n+2), #print-area td:nth-child(n+2) { text-align: right; }
-  #print-area tfoot td { font-weight: 700; border-top: 1pt solid #000; }
-  #print-area small { display: block; color: #555; }
-  #print-area p { color: #444; font-size: 9pt; }
+  body:not(.printing-tpl) #print-area h1 { font-size: 18pt; margin: 0 0 4pt; }
+  body:not(.printing-tpl) #print-area table { width: 100%; border-collapse: collapse; margin: 10pt 0; }
+  body:not(.printing-tpl) #print-area th, body:not(.printing-tpl) #print-area td { border-bottom: .5pt solid #999; padding: 4pt 5pt; text-align: left; }
+  body:not(.printing-tpl) #print-area th:nth-child(n+2), body:not(.printing-tpl) #print-area td:nth-child(n+2) { text-align: right; }
+  body:not(.printing-tpl) #print-area tfoot td { font-weight: 700; border-top: 1pt solid #000; }
+  body:not(.printing-tpl) #print-area small { display: block; color: #555; }
+  body:not(.printing-tpl) #print-area p { color: #444; font-size: 9pt; }
 }
 
 /* Karte aller Einsatzorte */
@@ -4616,67 +4618,7 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
 .ke-tiles strong { font-size: 17px; }
 @media (max-width: 520px) { .ke-tiles { grid-template-columns: 1fr 1fr; } .ke-fields { grid-template-columns: 1fr; } }
 
-/* Kostenersatz – Druckformular (A4, wie das Papierformular) */
-.ke-sheet { font-family: Arial, Helvetica, sans-serif; color: #000; }
-@media print {
-  body.printing-ke #print-area { padding: 0 !important; font: 10pt Arial, Helvetica, sans-serif !important; }
-  @page { size: A4; margin: 12mm 14mm; }
-  .ke-sheet { page-break-after: always; break-after: page; position: relative; }
-  .ke-sheet:last-child { page-break-after: auto; break-after: auto; }
-  .ke-top { display: flex; justify-content: space-between; font-size: 10pt; }
-  .ke-top span { text-decoration: underline; }
-  .ke-title { margin: 14pt 0 16pt !important; text-align: center; font-size: 15pt !important; font-weight: 700; letter-spacing: 3pt; }
-  .ke-head { display: grid; grid-template-columns: 22% 48% 30%; gap: 0 10pt; margin-bottom: 14pt; align-items: start; }
-  .ke-head-mid, .ke-head-right { display: flex; flex-direction: column; gap: 8pt; }
-  .kf { display: flex; align-items: flex-end; gap: 6pt; font-weight: 700; }
-  .kf-l { flex: none; white-space: nowrap; }
-  .kf-v { flex: 1; min-height: 12pt; border-bottom: .8pt solid #000; font-weight: 400; padding: 0 2pt 1pt; white-space: nowrap; overflow: hidden; }
-  .ke-head-mid .kf-l { width: 46pt; }
-  .ke-head-right .kf-l { width: 44pt; }
-  .kf-iban { margin-top: 10pt; }
-  body.printing-ke #print-area table.ke-table { width: 100%; border-collapse: collapse; margin: 0; table-layout: fixed; }
-  body.printing-ke #print-area .ke-table th, body.printing-ke #print-area .ke-table td { border: .8pt solid #000; padding: 2pt 4pt; height: 17pt; font-size: 9.5pt; text-align: left; vertical-align: middle; overflow: hidden; }
-  body.printing-ke #print-area .ke-table th { font-weight: 400; text-align: center; height: 13pt; }
-  body.printing-ke #print-area .ke-table td.c { text-align: center; }
-  body.printing-ke #print-area .ke-table td.r { text-align: right; }
-  body.printing-ke #print-area .ke-table tfoot td { font-weight: 700; border-top: .8pt solid #000; height: 20pt; }
-  body.printing-ke #print-area .ke-table td.ke-sum { text-align: center; font-size: 11pt; }
-  .ke-legend { margin: 4pt 0 0 !important; font-size: 8.5pt !important; color: #000 !important; }
-  .ke-note { margin: 14pt 0 0 !important; font-size: 8pt !important; line-height: 1.45; color: #000 !important; }
-  .ke-sign { margin-top: 28pt; display: flex; align-items: flex-end; gap: 4pt; }
-  .ke-ort { display: inline-block; min-width: 70pt; border-bottom: .8pt solid #000; text-align: center; }
-  .ke-line { display: inline-block; width: 210pt; border-bottom: .8pt solid #000; margin-left: 6pt; height: 12pt; }
-  .ke-ok { margin-top: 24pt; }
-  .ke-page { position: absolute; right: 0; bottom: -6pt; font-size: 8pt; }
-}
 .ke-ff { font-size: 13px; padding: 4px 6px; }
-@media print {
-  .ff-top { display: flex; justify-content: space-between; align-items: flex-start; margin: 6pt 0 34pt; }
-  .ff-org { font-size: 11pt; font-weight: 700; line-height: 1.3; }
-  .ff-org small { font-weight: 400; font-size: 9pt; }
-  .ff-title { font-size: 15pt; font-weight: 700; line-height: 1.15; margin-right: 30pt; }
-  .ff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14pt 24pt; margin-bottom: 26pt; }
-  .ff-grid .ff-wide { grid-column: 1 / -1; }
-  .ff-grid .kf-l { width: 58pt; }
-  .ff-sub { font-weight: 700; margin: 0 0 8pt; }
-  body.printing-ke #print-area .ff-table td { height: 46pt !important; vertical-align: top !important; font-size: 10pt !important; }
-  body.printing-ke #print-area .ff-table th { text-align: left !important; font-weight: 700 !important; }
-  .ff-km-row { display: flex; justify-content: space-between; align-items: flex-start; margin: 34pt 0 30pt; }
-  .ff-hint { font-size: 8.5pt; margin-top: 8pt; }
-  .ff-km { width: 32%; }
-  .ff-km-box { border: .8pt solid #000; height: 34pt; margin-top: 6pt; display: flex; align-items: center; justify-content: center; font-size: 13pt; }
-  .ff-sign { display: flex; align-items: flex-end; gap: 6pt; margin: 22pt 0 16pt; }
-  .ff-sign .ff-l1 { width: 110pt; } .ff-sign .ff-l2 { flex: 1; margin-left: 0; }
-  .ff-decl { font-size: 10pt !important; color: #000 !important; line-height: 1.4; }
-}
-.ke-asset { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 10px; }
-.ke-asset img { max-height: 64px; max-width: 160px; padding: 6px; border-radius: 10px; background: #fff; }
-.ke-asset-btns { display: flex; gap: 8px; align-items: center; }
-.ke-upload { cursor: pointer; display: inline-flex; align-items: center; }
-.ke-foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text2); }
-.ke-foot textarea { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; font-size: 15px; resize: vertical; }
-@media print {
-  .ff-logo { width: 150pt; height: auto; }
-  .ff-sheet { min-height: 265mm; }
-  .ff-footer { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 7.5pt; color: #666; line-height: 1.4; text-transform: uppercase; letter-spacing: .3pt; }
-}
+.wf-row { gap: 10px; align-items: center; }
+.wf-ic { font-size: 22px; flex: none; }
+.btn-link { border: none; background: none; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }

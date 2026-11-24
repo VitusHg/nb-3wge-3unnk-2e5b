@@ -237,7 +237,6 @@ function defaultState() {
     places: [],
     placeAddresses: {},
     portalPlans: {},
-    formAssets: {},
   };
 }
 
@@ -248,10 +247,7 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
-  // Vorlage für Formulare (Logo, Fußzeile) – liegt in den eigenen Daten (Sync über den eigenen Worker), nicht im Code
-  s.formAssets = isObj(s.formAssets) ? s.formAssets : {};
-  if (s.formAssets.logo && !/^data:image\/(png|gif|jpeg|webp|svg\+xml);base64,/.test(s.formAssets.logo)) delete s.formAssets.logo;
-  s.formAssets.footer = typeof s.formAssets.footer === 'string' ? s.formAssets.footer.slice(0, 600) : '';
+  delete s.formAssets; // früher: Logo/Fußzeile in den Daten – jetzt als Dateien auf dem Worker
   // Tagesdienstpläne aus dem Portal: je Dienststelle + Tag der letzte Stand und die Änderungen.
   // 7 Tage nach dem Dienst (Nachtdienst: ab dem Folgetag gerechnet) fällt der Änderungsverlauf weg –
   // der letzte Stand des Tages bleibt.
@@ -2994,61 +2990,156 @@ function serviceHourSplit(svc, [nf, nt] = nightWindow()) {
   return out;
 }
 const fmtH = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-// ── Kostenersatz lt. Vereinserlass (Bezirksstelle Hartberg) ────────────────
-// Stammdaten (Name, Adresse, SV-Nr., Geburtsdatum, IBAN, BIC) bleiben NUR auf diesem Gerät –
+// ── Dateien vom eigenen Worker (Formular-Vorlagen, Regeln, Logo, Dokumente) ─
+// Vorlagen von Organisationen liegen NICHT im Code der App, sondern als Dateien auf dem eigenen
+// Worker (Einstellungen → Formulare & Dateien). Für den Offline-Druck werden Vorlagen und Bilder
+// zusätzlich nur auf diesem Gerät zwischengespeichert (nicht synchronisiert, nicht exportiert).
+const WF_CACHE_KEY = 'etb_files_cache';
+const WF_TEXT = /^(text\/|application\/json)/;
+function wfCache() { try { return JSON.parse(lsGet(WF_CACHE_KEY, '{}')) || {}; } catch (_) { return {}; } }
+function wfCacheSet(name, entry) {
+  const c = wfCache();
+  if (entry) c[name] = entry; else delete c[name];
+  try { lsSet(WF_CACHE_KEY, JSON.stringify(c)); } catch (_) { toast('Gerätespeicher voll – Vorlage nicht zwischengespeichert.', 'error', 3500); }
+}
+const wfSafeName = (n) => String(n || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 80);
+async function wfFetch(path, opts = {}) {
+  const base = workerBase();
+  if (!base || !dpConfigured()) throw new Error('Kein Worker verbunden (Einstellungen → Dienstplan).');
+  let res;
+  try { res = await fetch(base + path, { ...opts, headers: { Authorization: 'Bearer ' + dpConfig().token, ...(opts.headers || {}) }, cache: 'no-store' }); } catch (_) { throw new Error('Worker nicht erreichbar.'); }
+  if (!res.ok) {
+    let code = res.status; try { code = (await res.clone().json()).error || code; } catch (_) {}
+    throw new Error({ not_found: 'Der Worker kennt diese Datei bzw. Funktion noch nicht (Worker aktualisieren?).', unauthorized: 'Zugangsschlüssel passt nicht zum Worker.', unsupported_type: 'Dieser Dateityp wird nicht unterstützt.', too_large: 'Datei zu groß (max. 5 MB).', bad_name: 'Ungültiger Dateiname.', too_many_files: 'Zu viele Dateien auf dem Worker.' }[code] || `Fehler vom Worker (${code}).`);
+  }
+  return res;
+}
+async function wfList() { return (await (await wfFetch('/files')).json()).files || []; }
+/** Datei holen: Text bzw. Data-URL; ohne Netz aus dem Gerätespeicher. */
+async function wfGet(name, { cache = true } = {}) {
+  try {
+    const res = await wfFetch('/files/' + encodeURIComponent(name));
+    const type = (res.headers.get('Content-Type') || '').split(';')[0];
+    let data;
+    if (WF_TEXT.test(type)) data = await res.text();
+    else { const blob = await res.blob(); data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsDataURL(blob); }); }
+    if (cache) wfCacheSet(name, { type, data, at: Date.now() });
+    return { type, data };
+  } catch (err) {
+    const c = wfCache()[name];
+    if (c) return c;
+    throw err;
+  }
+}
+const wfCached = (name) => wfCache()[name] || null;
+async function wfUpload(file, name) {
+  const res = await wfFetch('/files/' + encodeURIComponent(name), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  return (await res.json()).file;
+}
+async function wfDelete(name) { await wfFetch('/files/' + encodeURIComponent(name), { method: 'DELETE' }); wfCacheSet(name, null); }
+
+/** Mini-Vorlagen-Sprache: {{wert}} (geschützt), {{{wert}}} (roh), {{#liste}}…{{/liste}}, {{^leer}}…{{/leer}},
+ *  {{{file:logo.png}}} = Bild vom Worker. Skripte und Ereignis-Attribute werden entfernt. */
+function renderTpl(tpl, ctx) {
+  const lookup = (stack, key) => { if (key === '.') return stack[stack.length - 1]; for (let i = stack.length - 1; i >= 0; i--) { const o = stack[i]; if (o && typeof o === 'object' && key in o) return o[key]; } return undefined; };
+  const run = (src, stack) => src.replace(/\{\{([#^])\s*([\w.-]+)\s*\}\}([\s\S]*?)\{\{\/\s*\2\s*\}\}|\{\{\{\s*([\w.:-]+)\s*\}\}\}|\{\{\s*([\w.:-]+)\s*\}\}/g, (m, sec, name, inner, raw, esc) => {
+    if (sec) {
+      const v = lookup(stack, name), truthy = Array.isArray(v) ? v.length > 0 : !!v;
+      if (sec === '^') return truthy ? '' : run(inner, stack);
+      if (!truthy) return '';
+      if (Array.isArray(v)) return v.map((it) => run(inner, [...stack, it])).join('');
+      return run(inner, typeof v === 'object' ? [...stack, v] : stack);
+    }
+    const v = lookup(stack, raw || esc);
+    return v == null ? '' : raw ? String(v) : escHtml(String(v));
+  });
+  return run(String(tpl), [ctx])
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1=$2#$2');
+}
+/** Vorlage drucken: lädt Vorlage + darin verwendete Dateien (Bilder) vom Worker bzw. aus dem Gerätespeicher. */
+async function printFromTemplate(tplName, ctx) {
+  let tpl;
+  try { tpl = (await wfGet(tplName)).data; } catch (err) { toast(`Vorlage „${tplName}“ fehlt – Einstellungen → Formulare & Dateien. (${err.message})`, 'error', 6000); return false; }
+  const files = [...new Set([...String(tpl).matchAll(/\{\{\{?\s*file:([\w.-]+)/g)].map((m) => m[1]))];
+  for (const f of files) { try { ctx['file:' + f] = (await wfGet(f)).data; } catch (_) { ctx['file:' + f] = ''; } }
+  let area = document.getElementById('print-area');
+  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
+  area.innerHTML = renderTpl(tpl, ctx);
+  document.body.classList.add('printing', 'printing-tpl');
+  const done = () => { document.body.classList.remove('printing', 'printing-tpl'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  await new Promise((ok) => setTimeout(ok, 120)); // Bilder laden lassen
+  window.print();
+  return true;
+}
+
+// ── Kostenersatz (Regeln und Formular kommen vom Worker) ───────────────────
+// Stammdaten (Name, Adresse, SV-Nr., Geburtsdatum, IBAN, BIC, Pers.-Nr.) bleiben NUR auf diesem Gerät –
 // sie werden weder synchronisiert noch in Sicherungen exportiert.
 const KE_PROFILE_KEY = 'etb_ke_profile';
-const KE_RATE = 2.2, KE_MAX_SVC = 26.4, KE_TRAVEL = 3.2, KE_YEAR_MAX = 1584;
+const KE_TPL = 'kostenersatz.html', KE_RULES = 'kostenersatz.json', FF_TPL = 'fernfahrten.html';
 const KE_TYPES = { dienst: 'Freiwilliger Dienst', vertretung: 'Vertretung berufl. Einsatzfahrer', ambulanz: 'Ambulanzdienst', beruflich: 'Beruflich/Zivildienst (kein Ersatz)' };
 function keProfile() { try { return JSON.parse(lsGet(KE_PROFILE_KEY, '{}')) || {}; } catch (_) { return {}; } }
 function keType(svc) { return svc.keType || (svc.isSeg ? 'ambulanz' : 'dienst'); }
-/** Vor- und Nachbereitung für Ambulanzen laut Infoblatt (gesamt, in Stunden). */
-function keAmbPrep(h) { return h <= 2 ? 2 : h <= 4 ? 3 : 4; }
-/** Zeilen eines Monats mit laufender Nummer, Stunden und Betrag (nur Info – die Abrechnung macht die Bezirksstelle). */
-function keMonthRows(y, m) {
+/** Regeln aus kostenersatz.json (Gerätespeicher); ohne Datei: keine Beträge. */
+function keRules() { const c = wfCached(KE_RULES); try { return c ? JSON.parse(c.data) : null; } catch (_) { return null; } }
+function keAmbPrep(h, R) { const t = (R.ambulanzVorNach || []).find(([upTo]) => upTo == null || h <= upTo); return t ? +t[1] : 0; }
+/** Zeilen eines Monats mit laufender Nummer, Stunden und Betrag (nur Info – abgerechnet wird von der Organisation). */
+function keMonthRows(y, m, R = keRules()) {
   const list = state.services.filter((x) => { const d = parseLocalDt(x.startAt); return d && d.getFullYear() === y && d.getMonth() === m; })
     .sort((a, b) => (a.startAt || '').localeCompare(b.startAt || ''));
+  const rate = R ? +R.stundensatz || 0 : 0, max = R ? +R.maxProDienst || Infinity : 0, free = R ? +R.freieDiensteProMonat || 0 : 0, travel = R ? +R.fahrtkostenProTag || 0 : 0;
   let n = 0;
   const dayAmb = new Map();
   return list.map((svc) => {
     const type = keType(svc), on = !svc.keSkip && type !== 'beruflich'; // berufliche Dienste gehören nicht auf das Formular
     const h = Math.max(0, +serviceDurationHours(svc));
     let nr = null, hours = h, paid = false, amount = 0, prep = 0;
-    if (on && type === 'dienst') { n++; nr = n; paid = n >= 5; amount = paid ? Math.min(h * KE_RATE, KE_MAX_SVC) : 0; }
-    else if (on && type === 'vertretung') { paid = true; amount = Math.min(h * KE_RATE, KE_MAX_SVC); }
+    if (on && type === 'dienst') { n++; nr = n; paid = !!R && n > free; amount = paid ? Math.min(h * rate, max) : 0; }
+    else if (on && type === 'vertretung') { paid = !!R; amount = Math.min(h * rate, max); }
     else if (on && type === 'ambulanz') {
-      prep = keAmbPrep(h); hours = h + prep; paid = true;
+      prep = R ? keAmbPrep(h, R) : 0; hours = h + prep; paid = !!R;
       const day = (svc.startAt || '').slice(0, 10), used = dayAmb.get(day) || 0;
-      amount = Math.max(0, Math.min(hours * KE_RATE, KE_MAX_SVC - used)); dayAmb.set(day, used + amount);
-      if (!used) amount += KE_TRAVEL; // Fahrtkostenpauschale einmal pro Tag
+      amount = Math.max(0, Math.min(hours * rate, max - used)); dayAmb.set(day, used + amount);
+      if (R && !used) amount += travel; // Fahrtkostenpauschale einmal pro Tag
     }
     return { svc, type, on, h, hours, prep, nr, paid, amount };
   });
 }
-function keYearTotal(y, uptoM) { let t = 0; for (let m = 0; m <= uptoM; m++) keMonthRows(y, m).forEach((r) => { if (r.on) t += r.amount; }); return t; }
+function keYearTotal(y, uptoM, R) { let t = 0; for (let m = 0; m <= uptoM; m++) keMonthRows(y, m, R).forEach((r) => { if (r.on) t += r.amount; }); return t; }
 const fmtEur = (v) => v.toLocaleString('de-AT', { style: 'currency', currency: 'EUR' });
 const fmtHrs = (h) => (Math.round(h * 100) / 100).toLocaleString('de-AT', { maximumFractionDigits: 2 });
 let keYM = null;
-function openKostenersatz(y, m) {
+function openKostenersatz(y, m, { refreshed = false } = {}) {
   const now = new Date();
   if (y === undefined) [y, m] = keYM || [now.getFullYear(), now.getMonth()];
   keYM = [y, m];
-  const rows = keMonthRows(y, m);
+  const R = keRules();
+  // Regeln und Vorlagen im Hintergrund vom Worker auffrischen
+  if (!refreshed && dpConfigured()) Promise.all([KE_RULES, KE_TPL, FF_TPL].map((f) => wfGet(f).catch(() => null))).then((r) => {
+    const R2 = keRules();
+    if (JSON.stringify(R2) !== JSON.stringify(R) && document.querySelector('.ke-ov')) openKostenersatz(y, m, { refreshed: true });
+    else { const st = document.querySelector('.ke-tpl-status'); if (st) st.innerHTML = keTplStatusHtml(); }
+  });
+  const rows = keMonthRows(y, m, R);
   const pr = keProfile();
   const title = new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'long', year: 'numeric' });
   const p2 = (n) => String(n).padStart(2, '0');
   const tm = (d) => (d ? `${p2(d.getHours())}:${p2(d.getMinutes())}` : '');
   const sel = rows.filter((r) => r.on);
   const sumH = sel.reduce((n, r) => n + r.hours, 0), sumE = sel.reduce((n, r) => n + r.amount, 0);
-  const yearE = keYearTotal(y, m);
+  const yearE = R ? keYearTotal(y, m, R) : 0, yearMax = R ? +R.jahresgrenze || 0 : 0;
   const missing = ['name', 'address', 'sv', 'dob', 'iban'].filter((k) => !String(pr[k] || (k === 'name' ? (state.profile || {}).displayName : '') || '').trim());
   document.querySelectorAll('.ke-ov').forEach((x) => x.remove());
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay lp-ov ke-ov'; ov.style.zIndex = '2000';
   ov.innerHTML = `<div class="dialog-box lp-box ke-box" style="--mc:#ff3b30">
-    <div class="lp-head"><span class="lp-ic">💶</span><div class="lp-head-t"><h3>Kostenersatz</h3><span>lt. Vereinserlass · Bezirksstelle Hartberg</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
+    <div class="lp-head"><span class="lp-ic">💶</span><div class="lp-head-t"><h3>${escHtml((R && R.titel) || 'Kostenersatz')}</h3><span>${escHtml((R && R.untertitel) || 'Formular und Regeln vom eigenen Worker')}</span></div><button class="dialog-close lp-x" aria-label="Schließen">✕</button></div>
     <div class="dialog-body lp-body">
       <div class="ms-nav"><button type="button" class="ms-step" data-d="-1" aria-label="Voriger Monat">‹</button><b>${escHtml(title)}</b><button type="button" class="ms-step" data-d="1" aria-label="Nächster Monat">›</button></div>
+      <div class="ke-tpl-status">${keTplStatusHtml()}</div>
       <details class="ke-prof"${missing.length ? ' open' : ''}><summary>👤 Stammdaten${missing.length ? ` <em class="pi-badge">${missing.length} fehlen</em>` : ' ✓'}</summary>
         <div class="ke-fields">
           <label>Name<input data-kp="name" value="${escHtml(pr.name || (state.profile || {}).displayName || '')}" autocomplete="name"></label>
@@ -3058,33 +3149,25 @@ function openKostenersatz(y, m) {
           <label>IBAN<input data-kp="iban" value="${escHtml(pr.iban || '')}" autocomplete="off" spellcheck="false"></label>
           <label>BIC<input data-kp="bic" value="${escHtml(pr.bic || '')}" autocomplete="off" spellcheck="false"></label>
           <label>Pers.-Nr. (Fernfahrten)<input data-kp="persnr" value="${escHtml(pr.persnr || '')}" inputmode="numeric"></label>
-          <label>Ort (Unterschrift)<input data-kp="ort" value="${escHtml(pr.ort || 'Hartberg')}"></label>
+          <label>Ort (Unterschrift)<input data-kp="ort" value="${escHtml(pr.ort || (R && R.ort) || '')}"></label>
         </div>
         <p class="cp-line">🔒 Bleibt nur auf diesem Gerät – wird nicht synchronisiert und nicht in Sicherungen exportiert.</p>
-      </details>
-      <details class="ke-prof"><summary>🖼️ Vorlage für Formulare${(state.formAssets || {}).logo ? ' ✓' : ''}</summary>
-        <div class="ke-asset">
-          ${(state.formAssets || {}).logo ? `<img src="${(state.formAssets || {}).logo}" alt="Logo">` : '<span class="cp-line">Kein Logo</span>'}
-          <div class="ke-asset-btns"><label class="btn-secondary ke-upload">Logo hochladen<input type="file" accept="image/png,image/gif,image/jpeg,image/webp,image/svg+xml" id="ke-logo" hidden></label>${(state.formAssets || {}).logo ? '<button type="button" class="btn-ghost" id="ke-logo-del">Entfernen</button>' : ''}</div>
-        </div>
-        <label class="ke-foot">Fußzeile (Bezirksstelle, Adresse, Kontakt)<textarea id="ke-footer" rows="3" placeholder="z. B. BEZIRKSSTELLE HARTBERG, Adresse, Telefon, E-Mail">${escHtml((state.formAssets || {}).footer || '')}</textarea></label>
-        <p class="cp-line">Wird auf „Abrechnung Fernfahrten“ gedruckt. Liegt in deinen Daten und wird über deinen Worker zwischen deinen Geräten synchronisiert – nicht im öffentlichen Code der App.</p>
       </details>
       ${rows.length ? `<ul class="ke-list">${rows.map((r, i) => { const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt); return `<li class="ke-row${r.on ? '' : ' is-off'}${r.paid ? ' is-paid' : ''}">
           <input type="checkbox" data-ke-on="${i}"${r.on ? ' checked' : ''}${r.type === 'beruflich' ? ' disabled' : ''} aria-label="Auf das Formular">
           <div class="ke-main"><b>${escHtml(a.toLocaleDateString('de-AT', { weekday: 'short', day: '2-digit', month: '2-digit' }))}</b> ${tm(a)}–${tm(b)}
             <small>${escHtml(keText(r.svc))}</small>
             <select data-ke-type="${i}">${Object.entries(KE_TYPES).map(([k, l]) => `<option value="${k}"${k === r.type ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
-          <div class="ke-side">${r.nr ? `<span class="ke-nr">${r.nr}.</span>` : ''}<span>${fmtHrs(r.hours)} h${r.prep ? `<small> inkl. ${fmtHrs(r.prep)} h V/N</small>` : ''}</span>${r.on && r.amount ? `<span class="ke-eur">${fmtEur(r.amount)}</span>` : r.on && r.type === 'dienst' ? '<small>1.–4. Dienst</small>' : ''}</div>
+          <div class="ke-side">${r.nr ? `<span class="ke-nr">${r.nr}.</span>` : ''}<span>${fmtHrs(r.hours)} h${r.prep ? `<small> inkl. ${fmtHrs(r.prep)} h V/N</small>` : ''}</span>${R && r.on && r.amount ? `<span class="ke-eur">${fmtEur(r.amount)}</span>` : R && r.on && r.type === 'dienst' && !r.paid ? `<small>1.–${+R.freieDiensteProMonat || 0}. Dienst</small>` : ''}</div>
         </li>`; }).join('')}</ul>` : '<p class="sx-empty">In diesem Monat keine Dienste im Tagebuch.</p>'}
       <div class="cp-tiles ke-tiles">
         <div><strong>${sel.length}</strong><small>auf dem Formular</small></div>
         <div><strong>${fmtHrs(sumH)}</strong><small>Stunden</small></div>
-        <div><strong>${fmtEur(sumE)}</strong><small>Ersatz (Info)</small></div>
-        <div><strong>${fmtEur(yearE)}</strong><small>Jahr bis ${escHtml(new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'short' }))} · max ${fmtEur(KE_YEAR_MAX)}</small></div>
+        ${R ? `<div><strong>${fmtEur(sumE)}</strong><small>Ersatz (Info)</small></div>
+        <div><strong>${fmtEur(yearE)}</strong><small>Jahr bis ${escHtml(new Date(y, m, 1).toLocaleDateString('de-AT', { month: 'short' }))}${yearMax ? ` · max ${fmtEur(yearMax)}` : ''}</small></div>` : ''}
       </div>
-      ${yearE > KE_YEAR_MAX ? `<p class="pi-msg">⚠︎ Über der Jahresgrenze von ${fmtEur(KE_YEAR_MAX)} laut Vereinserlass.</p>` : ''}
-      <p class="cp-line">Ab dem 5. freiwilligen Dienst im Monat ${fmtEur(KE_RATE)}/h, max. ${fmtEur(KE_MAX_SVC)} pro Dienst · Vertretung berufl. Einsatzfahrer ab dem 1. Dienst · Ambulanz + Vor-/Nachbereitung und ${fmtEur(KE_TRAVEL)} Fahrtkosten pro Tag. Beträge nur zur Orientierung – abgerechnet wird von der Bezirksstelle.</p>
+      ${R && yearMax && yearE > yearMax ? `<p class="pi-msg">⚠︎ Über der Jahresgrenze von ${fmtEur(yearMax)}.</p>` : ''}
+      ${R && R.hinweis ? `<p class="cp-line">${escHtml(R.hinweis)}</p>` : ''}
       ${(() => {
         const trips = rows.flatMap((r) => (r.svc.incidents || []).filter((i) => i.ff || (i.from && i.to)).map((i) => ({ svc: r.svc, inc: i })));
         if (!trips.length) return '';
@@ -3092,40 +3175,38 @@ function openKostenersatz(y, m) {
           <div class="ke-main"><b>${escHtml(parseLocalDt(v.date + 'T12:00').toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))}</b> ${escHtml(v.route || '—')}<small>${escHtml(inc.alarmCode || 'Einsatz')}${inc.ff && inc.ff.nr ? ' · Nr. ' + escHtml(inc.ff.nr) : ''}</small></div>
           <div class="ke-side">${inc.ff && inc.ff.km ? `<span>${inc.ff.km} km</span>${ffDiaet(inc.ff.km) ? `<span class="ke-eur">${fmtEur(ffDiaet(inc.ff.km))}</span>` : ''}` : ''}<button type="button" class="btn-ghost ke-ff" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">${inc.ff ? 'Formular' : 'Als Fernfahrt'}</button></div></li>`; }).join('')}</ul>`;
       })()}
-      <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – ✓ in der Spalte „Dienste DS“, mit Erklärung unter der Tabelle</span></label>
+      <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – ✓ in der Spalte „Dienste DS“</span></label>
       <div class="ms-actions"><button type="button" class="btn-primary" id="ke-print"${sel.length ? '' : ' disabled'}>Formular drucken / PDF</button></div>
     </div></div>`;
   const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
-  const reopen = () => { const sc = ov.querySelector('.lp-body').scrollTop; ov.remove(); openKostenersatz(y, m); const nb = document.querySelector('.ke-ov .lp-body'); if (nb) nb.scrollTop = sc; };
+  const reopen = () => { const sc = ov.querySelector('.lp-body').scrollTop; ov.remove(); openKostenersatz(y, m, { refreshed: true }); const nb = document.querySelector('.ke-ov .lp-body'); if (nb) nb.scrollTop = sc; };
   ov.querySelector('.dialog-close').onclick = close;
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-  ov.querySelectorAll('.ms-step').forEach((b) => b.addEventListener('click', () => { const d = new Date(y, m + +b.dataset.d, 1); ov.remove(); openKostenersatz(d.getFullYear(), d.getMonth()); }));
+  ov.querySelectorAll('.ms-step').forEach((b) => b.addEventListener('click', () => { const d = new Date(y, m + +b.dataset.d, 1); ov.remove(); openKostenersatz(d.getFullYear(), d.getMonth(), { refreshed: true }); }));
   ov.querySelectorAll('[data-kp]').forEach((inp) => inp.addEventListener('change', () => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); }));
   ov.querySelectorAll('[data-ke-on]').forEach((c) => c.addEventListener('change', () => { const sv = rows[+c.dataset.keOn].svc; if (c.checked) delete sv.keSkip; else sv.keSkip = true; saveState(); reopen(); }));
   ov.querySelectorAll('[data-ke-type]').forEach((sl) => sl.addEventListener('change', () => { const sv = rows[+sl.dataset.keType].svc; const def = sv.isSeg ? 'ambulanz' : 'dienst'; if (sl.value === def) delete sv.keType; else sv.keType = sl.value; saveState(); reopen(); }));
   ov.querySelector('#ke-mark').addEventListener('change', (e) => lsSet('etb_ke_mark', e.target.checked ? null : '0'));
-  const fa = () => (state.formAssets = state.formAssets || {});
-  ov.querySelector('#ke-logo').addEventListener('change', (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (file.size > 300 * 1024) { toast('Bitte ein kleineres Bild (bis 300 KB).', 'error', 3500); return; }
-    const rd = new FileReader();
-    rd.onload = () => { fa().logo = String(rd.result); saveState(); toast('Logo gespeichert.', 'success', 1500); reopen(); };
-    rd.readAsDataURL(file);
-  });
-  const ld = ov.querySelector('#ke-logo-del');
-  if (ld) ld.onclick = () => { delete fa().logo; saveState(); reopen(); };
-  ov.querySelector('#ke-footer').addEventListener('change', (e) => { fa().footer = e.target.value.trim().slice(0, 600); saveState(); });
   ov.querySelectorAll('[data-ff-inc]').forEach((b) => b.addEventListener('click', () => openFernfahrt(b.dataset.ffSvc, b.dataset.ffInc)));
+  ov.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-goto-files]')) { close(); openSettingsSection('dateien'); } });
   ov.querySelector('#ke-print').addEventListener('click', () => {
     ov.querySelectorAll('[data-kp]').forEach((inp) => { const p = keProfile(); p[inp.dataset.kp] = inp.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p)); });
     printKostenersatz(y, m, ov.querySelector('#ke-mark').checked);
   });
   document.body.appendChild(ov);
 }
-// ── Fernfahrten (eigenes Formular „Abrechnung Fernfahrten“) ──
-const FF_DIAETEN = [[200, 300, 11.92], [301, 500, 26.75], [501, 1000, 53.53], [1001, 1500, 80.33]];
-function ffDiaet(km) { const t = FF_DIAETEN.find(([a, b]) => km >= a && km <= b); return t ? t[2] : km > 1500 ? FF_DIAETEN[FF_DIAETEN.length - 1][2] : 0; }
+function keTplStatusHtml() {
+  const has = (f) => !!wfCached(f);
+  const items = [[KE_TPL, 'Formular'], [KE_RULES, 'Regeln'], [FF_TPL, 'Fernfahrten']];
+  if (items.every(([f]) => has(f))) return '';
+  return `<p class="pi-msg">📄 Vorlagen vom Worker: ${items.map(([f, l]) => `${has(f) ? '✓' : '✗'} ${l}`).join(' · ')} – <button type="button" class="btn-link" data-goto-files>Formulare &amp; Dateien</button></p>`;
+}
+// ── Fernfahrten (Formular „fernfahrten.html“ vom Worker) ──
+function ffDiaet(km) {
+  const R = keRules(); const T = (R && R.fernfahrtDiaeten) || [];
+  const t = T.find(([a, b]) => km >= a && km <= b);
+  return t ? +t[2] : T.length && km > T[T.length - 1][1] ? +T[T.length - 1][2] : 0;
+}
 function ffFind(svcId, incId) { const svc = state.services.find((x) => x.id === svcId); const inc = svc && (svc.incidents || []).find((i) => i.id === incId); return svc && inc ? { svc, inc } : null; }
 function ffDefaults(svc, inc) {
   const ff = inc.ff || {};
@@ -3135,6 +3216,7 @@ function openFernfahrt(svcId, incId) {
   const f = ffFind(svcId, incId); if (!f) return;
   const v = ffDefaults(f.svc, f.inc);
   const pr = keProfile();
+  const R = keRules();
   document.querySelectorAll('.ff-ov').forEach((x) => x.remove());
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay lp-ov ff-ov'; ov.style.zIndex = '2100';
@@ -3149,21 +3231,21 @@ function openFernfahrt(svcId, incId) {
         <label>Pers.-Nr. (Stammdaten)<input data-kp="persnr" value="${escHtml(pr.persnr || '')}" inputmode="numeric"></label>
       </div>
       <p class="cp-line" id="ff-diaet"></p>
-      <p class="cp-line">Bitte das Einsatzprotokoll in Kopie dazuhängen. Name, Adresse, IBAN und BIC kommen aus den Stammdaten im Kostenersatz.</p>
+      <p class="cp-line">Name, Adresse, IBAN und BIC kommen aus den Stammdaten im Kostenersatz.</p>
       <div class="ms-actions"><button type="button" class="btn-secondary" id="ff-save">Speichern</button><button type="button" class="btn-primary" id="ff-print">Formular drucken / PDF</button></div>
     </div></div>`;
   const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
   ov.querySelector('.dialog-close').onclick = close;
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
   const kmEl = ov.querySelector('#ff-km'), info = ov.querySelector('#ff-diaet');
-  const upd = () => { const km = +kmEl.value || 0; info.textContent = km ? (ffDiaet(km) ? `Diät laut Infoblatt: ${fmtEur(ffDiaet(km))} (${km} km)` : `Unter 200 km – keine Fernfahrt-Diät.`) : 'Diät nach Kilometern: ab 200 km € 11,92 · ab 301 km € 26,75 · ab 501 km € 53,53 · ab 1001 km € 80,33'; };
+  const upd = () => { const km = +kmEl.value || 0; const dt = ffDiaet(km); info.textContent = !R || !(R.fernfahrtDiaeten || []).length ? '' : km ? (dt ? `Diät laut Regeln: ${fmtEur(dt)} (${km} km)` : 'Unter der Mindeststrecke – keine Fernfahrt-Diät.') : ''; };
   kmEl.addEventListener('input', upd); upd();
   const save = () => {
     f.inc.ff = { date: ov.querySelector('#ff-date').value, route: ov.querySelector('#ff-route').value.trim(), nr: ov.querySelector('#ff-nr').value.trim(), km: +kmEl.value > 0 ? Math.round(+kmEl.value) : null };
     const pk = ov.querySelector('[data-kp="persnr"]'); const p = keProfile(); p.persnr = pk.value.trim(); lsSet(KE_PROFILE_KEY, JSON.stringify(p));
     saveState();
   };
-  ov.querySelector('#ff-save').onclick = () => { save(); toast('Fernfahrt gespeichert.', 'success', 1500); close(); if (document.querySelector('.ke-ov')) openKostenersatz(); };
+  ov.querySelector('#ff-save').onclick = () => { save(); toast('Fernfahrt gespeichert.', 'success', 1500); close(); if (document.querySelector('.ke-ov')) openKostenersatz(undefined, undefined, { refreshed: true }); };
   ov.querySelector('#ff-print').onclick = () => { save(); printFernfahrt(f.svc, f.inc); };
   document.body.appendChild(ov);
 }
@@ -3171,32 +3253,11 @@ function printFernfahrt(svc, inc) {
   const v = ffDefaults(svc, inc);
   const pr = keProfile();
   const d = parseLocalDt(v.date + 'T12:00');
-  const line = (label, val, cls = '') => `<div class="kf ${cls}"><span class="kf-l">${label}</span><span class="kf-v">${escHtml(val || '')}</span></div>`;
-  let area = document.getElementById('print-area');
-  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
-  area.innerHTML = `<section class="ke-sheet ff-sheet">
-    <div class="ff-top">${(state.formAssets || {}).logo ? `<img class="ff-logo" src="${state.formAssets.logo}" alt="">` : '<div class="ff-org">Österreichisches Rotes Kreuz<br><small>Landesverband Steiermark · Bezirksstelle Hartberg</small></div>'}<div class="ff-title">ABRECHNUNG<br>FERNFAHRTEN</div></div>
-    <div class="ff-grid">
-      ${line('Name:', pr.name || (state.profile || {}).displayName || '')}${line('Pers.-Nr.:', pr.persnr)}
-      ${line('Adresse:', pr.address, 'ff-wide')}
-      ${line('IBAN:', pr.iban)}${line('BIC:', pr.bic)}
-    </div>
-    <div class="ff-sub">Transportdaten</div>
-    <table class="ke-table ff-table"><colgroup><col style="width:16%"><col><col style="width:30%"></colgroup>
-      <thead><tr><th>Datum</th><th>Reiseweg (von - nach)</th><th>Transportnummer</th></tr></thead>
-      <tbody><tr><td>${d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</td><td>${escHtml(v.route)}</td><td>${escHtml(v.nr)}</td></tr></tbody></table>
-    <div class="ff-km-row"><b class="ff-hint">Bitte Einsatzprotokoll in Kopie dazuhängen</b><div class="ff-km"><b>Kilometer (Berechnung EV)</b><div class="ff-km-box">${v.km ? escHtml(String(v.km)) : ''}</div></div></div>
-    <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
-    <p class="ff-decl">Der/Die Empfänger/in erklärt hiermit, dass er/sie für die steuerliche Veranlagung, sowie die Entrichtung der Sozialversicherungsbeiträge selbst Sorge tragen wird.</p>
-    <div class="ff-sign"><span>Datum:</span><span class="ke-line ff-l1"></span><span>Unterschrift</span><span class="ke-line ff-l2"></span></div>
-    ${(state.formAssets || {}).footer ? `<div class="ff-footer">${escHtml(state.formAssets.footer).replace(/\n/g, '<br>')}</div>` : ''}
-  </section>`;
-  document.body.classList.add('printing', 'printing-ke');
-  const done = () => { document.body.classList.remove('printing', 'printing-ke'); window.removeEventListener('afterprint', done); };
-  window.addEventListener('afterprint', done);
-  setTimeout(() => { window.print(); setTimeout(done, 1500); }, 60);
+  return printFromTemplate(FF_TPL, {
+    name: pr.name || (state.profile || {}).displayName || '', persnr: pr.persnr || '', adresse: pr.address || '', iban: pr.iban || '', bic: pr.bic || '',
+    datum: d ? d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', reiseweg: v.route, transportnummer: v.nr, km: v.km ? String(v.km) : '',
+  });
 }
-
 /** Einsatzort/Tätigkeit für eine Zeile: Fahrzeug · Dienststelle bzw. bei Ambulanz/SEG der Anlass. */
 function keText(svc) {
   if (svc.isSeg) {
@@ -3206,46 +3267,36 @@ function keText(svc) {
   }
   return [svc.vehicle, svc.location].filter(Boolean).join(' · ') || 'Dienst';
 }
-/** Formular als A4 drucken (mehrere Seiten, wenn mehr als 20 Zeilen). */
+/** Formular über die Vorlage „kostenersatz.html“ drucken (Seiten nach zeilenProSeite). */
 function printKostenersatz(y, m, mark) {
-  const rows = keMonthRows(y, m).filter((r) => r.on);
+  const R = keRules() || {};
+  const rows = keMonthRows(y, m, keRules()).filter((r) => r.on);
   const pr = keProfile();
   const p2 = (n) => String(n).padStart(2, '0');
   const tm = (d) => (d ? `${p2(d.getHours())}:${p2(d.getMinutes())}` : '');
-  const PER = 20;
-  const pages = [];
-  for (let i = 0; i < Math.max(rows.length, 1); i += PER) pages.push(rows.slice(i, i + PER));
+  const PER = Math.max(5, +R.zeilenProSeite || 20);
+  const chunks = [];
+  for (let i = 0; i < Math.max(rows.length, 1); i += PER) chunks.push(rows.slice(i, i + PER));
   const sumH = rows.reduce((n, r) => n + r.hours, 0);
-  const field = (label, val, cls = '') => `<div class="kf ${cls}"><span class="kf-l">${label}</span><span class="kf-v">${escHtml(val || '')}</span></div>`;
-  const sheet = (list, pi) => `<section class="ke-sheet">
-    <div class="ke-top"><span>Österr. Rotes Kreuz</span><span>Landesverband Steiermark</span><span>Bezirksstelle Hartberg</span></div>
-    <h1 class="ke-title">KOSTENERSATZ lt. VEREINSERLASS</h1>
-    <div class="ke-head">
-      ${field('Monat/ Jahr:', `${p2(m + 1)}/${y}`, 'kf-month')}
-      <div class="ke-head-mid">${field('Name:', pr.name || (state.profile || {}).displayName || '')}${field('Adresse:', pr.address)}${field('IBAN:', pr.iban, 'kf-iban')}</div>
-      <div class="ke-head-right">${field('SV-Nr.:', pr.sv)}${field('Geb.Dat.:', pr.dob)}${field('BIC:', pr.bic, 'kf-iban')}</div>
-    </div>
-    <table class="ke-table">
-      <colgroup><col style="width:13%"><col style="width:10%"><col style="width:10%"><col><col style="width:13%"><col style="width:12%"></colgroup>
-      <thead><tr><th rowspan="2">Datum</th><th colspan="2">Zeitpunkt</th><th rowspan="2">Einsatzort/ Tätigkeit</th><th rowspan="2">Dienste DS</th><th rowspan="2">Stunden</th></tr><tr><th>Antritt</th><th>Ende</th></tr></thead>
-      <tbody>${Array.from({ length: PER }, (_, k) => { const r = list[k]; if (!r) return '<tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>'; const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt);
-        const ds = r.type === 'dienst' ? `${r.nr}.` : r.type === 'vertretung' ? 'Vertr.' : r.type === 'ambulanz' ? 'Amb.' : '';
-        return `<tr><td>${a ? a.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}</td><td>${tm(a)}</td><td>${tm(b)}</td><td>${escHtml(keText(r.svc))}${r.prep ? ` (inkl. ${fmtHrs(r.prep)} h Vor-/Nachber.)` : ''}</td><td class="c">${ds}${mark && r.paid ? ' ✓' : ''}</td><td class="r">${fmtHrs(r.hours)}</td></tr>`; }).join('')}</tbody>
-      <tfoot><tr><td colspan="4" class="ke-sum">${pi === pages.length - 1 ? 'Summe' : 'Übertrag'}</td><td class="c">${pi === pages.length - 1 ? rows.length : ''}</td><td class="r">${pi === pages.length - 1 ? fmtHrs(sumH) : ''}</td></tr></tfoot>
-    </table>
-    ${mark && pi === pages.length - 1 && rows.some((r) => r.paid) ? '<p class="ke-legend">✓ = zahlungsberechtigt (ab dem 5. freiwilligen Dienst im Monat, Vertretung berufl. Einsatzfahrer bzw. Ambulanzdienst)</p>' : ''}
-    <p class="ke-note"><u>Ehrenamtliche Mitarbeiter</u> werden auf die Bestimmungen des Vereinserlass aufmerksam gemacht und nehmen mit ihrer Unterschrift zur Kenntnis, dass <u>Tages- und Nächtigungsgelder</u>, welche die steuerfreien Höchstgrenzen lt. § 26 EStG überschreiten, Einkünfte darstellen und als solche im Rahmen der gesetzlichen Bestimmungen gegebenenfalls selbst zu versteuern sind. Es kann bei Überschreitung der Höchstgrenzen lt. Vereinserlass auch zu eine Abgabenpflicht in der Sozialversicherung kommen. Ev. daraus resultierende Abgaben sind vom Mitarbeiter selbst zu tragen.</p>
-    <div class="ke-sign"><span class="ke-ort">${escHtml(pr.ort || 'Hartberg')}</span>, am <span class="ke-line"></span></div>
-    <div class="ke-ok">Sachlich richtig:</div>
-    ${pages.length > 1 ? `<div class="ke-page">Seite ${pi + 1}/${pages.length}</div>` : ''}
-  </section>`;
-  let area = document.getElementById('print-area');
-  if (!area) { area = document.createElement('div'); area.id = 'print-area'; document.body.appendChild(area); }
-  area.innerHTML = pages.map(sheet).join('');
-  document.body.classList.add('printing', 'printing-ke');
-  const done = () => { document.body.classList.remove('printing', 'printing-ke'); window.removeEventListener('afterprint', done); };
-  window.addEventListener('afterprint', done);
-  setTimeout(() => { window.print(); setTimeout(done, 1500); }, 60);
+  const seiten = chunks.map((list, pi) => {
+    const last = pi === chunks.length - 1;
+    const zeilen = Array.from({ length: PER }, (_, k) => {
+      const r = list[k];
+      if (!r) return { datum: '', antritt: '', ende: '', taetigkeit: '', ds: '', stunden: '' };
+      const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt);
+      const ds = r.type === 'dienst' ? `${r.nr}.` : r.type === 'vertretung' ? 'Vertr.' : r.type === 'ambulanz' ? 'Amb.' : '';
+      return { datum: a ? a.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', antritt: tm(a), ende: tm(b),
+        taetigkeit: keText(r.svc) + (r.prep ? ` (inkl. ${fmtHrs(r.prep)} h Vor-/Nachber.)` : ''), ds: ds + (mark && r.paid ? ' ✓' : ''), stunden: fmtHrs(r.hours), zahlungsberechtigt: r.paid };
+    });
+    return { zeilen, seite: pi + 1, seiten_gesamt: chunks.length, mehrseitig: chunks.length > 1, letzte: last,
+      summeText: last ? 'Summe' : 'Übertrag', summeDienste: last ? String(rows.length) : '', summeStunden: last ? fmtHrs(sumH) : '',
+      legende: !!(mark && last && rows.some((r) => r.paid)) };
+  });
+  return printFromTemplate(KE_TPL, {
+    monatJahr: `${p2(m + 1)}/${y}`, monat: p2(m + 1), jahr: String(y),
+    name: pr.name || (state.profile || {}).displayName || '', adresse: pr.address || '', svnr: pr.sv || '', gebdat: pr.dob || '', iban: pr.iban || '', bic: pr.bic || '', persnr: pr.persnr || '',
+    ort: pr.ort || R.ort || '', seiten, summeDienste: String(rows.length), summeStunden: fmtHrs(sumH),
+  });
 }
 
 let monthSheetYM = null;
@@ -3319,10 +3370,10 @@ function openMonthSheet(y, m) {
     const who = (state.profile && state.profile.displayName) || '';
     area.innerHTML = `<h1>Dienste ${escHtml(title)}</h1>${who ? `<p>${escHtml(who)}</p>` : ''}${ov.querySelector('.ms-table-wrap').innerHTML}
       <p>Nachtstunden ${nw[0]}–${nw[1]} Uhr · Feiertage: gesetzliche Feiertage Österreich · erstellt am ${escHtml(new Date().toLocaleDateString('de-AT'))}</p>`;
-    document.body.classList.add('printing');
+    document.body.classList.remove('printing-tpl'); document.body.classList.add('printing');
     const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
-    setTimeout(() => { window.print(); setTimeout(done, 1500); }, 50);
+    setTimeout(() => { window.print(); }, 50);
   });
   document.body.appendChild(ov);
 }
@@ -3445,7 +3496,7 @@ function renderStats() {
   const statsToolsHtml = `<div class="sx-tools">
       <button type="button" class="sx-tool" id="btn-month-sheet"><span>📄</span><b>Monatsübersicht</b><small>Stunden für die Abrechnung</small></button>
       <button type="button" class="sx-tool" id="btn-place-map"><span>🗺️</span><b>Einsatzorte</b><small>Karte aller Start- und Zielorte</small></button>
-      <button type="button" class="sx-tool" id="btn-kostenersatz"><span>💶</span><b>Kostenersatz</b><small>Formular lt. Vereinserlass</small></button>
+      <button type="button" class="sx-tool" id="btn-kostenersatz"><span>💶</span><b>Kostenersatz</b><small>Formular vom eigenen Worker</small></button>
     </div>`;
   const totalInc = allInc.length;
   const nonSegSvcs = filteredSvcs.filter((s) => !s.isSeg);
@@ -4834,7 +4885,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 172;
+const APP_VERSION = 173;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
@@ -4846,6 +4897,7 @@ const SETTINGS_PAGES = {
   stichwoerter: 'Stichwörter & PZC',
   dienststellen: 'Dienststellen',
   portal: 'Portal-Import',
+  dateien: 'Formulare & Dateien',
   benachrichtigungen: 'Benachrichtigungen',
   daten: 'Daten & Backup',
   speicher: 'Speicher',
@@ -4933,6 +4985,7 @@ function renderSettings() {
     <div class="set-group">
       ${setRow({ icon: 'calendar', color: 'red', title: 'Dienstplan', sub: 'Verbindung, Dienststellen', value: icsUrl ? 'Verbunden' : 'Aus', push: 'dienstplan' })}
       ${setRow({ icon: 'calendar', color: 'orange', title: 'Portal-Import', sub: 'Tagesdienstplan per Lesezeichen übernehmen', push: 'portal' })}
+      ${setRow({ icon: 'disk', color: 'gray', title: 'Formulare &amp; Dateien', sub: 'Vorlagen und Dokumente auf deinem Worker', push: 'dateien' })}
       ${setRow({ icon: 'bell', color: 'red', title: 'Benachrichtigungen', sub: 'Neuer Einsatz?, Dienstplan-Änderungen', value: quickPushEnabled() ? 'An' : 'Aus', push: 'benachrichtigungen' })}
     </div>
 
@@ -5077,6 +5130,7 @@ function renderSettingsPage() {
     konto: settingsPageKonto,
     dienstplan: settingsPageDienstplan,
     portal: settingsPagePortal,
+    dateien: settingsPageDateien,
     daten: settingsPageDaten,
     ueber: settingsPageUeber,
     fahrzeuge: (e, t) => settingsHostPage(e, t, 'veh-root', renderVehiclesPopupContent),
@@ -5349,6 +5403,68 @@ function settingsPageBenachrichtigungen(el, title) {
   renderPushSettings(el.querySelector('#push-settings')).catch(() => {});
 }
 
+// — Formulare & Dateien (auf dem eigenen Worker) ——————————————————————
+const WF_KNOWN = { 'kostenersatz.html': 'Formular Kostenersatz', 'kostenersatz.json': 'Regeln Kostenersatz (Sätze, Grenzen, Diäten)', 'fernfahrten.html': 'Formular Abrechnung Fernfahrten', 'logo.png': 'Logo für Formulare' };
+let _wfListCache = null;
+function settingsPageDateien(el, title) {
+  const fmtSize = (b) => (b < 1024 ? b + ' B' : b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1).replace('.', ',') + ' MB');
+  const icon = (t) => (/pdf/.test(t) ? '📕' : /image/.test(t) ? '🖼️' : /html/.test(t) ? '📄' : /json/.test(t) ? '⚙️' : /sheet|excel/.test(t) ? '📊' : '📎');
+  const render = (files, err) => {
+    const cache = wfCache();
+    el.innerHTML = `${title}
+      <p class="set-group-footer" style="margin-top:0">Formular-Vorlagen und Dokumente liegen auf deinem eigenen Worker (geschützt mit deinem Zugangsschlüssel) – nicht im öffentlichen Code der App. Vorlagen werden zusätzlich auf diesem Gerät zwischengespeichert, damit Drucken auch offline geht.</p>
+      ${!dpConfigured() ? '<div class="set-group"><div class="set-row"><span class="set-row-text set-row-sub">Zuerst unter Einstellungen → Dienstplan den Worker verbinden.</span></div></div>' : ''}
+      ${err ? `<p class="pi-msg">${escHtml(err)}</p>` : ''}
+      <div class="set-group-header">Auf dem Worker${files ? ` <span class="popup-col-count">${files.length}</span>` : ''}</div>
+      <div class="set-group">
+        ${files === null ? '<div class="set-row"><span class="set-row-text set-row-sub">Wird geladen …</span></div>'
+          : files.length ? files.map((f) => `<div class="set-row wf-row">
+            <span class="wf-ic">${icon(f.type)}</span>
+            <div class="pd-info"><b>${escHtml(f.name)}</b><small>${escHtml(WF_KNOWN[f.name] || f.type)} · ${fmtSize(f.size)} · ${escHtml(new Date(f.at).toLocaleDateString('de-AT'))}${cache[f.name] ? ' · auf dem Gerät' : ''}</small></div>
+            <div class="pd-btns"><button type="button" class="btn-ghost pd-btn" data-wf-open="${escHtml(f.name)}">Öffnen</button><button type="button" class="btn-ghost pd-btn is-del" data-wf-del="${escHtml(f.name)}">Löschen</button></div></div>`).join('')
+          : '<div class="set-row"><span class="set-row-text set-row-sub">Noch keine Dateien.</span></div>'}
+        <div class="set-row"><label class="btn-primary wf-up" style="flex:1;text-align:center;cursor:pointer">Dateien hochladen<input type="file" id="wf-input" multiple hidden accept=".html,.htm,.json,.pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,.xlsx,.xls,.txt,.csv"></label></div>
+      </div>
+      <p class="set-group-footer">Feste Namen für die App: ${Object.entries(WF_KNOWN).map(([n, l]) => `<b>${n}</b> (${l})`).join(', ')}. Andere Dateien (z. B. Original-PDFs, Infoblatt) kannst du hier ablegen und öffnen. Max. 5 MB pro Datei.</p>
+      <div class="set-group"><div class="set-row"><button type="button" class="btn-secondary" id="wf-refresh" style="flex:1">Vorlagen auf diesem Gerät aktualisieren</button></div></div>`;
+    const inp = el.querySelector('#wf-input');
+    inp.addEventListener('change', async () => {
+      const list = [...(inp.files || [])];
+      for (const file of list) {
+        let name = wfSafeName(file.name);
+        if (/^(kostenersatz|fernfahrten)\.htm$/i.test(name)) name += 'l';
+        try { await wfUpload(file, name); toast(`„${name}“ hochgeladen.`, 'success', 1500); if (WF_KNOWN[name]) await wfGet(name).catch(() => {}); } catch (e) { toast(`„${file.name}“: ${e.message}`, 'error', 5000); }
+      }
+      load();
+    });
+    el.querySelectorAll('[data-wf-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm(`„${b.dataset.wfDel}“ vom Worker löschen?`)) return;
+      try { await wfDelete(b.dataset.wfDel); load(); } catch (e) { toast(e.message, 'error', 4000); }
+    }));
+    el.querySelectorAll('[data-wf-open]').forEach((b) => b.addEventListener('click', async () => {
+      const w = window.open('', '_blank');
+      try {
+        const res = await wfFetch('/files/' + encodeURIComponent(b.dataset.wfOpen));
+        const url = URL.createObjectURL(await res.blob());
+        if (w) w.location = url; else location.assign(url);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) { if (w) w.close(); toast(e.message, 'error', 4000); }
+    }));
+    el.querySelector('#wf-refresh').onclick = async () => {
+      let n = 0;
+      for (const f of Object.keys(WF_KNOWN)) { try { await wfGet(f); n++; } catch (_) {} }
+      toast(`${n} Vorlage${n === 1 ? '' : 'n'} aktualisiert.`, n ? 'success' : 'error', 2000);
+      render(_wfListCache || [], '');
+    };
+  };
+  const load = () => {
+    if (!dpConfigured()) { render([], ''); return; }
+    render(_wfListCache, '');
+    wfList().then((files) => { _wfListCache = files; if (settingsSub === 'dateien') render(files, ''); })
+      .catch((e) => { if (settingsSub === 'dateien') render(_wfListCache || [], e.message); });
+  };
+  load();
+}
 function settingsPagePortal(el, title) {
   const code = portalBookmarkletCode();
   el.innerHTML = `${title}
@@ -6481,7 +6597,7 @@ function buildExportPayload(sel) {
   const payload = { version: 2, exportedAt: new Date().toISOString() };
   if (sel.profile) payload.profile = { displayName: state.profile.displayName || '' };
   if (sel.profile) payload.dienststellen = state.dienststellen || [];
-  if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; if (state.formAssets && (state.formAssets.logo || state.formAssets.footer)) payload.formAssets = state.formAssets; }
+  if (sel.profile) { payload.places = state.places || []; payload.placeAddresses = state.placeAddresses || {}; }
   if (sel.services && Object.keys(state.portalPlans || {}).length) payload.portalPlans = state.portalPlans;
   if (sel.calendar) payload.dienstplanWorker = lsGet(DP_WORKER_KEY); // Zugangsschlüssel bewusst nicht im Export
   if (sel.services) payload.services = toCompatExport().shifts;
@@ -6576,7 +6692,6 @@ function doSelectiveImport(data, chosen) {
     if (Array.isArray(data.dienststellen || data.abteilungen)) state.dienststellen = data.dienststellen || data.abteilungen; // ältere Sicherungen: „abteilungen“
     if (Array.isArray(data.places)) state.places = [...new Set([...(state.places || []), ...data.places])];
     if (data.placeAddresses && typeof data.placeAddresses === 'object') state.placeAddresses = { ...(state.placeAddresses || {}), ...data.placeAddresses };
-    if (data.formAssets && typeof data.formAssets === 'object') state.formAssets = { ...(state.formAssets || {}), ...data.formAssets };
     if (data.portalPlans && typeof data.portalPlans === 'object') state.portalPlans = { ...(state.portalPlans || {}), ...data.portalPlans };
     msgs.push('Profil');
   }
