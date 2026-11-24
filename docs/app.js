@@ -247,10 +247,17 @@ function normalizeState(s) {
   const str = (x) => (typeof x === 'string' ? x : '');
   s.profile = isObj(s.profile) ? s.profile : { displayName: 'Privat' };
   s.profile.displayName = toDisplayName(s.profile.displayName);
-  // Tagesdienstpläne aus dem Portal: je Dienststelle + Tag der letzte Stand und die Änderungen; nach 45 Tagen weg
+  // Tagesdienstpläne aus dem Portal: je Dienststelle + Tag der letzte Stand und die Änderungen.
+  // 7 Tage nach dem Dienst (Nachtdienst: ab dem Folgetag gerechnet) fällt der Änderungsverlauf weg –
+  // der letzte Stand des Tages bleibt.
   s.portalPlans = isObj(s.portalPlans) ? s.portalPlans : {};
-  { const cut = localDateStr(new Date(Date.now() - 45 * 864e5));
-    Object.keys(s.portalPlans).forEach((k) => { const v = s.portalPlans[k]; if (!isObj(v) || !Array.isArray(v.rows) || !/^\d{4}-\d{2}-\d{2}$/.test(v.date || '') || v.date < cut) delete s.portalPlans[k]; else v.log = Array.isArray(v.log) ? v.log.filter(isObj).slice(-60) : []; }); }
+  { const cut = localDateStr(new Date(Date.now() - 8 * 864e5));
+    Object.keys(s.portalPlans).forEach((k) => {
+      const v = s.portalPlans[k];
+      if (!isObj(v) || !Array.isArray(v.rows) || !/^\d{4}-\d{2}-\d{2}$/.test(v.date || '')) { delete s.portalPlans[k]; return; }
+      if (v.date < cut) { delete v.log; delete v.lastChanges; delete v.prevAt; }
+      else v.log = Array.isArray(v.log) ? v.log.filter(isObj).slice(-60) : [];
+    }); }
   s.placeAddresses = (s.placeAddresses && typeof s.placeAddresses === 'object' && !Array.isArray(s.placeAddresses))
     ? Object.fromEntries(Object.entries(s.placeAddresses).map(([k, v]) => [String(k).trim().toLowerCase().replace(/\s+/g, ' '), toDisplayName(v)]).filter(([k, v]) => k && v)) : {};
   s.places = Array.isArray(s.places) ? [...new Set(s.places.map((x) => (typeof x === 'string' ? x.trim() : '')).filter(Boolean))] : [];
@@ -4561,7 +4568,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 163;
+const APP_VERSION = 164;
 const APP_VERSION_DATE = '24.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
