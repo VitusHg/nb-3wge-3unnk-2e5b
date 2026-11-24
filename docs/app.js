@@ -3239,16 +3239,18 @@ function keMonthRows(y, m, R = keRules()) {
   return list.map((svc) => {
     const type = keType(svc), on = !svc.keSkip && type !== 'beruflich'; // berufliche Dienste gehören nicht auf das Formular
     const h = Math.max(0, +serviceDurationHours(svc));
-    let nr = null, hours = h, paid = false, amount = 0, prep = 0;
+    let nr = null, hours = h, paid = false, amount = 0, prep = 0, travelPart = 0;
     if (on && type === 'dienst') { n++; nr = n; paid = !!R && n > free; amount = paid ? Math.min(h * rate, max) : 0; }
     else if (on && type === 'vertretung') { paid = !!R; amount = Math.min(h * rate, max); }
     else if (on && type === 'ambulanz') {
       prep = R ? keAmbPrep(h, R) : 0; hours = h + prep; paid = !!R;
       const day = (svc.startAt || '').slice(0, 10), used = dayAmb.get(day) || 0;
       amount = Math.max(0, Math.min(hours * rate, max - used)); dayAmb.set(day, used + amount);
-      if (R && !used) amount += travel; // Fahrtkostenpauschale einmal pro Tag
+      if (R && !used) { amount += travel; travelPart = travel; } // Fahrtkostenpauschale einmal pro Tag
     }
-    return { svc, type, on, h, hours, prep, nr, paid, amount };
+    // abrechenbare Stunden (bis zum Höchstbetrag pro Dienst) = Betrag ohne Fahrtkosten / Stundensatz
+    const paidHours = paid && rate ? (amount - travelPart) / rate : 0;
+    return { svc, type, on, h, hours, prep, nr, paid, amount, travelPart, paidHours };
   });
 }
 function keYearTotal(y, uptoM, R) { let t = 0; for (let m = 0; m <= uptoM; m++) keMonthRows(y, m, R).forEach((r) => { if (r.on) t += r.amount; }); return t; }
@@ -3318,7 +3320,7 @@ function openKostenersatz(y, m, { refreshed = false } = {}) {
           <div class="ke-main"><b>${escHtml(parseLocalDt(v.date + 'T12:00').toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit' }))}</b> ${escHtml(v.route || '—')}<small>${escHtml(inc.alarmCode || 'Einsatz')}${inc.ff && inc.ff.nr ? ' · Nr. ' + escHtml(inc.ff.nr) : ''}</small></div>
           <div class="ke-side">${inc.ff && inc.ff.km ? `<span>${inc.ff.km} km</span>${ffDiaet(inc.ff.km) ? `<span class="ke-eur">${fmtEur(ffDiaet(inc.ff.km))}</span>` : ''}` : ''}<button type="button" class="btn-ghost ke-ff" data-ff-svc="${escHtml(svc.id)}" data-ff-inc="${escHtml(inc.id)}">${inc.ff ? 'Formular' : 'Als Fernfahrt'}</button></div></li>`; }).join('')}</ul>`;
       })()}
-      <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – ✓ in der Spalte „Dienste DS“</span></label>
+      <label class="pi-chg"><input type="checkbox" id="ke-mark"${lsGet('etb_ke_mark') === '0' ? '' : ' checked'}><span><b>Zahlungsberechtigte Dienste markieren</b> – gelb wie mit Leuchtstift</span></label>
       <div class="ms-actions"><button type="button" class="btn-primary" id="ke-print"${sel.length ? '' : ' disabled'}>Formular drucken / PDF</button></div>
     </div></div>`;
   const close = () => { ov.classList.add('closing'); setTimeout(() => ov.remove(), 200); };
@@ -3441,16 +3443,22 @@ function printKostenersatz(y, m, mark) {
       const a = parseLocalDt(r.svc.startAt), b = parseLocalDt(r.svc.endAt);
       const ds = r.type === 'dienst' ? `${r.nr}.` : r.type === 'vertretung' ? 'Vertr.' : r.type === 'ambulanz' ? 'Amb.' : '';
       return { datum: a ? a.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', antritt: tm(a), ende: tm(b),
-        taetigkeit: keText(r.svc) + (r.prep ? ` (inkl. ${fmtHrs(r.prep)} h Vor-/Nachber.)` : ''), ds: ds + (mark && r.paid ? ' ✓' : ''), stunden: fmtHrs(r.hours), zahlungsberechtigt: r.paid };
+        taetigkeit: keText(r.svc) + (r.prep ? ` (inkl. ${fmtHrs(r.prep)} h Vor-/Nachber.)` : ''), ds, stunden: fmtHrs(r.hours), zahlungsberechtigt: r.paid, markiert: !!(mark && r.paid) };
     });
-    return { zeilen, seite: pi + 1, seiten_gesamt: chunks.length, mehrseitig: chunks.length > 1, letzte: last,
-      summeText: last ? 'Summe' : 'Übertrag', summeDienste: last ? String(rows.length) : '', summeStunden: last ? fmtHrs(sumH) : '',
-      legende: !!(mark && last && rows.some((r) => r.paid)) };
+    return { zeilen, seite: pi + 1, seiten_gesamt: chunks.length, mehrseitig: chunks.length > 1, letzte: last, nichtLetzte: !last,
+      summeText: last ? 'Summe' : 'Übertrag', summeDienste: last ? String(rows.length) : '', summeStunden: last ? fmtHrs(sumH) : '' };
   });
+  const paidRows = rows.filter((r) => r.paid);
+  const bezStunden = paidRows.reduce((n, r) => n + r.paidHours, 0), fahrt = paidRows.reduce((n, r) => n + r.travelPart, 0), betrag = paidRows.reduce((n, r) => n + r.amount, 0);
+  const rate = +R.stundensatz || 0;
   return printFromTemplate(KE_TPL, {
     monatJahr: `${p2(m + 1)}/${y}`, monat: p2(m + 1), jahr: String(y),
     name: pr.name || (state.profile || {}).displayName || '', adresse: pr.address || '', svnr: pr.sv || '', gebdat: pr.dob || '', iban: pr.iban || '', bic: pr.bic || '', persnr: pr.persnr || '',
     ort: pr.ort || R.ort || '', seiten, summeDienste: String(rows.length), summeStunden: fmtHrs(sumH),
+    // Abrechnung: gesamt und zahlungsberechtigt
+    gesamtDienste: String(rows.length), gesamtStunden: fmtHrs(sumH),
+    bezDienste: String(paidRows.length), bezStunden: fmtHrs(bezStunden), stundensatz: rate ? fmtEur(rate) : '',
+    fahrtkosten: fahrt ? fmtEur(fahrt) : '', hatFahrtkosten: fahrt > 0, betrag: rate ? fmtEur(betrag) : '', hatBetrag: rate > 0 && paidRows.length > 0,
   });
 }
 
@@ -5040,7 +5048,7 @@ function refreshPzcList() {
 // Hauptliste mit gruppierten Zeilen; jede Zeile öffnet eine Unterseite, die –
 // wie im Tagebuch – von rechts hereingeschoben und per Wischen verlassen wird.
 // Versionsnummer = Cache-Version in sw.js (bei jedem Update beide erhöhen)
-const APP_VERSION = 175;
+const APP_VERSION = 176;
 const APP_VERSION_DATE = '25.11.2026';
 const SETTINGS_PAGES = {
   profil: 'Profil',
