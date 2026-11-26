@@ -4627,3 +4627,14 @@ button.cp-act { border: none; font: inherit; font-size: 13px; font-weight: 600; 
   .ke-ov .ke-row { border-top: 1px solid var(--border); }
   .ke-ov .ke-tiles strong { font-size: 20px; }
 }
+
+/* Kopfzeile mit vielen Symbolknöpfen: Titel nie überdecken */
+.dp-titlebar { flex-wrap: wrap; row-gap: 6px; }
+.dp-titlebar .large-title { flex: 1 0 auto; min-width: min-content; white-space: nowrap; }
+.dp-titlebar .dp-head-actions { margin-left: auto; }
+@media (max-width: 430px) {
+  .dp-titlebar .dp-head-actions { gap: 6px; }
+  .dp-titlebar .icon-round { width: 38px !important; height: 38px !important; }
+  .dp-titlebar .icon-round svg { width: 20px !important; height: 20px !important; }
+  .dp-titlebar .large-title { font-size: clamp(26px, 8.2vw, 34px); }
+}
